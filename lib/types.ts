@@ -21,6 +21,12 @@ export interface Stats {
   last_updated: string;
 }
 
+export interface DailyWins {
+  date: string;
+  count: number;
+  wins: Learning[];
+}
+
 export interface ConsultResponse {
   context: {
     the_one_thing: string;

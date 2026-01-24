@@ -6,6 +6,7 @@ import { fetchStats, fetchRecent } from '@/lib/api';
 import { StatCard, StatCardSkeleton } from '../stat-card';
 import { RecentActivity } from '../recent-activity';
 import { RecordModal } from '../record-modal';
+import { WinsChart } from '../wins-chart';
 import { Button } from '@/components/ui/button';
 
 type RecordType = 'win' | 'fix' | 'pattern';
@@ -104,24 +105,32 @@ export function HomeView() {
             onClick={() => setModalType('win')}
             className="bg-type-win/10 text-type-win border border-type-win/20 hover:bg-type-win/20"
           >
-            <span className="mr-2">🏆</span>
+            <span className="mr-2">&#127942;</span>
             Record Win
           </Button>
           <Button
             onClick={() => setModalType('fix')}
             className="bg-type-fix/10 text-type-fix border border-type-fix/20 hover:bg-type-fix/20"
           >
-            <span className="mr-2">🔧</span>
+            <span className="mr-2">&#128295;</span>
             Record Fix
           </Button>
           <Button
             onClick={() => setModalType('pattern')}
             className="bg-type-pattern/10 text-type-pattern border border-type-pattern/20 hover:bg-type-pattern/20"
           >
-            <span className="mr-2">🔄</span>
+            <span className="mr-2">&#128260;</span>
             Record Pattern
           </Button>
         </div>
+      </div>
+
+      {/* Wins Chart */}
+      <div className="space-y-4">
+        <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+          Win Trends
+        </h2>
+        <WinsChart />
       </div>
 
       {/* Recent Activity */}
