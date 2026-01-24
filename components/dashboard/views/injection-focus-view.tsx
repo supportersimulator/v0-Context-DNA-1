@@ -1,18 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import useSWR from 'swr';
-import { fetchLatestInjection, subscribeToInjections } from '@/lib/api';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { fetchInjectionHistory, subscribeToInjections } from '@/lib/api';
 import type { InjectionData, RiskLevel, SilverPlatter } from '@/lib/types';
 import { RISK_LEVEL_CONFIG } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { AnimatePresence, motion } from 'framer-motion';
 import { soundManager } from '@/lib/sound-manager';
 import { SplitPanelLayout } from './split-panel-layout';
 import { LearningPanel } from './learning-panel';
+import { format, isSameDay, startOfDay } from 'date-fns';
 
 interface InjectionFocusViewProps {
   onClose?: () => void;
@@ -25,9 +27,72 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
   const [pulseAnimation, setPulseAnimation] = useState(false);
   const [muted, setMuted] = useState(soundManager.isMuted());
 
-  const { data: injection, mutate } = useSWR<InjectionData | null>('latest-injection', fetchLatestInjection, {
-    refreshInterval: 5000,
-  });
+  // Injection history navigation
+  const [injectionHistory, setInjectionHistory] = useState<InjectionData[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const seenIdsRef = useRef(new Set<string>());
+  const initialLoadDone = useRef(false);
+
+  // Filter history by selected date
+  const filteredHistory = useMemo(() => {
+    return injectionHistory.filter(inj => {
+      const injDate = new Date(inj.timestamp);
+      return isSameDay(injDate, selectedDate);
+    });
+  }, [injectionHistory, selectedDate]);
+
+  // Fetch initial history on mount
+  useEffect(() => {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    async function loadHistory() {
+      setIsLoadingHistory(true);
+      try {
+        // History contains full injection data directly
+        const injections = await fetchInjectionHistory(50);
+        injections.forEach(inj => seenIdsRef.current.add(inj.id));
+        setInjectionHistory(injections);
+      } catch (e) {
+        console.error("Failed to load injection history", e);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    }
+    loadHistory();
+  }, []);
+
+  // Current injection from filtered history
+  const injection = filteredHistory[currentIndex] || null;
+
+  // Reset currentIndex when date changes or filtered results change
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [selectedDate]);
+
+  // Navigation handlers (within filtered history)
+  const goToPrevious = useCallback(() => {
+    setCurrentIndex(prev => Math.min(prev + 1, filteredHistory.length - 1));
+  }, [filteredHistory.length]);
+
+  const goToNext = useCallback(() => {
+    setCurrentIndex(prev => Math.max(prev - 1, 0));
+  }, []);
+
+  const goToLatest = useCallback(() => {
+    setCurrentIndex(0);
+  }, []);
+
+  // Handle date selection
+  const handleDateSelect = useCallback((date: Date | undefined) => {
+    if (date) {
+      setSelectedDate(startOfDay(date));
+      setCalendarOpen(false);
+    }
+  }, []);
 
   // Handle mute toggle
   const toggleMute = () => {
@@ -39,17 +104,28 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
   // Subscribe to real-time WebSocket updates
   useEffect(() => {
     const unsubscribe = subscribeToInjections((newInjection) => {
-      // Check if it's actually new (by simple timestamp or ID check could be robust)
-      if (newInjection.id !== injection?.id) {
+      // Add to history if not already seen
+      if (!seenIdsRef.current.has(newInjection.id)) {
+        seenIdsRef.current.add(newInjection.id);
+
+        setInjectionHistory(prev => {
+          // Add to front
+          const updated = [newInjection, ...prev];
+          return updated;
+        });
+
+        // If viewing latest (index 0), stay at latest
+        // Otherwise, increment index to keep viewing same injection
+        setCurrentIndex(prev => prev === 0 ? 0 : prev + 1);
+
         soundManager.playPing();
         setPulseAnimation(true);
         setTimeout(() => setPulseAnimation(false), 2000);
       }
-      mutate(newInjection, false);
     });
 
     return () => unsubscribe();
-  }, [mutate, injection?.id]);
+  }, []);
 
   const toggleSop = (sopId: string) => {
     setExpandedSops((prev) => {
@@ -71,8 +147,11 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
     }
   };
 
-  // Waiting state - when no injection data yet
+  // Waiting state - when no injection data for selected date
   if (!injection) {
+    const isToday = isSameDay(selectedDate, new Date());
+    const hasHistoryButNotForDate = injectionHistory.length > 0 && filteredHistory.length === 0;
+
     const waitingPanel = (
       <div className="flex flex-col items-center justify-center h-full text-center p-8 relative overflow-hidden bg-background">
         {/* Scanning Radar Effect */}
@@ -92,10 +171,49 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
         </div>
 
         <div className="bg-background/80 backdrop-blur-sm p-8 rounded-2xl border border-white/5 relative z-10">
+          {/* Date Picker in waiting state */}
+          <div className="mb-6">
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 gap-2 font-normal"
+                >
+                  <CalendarIcon className="w-4 h-4" />
+                  {format(selectedDate, 'MMM d, yyyy')}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="center">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={handleDateSelect}
+                  disabled={(date) => date > new Date()}
+                  endMonth={new Date()}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
           <div className="text-6xl mb-4 animate-pulse">💉</div>
-          <h2 className="text-xl font-semibold text-foreground mb-2">Waiting for Injection...</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">
+            {isLoadingHistory
+              ? "Loading History..."
+              : hasHistoryButNotForDate
+                ? `No Injections on ${format(selectedDate, 'MMM d')}`
+                : isToday
+                  ? "Waiting for Injection..."
+                  : `No Injections on ${format(selectedDate, 'MMM d')}`}
+          </h2>
           <p className="text-muted-foreground max-w-md">
-            When you send a prompt to your IDE with Context DNA active, the injection will appear here in real-time.
+            {isLoadingHistory
+              ? "Fetching your injection history..."
+              : hasHistoryButNotForDate
+                ? "Select a different date or wait for new injections today."
+                : isToday
+                  ? "When you send a prompt to your IDE with Context DNA active, the injection will appear here in real-time."
+                  : "No injections were recorded on this date."}
           </p>
         </div>
       </div>
@@ -149,6 +267,76 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
             />
           )}
         </AnimatePresence>
+
+        {/* Navigation Bar */}
+        <div className="flex items-center justify-between pb-2 border-b border-border/50">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goToPrevious}
+              disabled={currentIndex >= filteredHistory.length - 1}
+              className="h-8 px-2"
+              title="Previous injection"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goToNext}
+              disabled={currentIndex <= 0}
+              className="h-8 px-2"
+              title="Next injection (more recent)"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+
+            {/* Date Picker */}
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 gap-2 font-normal"
+                >
+                  <CalendarIcon className="w-4 h-4" />
+                  {format(selectedDate, 'MMM d, yyyy')}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={handleDateSelect}
+                  disabled={(date) => date > new Date()}
+                  endMonth={new Date()}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="font-mono">
+              {filteredHistory.length > 0 ? (
+                <>
+                  {currentIndex + 1} / {filteredHistory.length}
+                </>
+              ) : (
+                <span className="text-muted-foreground/60">0 injections</span>
+              )}
+            </span>
+            {currentIndex > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={goToLatest}
+                className="h-6 px-2 text-xs text-primary hover:text-primary"
+              >
+                ← Latest
+              </Button>
+            )}
+          </div>
+        </div>
 
         {/* Header with Risk Badge and Controls */}
         <div className="flex items-start justify-between">

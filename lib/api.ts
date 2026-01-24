@@ -1,4 +1,4 @@
-import type { Stats, Learning, ConsultResponse, HealthStatus, DailyWins, InjectionData, InjectionHistoryItem } from './types';
+import type { Stats, Learning, ConsultResponse, HealthStatus, DailyWins, InjectionData } from './types';
 
 const MEMORY_API = 'http://127.0.0.1:3456';
 const HELPER_API = 'http://127.0.0.1:8080';
@@ -334,38 +334,16 @@ export async function fetchLatestInjection(): Promise<InjectionData | null> {
   }
 }
 
-export async function fetchInjectionHistory(limit = 20): Promise<InjectionHistoryItem[]> {
+export async function fetchInjectionHistory(limit = 20): Promise<InjectionData[]> {
   try {
     const res = await fetch(`${HELPER_API}/api/injection/history?limit=${limit}`);
     if (!res.ok) throw new Error('Failed to fetch injection history');
     const data = await res.json();
-    // API returns { count: N, history: [...] }
+    // API returns { count: N, history: [...] } with full injection data
     return data.history || [];
   } catch (error) {
-    // Return mock data for development
-    return [
-      {
-        id: 'inj_mock_001',
-        timestamp: new Date().toISOString(),
-        prompt: 'Help me debug the authentication flow...',
-        risk_level: 'moderate',
-        first_try: '72%',
-      },
-      {
-        id: 'inj_mock_002',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        prompt: 'Deploy the Docker containers to production...',
-        risk_level: 'high',
-        first_try: '45%',
-      },
-      {
-        id: 'inj_mock_003',
-        timestamp: new Date(Date.now() - 7200000).toISOString(),
-        prompt: 'Add a new API endpoint for user preferences...',
-        risk_level: 'low',
-        first_try: '89%',
-      },
-    ];
+    // Return empty array - no mock data needed
+    return [];
   }
 }
 
