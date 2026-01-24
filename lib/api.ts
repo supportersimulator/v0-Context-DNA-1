@@ -1,4 +1,4 @@
-import type { Stats, Learning, ConsultResponse, HealthStatus, DailyWins } from './types';
+import type { Stats, Learning, ConsultResponse, HealthStatus, DailyWins, InjectionData, InjectionHistoryItem } from './types';
 
 const MEMORY_API = 'http://127.0.0.1:3456';
 const HELPER_API = 'http://127.0.0.1:8080';
@@ -170,4 +170,161 @@ export async function fetchHealth(): Promise<HealthStatus> {
       api: false,
     };
   }
+}
+
+// =============================================================================
+// INJECTION VISUALIZATION API
+// =============================================================================
+
+export async function fetchLatestInjection(): Promise<InjectionData | null> {
+  try {
+    const res = await fetch(`${HELPER_API}/api/injection/latest`);
+    if (!res.ok) throw new Error('Failed to fetch latest injection');
+    return res.json();
+  } catch (error) {
+    // Return mock data for development
+    return {
+      id: 'inj_mock_001',
+      timestamp: new Date().toISOString(),
+      trigger: {
+        hook: 'UserPromptSubmit',
+        prompt: 'Help me debug the authentication flow in our Django backend',
+        session_id: 'session_abc123',
+      },
+      analysis: {
+        detected_domains: ['auth', 'api', 'database'],
+        risk_level: 'moderate',
+        first_try_likelihood: '72%',
+        generation_time_ms: 847,
+        sections_included: ['safety', 'wisdom', 'sops', 'protocol'],
+        ab_variant: 'control',
+        mode: 'hybrid',
+      },
+      silver_platter: {
+        safety: {
+          found: true,
+          content: [
+            '🚫 NEVER commit credentials or API keys to git',
+            '🚫 NEVER disable CSRF protection without explicit approval',
+          ],
+        },
+        wisdom: {
+          the_one_thing: 'Django auth issues usually stem from middleware ordering - check MIDDLEWARE in settings.py',
+          landmines: [
+            { icon: '💣', text: 'Session middleware MUST come before AuthenticationMiddleware' },
+            { icon: '💣', text: 'CSRF tokens expire after logout - clear cookies when testing' },
+          ],
+          patterns: [
+            { text: 'Use @login_required decorator consistently', file: 'views.py' },
+            { text: 'Check AUTH_USER_MODEL matches your custom user', file: 'settings.py' },
+          ],
+          context: 'Based on previous sessions, you\'ve worked with Django REST Framework auth. Remember the TokenAuthentication vs SessionAuthentication distinction.',
+        },
+        sops: [
+          {
+            id: 'sop_django_auth_debug',
+            title: 'Django Authentication Debugging',
+            summary: 'Step-by-step process for diagnosing auth issues',
+            relevance_score: 0.94,
+            full_content: '1. Check MIDDLEWARE ordering\n2. Verify AUTH_USER_MODEL\n3. Test with manage.py shell\n4. Check session backend configuration',
+          },
+        ],
+        protocol: {
+          risk_level: 'moderate',
+          first_try_percent: 72,
+          recommendation: 'Query memory if unsure | Record wins on success',
+        },
+      },
+      raw_output: '╔══════════════════════════════════════════════════════════════╗\n║  🧬 CONTEXT DNA INJECTION                                      ║\n╚══════════════════════════════════════════════════════════════╝\n...',
+    };
+  }
+}
+
+export async function fetchInjectionHistory(limit = 20): Promise<InjectionHistoryItem[]> {
+  try {
+    const res = await fetch(`${HELPER_API}/api/injection/history?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch injection history');
+    return res.json();
+  } catch (error) {
+    // Return mock data for development
+    return [
+      {
+        id: 'inj_mock_001',
+        timestamp: new Date().toISOString(),
+        prompt: 'Help me debug the authentication flow...',
+        risk_level: 'moderate',
+        first_try: '72%',
+      },
+      {
+        id: 'inj_mock_002',
+        timestamp: new Date(Date.now() - 3600000).toISOString(),
+        prompt: 'Deploy the Docker containers to production...',
+        risk_level: 'high',
+        first_try: '45%',
+      },
+      {
+        id: 'inj_mock_003',
+        timestamp: new Date(Date.now() - 7200000).toISOString(),
+        prompt: 'Add a new API endpoint for user preferences...',
+        risk_level: 'low',
+        first_try: '89%',
+      },
+    ];
+  }
+}
+
+export async function fetchInjectionById(id: string): Promise<InjectionData | null> {
+  try {
+    const res = await fetch(`${HELPER_API}/api/injection/${id}`);
+    if (!res.ok) throw new Error('Failed to fetch injection');
+    return res.json();
+  } catch (error) {
+    return null;
+  }
+}
+
+export function subscribeToInjections(onInjection: (data: InjectionData) => void): () => void {
+  // WebSocket connection for real-time injection updates
+  const wsUrl = HELPER_API.replace('http', 'ws') + '/ws/injections';
+
+  let ws: WebSocket | null = null;
+  let reconnectTimeout: NodeJS.Timeout | null = null;
+
+  const connect = () => {
+    try {
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.event === 'injection_complete') {
+            onInjection(message.data);
+          }
+        } catch (e) {
+          console.error('Failed to parse injection message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        // Reconnect after 5 seconds
+        reconnectTimeout = setTimeout(connect, 5000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('Injection WebSocket error:', error);
+        ws?.close();
+      };
+    } catch (error) {
+      console.error('Failed to connect to injection WebSocket:', error);
+      reconnectTimeout = setTimeout(connect, 5000);
+    }
+  };
+
+  connect();
+
+  // Return cleanup function
+  return () => {
+    if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    if (ws) ws.close();
+  };
 }

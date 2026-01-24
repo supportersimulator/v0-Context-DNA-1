@@ -78,3 +78,91 @@ export const LEARNING_TYPE_CONFIG: Record<LearningType, { emoji: string; color: 
   insight: { emoji: '💡', color: 'text-type-insight', label: 'Insight' },
   gotcha: { emoji: '⚠️', color: 'text-type-gotcha', label: 'Gotcha' },
 };
+
+// =============================================================================
+// INJECTION VISUALIZATION TYPES
+// =============================================================================
+
+export type RiskLevel = 'critical' | 'high' | 'moderate' | 'low';
+
+export interface InjectionTrigger {
+  hook: string;
+  prompt: string;
+  session_id: string;
+}
+
+export interface InjectionAnalysis {
+  detected_domains: string[];
+  risk_level: RiskLevel;
+  first_try_likelihood: number | string;
+  generation_time_ms: number;
+  sections_included: string[];
+  ab_variant: string;
+  mode: string;
+}
+
+export interface Landmine {
+  icon: string;
+  text: string;
+}
+
+export interface Pattern {
+  text: string;
+  file?: string;
+  lines?: string;
+}
+
+export interface SOP {
+  id: string;
+  title: string;
+  summary: string;
+  relevance_score: number;
+  full_content?: string;
+}
+
+export interface InjectionWisdom {
+  the_one_thing: string;
+  landmines: Landmine[];
+  patterns: Pattern[];
+  context: string;
+}
+
+export interface InjectionProtocol {
+  risk_level: string;
+  first_try_percent: number;
+  recommendation: string;
+}
+
+export interface SilverPlatter {
+  safety: {
+    found: boolean;
+    content: string[];
+  };
+  wisdom: InjectionWisdom;
+  sops: SOP[];
+  protocol: InjectionProtocol;
+}
+
+export interface InjectionData {
+  id: string;
+  timestamp: string;
+  trigger: InjectionTrigger;
+  analysis: InjectionAnalysis;
+  silver_platter: SilverPlatter;
+  raw_output: string;
+}
+
+export interface InjectionHistoryItem {
+  id: string;
+  timestamp: string;
+  prompt: string;
+  risk_level: RiskLevel;
+  first_try: string;
+}
+
+export const RISK_LEVEL_CONFIG: Record<RiskLevel, { color: string; bgColor: string; label: string }> = {
+  critical: { color: 'text-red-400', bgColor: 'bg-red-500/20', label: 'CRITICAL' },
+  high: { color: 'text-orange-400', bgColor: 'bg-orange-500/20', label: 'HIGH' },
+  moderate: { color: 'text-yellow-400', bgColor: 'bg-yellow-500/20', label: 'MODERATE' },
+  low: { color: 'text-green-400', bgColor: 'bg-green-500/20', label: 'LOW' },
+};
