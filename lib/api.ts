@@ -32,14 +32,102 @@ export async function fetchRecent(limit = 10): Promise<{ recent: Learning[] }> {
     // Return mock data for development
     return {
       recent: [
-        { id: '1', type: 'win', title: 'Deployed Django to production successfully', content: 'Successfully deployed the Django application with zero downtime using blue-green deployment strategy.', tags: ['django', 'deployment', 'devops'], created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-        { id: '2', type: 'fix', title: 'Fixed async boto3 blocking event loop', content: 'The issue was that boto3 was blocking the asyncio event loop. Solution was to use aioboto3 or run boto3 in a thread pool executor.', tags: ['python', 'async', 'aws'], created_at: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() },
-        { id: '3', type: 'pattern', title: 'Docker restart doesn\'t reload env vars', content: 'When using docker-compose, environment variables are cached. Need to run docker-compose down && docker-compose up to reload.', tags: ['docker', 'devops'], created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() },
-        { id: '4', type: 'insight', title: 'GPU toggle needs Internal NLB for IP changes', content: 'When toggling GPU instances, the IP changes. Using an internal NLB provides a stable endpoint.', tags: ['aws', 'gpu', 'networking'], created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-        { id: '5', type: 'gotcha', title: 'WebRTC requires Cloudflare proxy=false', content: 'WebRTC connections fail when going through Cloudflare proxy. Must set proxy to false for WebRTC domains.', tags: ['webrtc', 'cloudflare', 'networking'], created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+        { id: '1', type: 'win', title: 'Deployed Django to production successfully', content: 'Successfully deployed the Django application with zero downtime using blue-green deployment strategy.', tags: ['django', 'deployment', 'devops'], timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
+        { id: '2', type: 'fix', title: 'Fixed async boto3 blocking event loop', content: 'The issue was that boto3 was blocking the asyncio event loop. Solution was to use aioboto3 or run boto3 in a thread pool executor.', tags: ['python', 'async', 'aws'], timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), created_at: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() },
+        { id: '3', type: 'pattern', title: 'Docker restart doesn\'t reload env vars', content: 'When using docker-compose, environment variables are cached. Need to run docker-compose down && docker-compose up to reload.', tags: ['docker', 'devops'], timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() },
+        { id: '4', type: 'insight', title: 'GPU toggle needs Internal NLB for IP changes', content: 'When toggling GPU instances, the IP changes. Using an internal NLB provides a stable endpoint.', tags: ['aws', 'gpu', 'networking'], timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+        { id: '5', type: 'gotcha', title: 'WebRTC requires Cloudflare proxy=false', content: 'WebRTC connections fail when going through Cloudflare proxy. Must set proxy to false for WebRTC domains.', tags: ['webrtc', 'cloudflare', 'networking'], timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
       ],
     };
   }
+}
+
+export async function fetchRecentLearnings(limit = 20): Promise<{ count: number; learnings: Learning[] }> {
+  try {
+    const res = await fetch(`${HELPER_API}/api/learnings/recent?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch learnings');
+    return res.json();
+  } catch (error) {
+    return { count: 0, learnings: [] };
+  }
+}
+
+export async function fetchLearningsForInjection(injectionId: string): Promise<Learning[]> {
+  try {
+    const res = await fetch(`${HELPER_API}/api/learnings/injection/${injectionId}`);
+    if (!res.ok) throw new Error('Failed to fetch learnings');
+    const data = await res.json();
+    return data.learnings || [];
+  } catch (error) {
+    return [];
+  }
+}
+
+export async function fetchLearningsSince(timestamp: string, limit = 20): Promise<Learning[]> {
+  try {
+    const res = await fetch(`${HELPER_API}/api/learnings/since/${encodeURIComponent(timestamp)}?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch learnings');
+    const data = await res.json();
+    return data.learnings || [];
+  } catch (error) {
+    return [];
+  }
+}
+
+export function subscribeToLearnings(
+  onLearning: (learning: Learning) => void,
+  onStatusChange?: (status: ConnectionStatus) => void
+): () => void {
+  const clientId = generateClientId();
+  const wsUrl = `${HELPER_API.replace('http', 'ws')}/ws/learnings?client_id=${clientId}`;
+
+  let ws: WebSocket | null = null;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
+
+  const connect = () => {
+    try {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        onStatusChange?.('connected');
+        heartbeatInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'heartbeat', client_id: clientId }));
+          }
+        }, 30000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.event === 'learning_captured' && message.data) {
+            onLearning(message.data);
+          }
+        } catch (e) {
+          console.error('Failed to parse learning message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        onStatusChange?.('disconnected');
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        // Simple reconnect logic could go here
+      };
+
+      ws.onerror = () => {
+        onStatusChange?.('error');
+      };
+    } catch (e) {
+      onStatusChange?.('error');
+    }
+  };
+
+  connect();
+
+  return () => {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    ws?.close();
+  };
 }
 
 export async function fetchDailyWins(days = 14): Promise<DailyWins[]> {
@@ -51,13 +139,13 @@ export async function fetchDailyWins(days = 14): Promise<DailyWins[]> {
     // Return mock data for development - last 14 days
     const mockWins: DailyWins[] = [];
     const today = new Date();
-    
+
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       const count = Math.floor(Math.random() * 8) + (i === 0 ? 3 : 0);
-      
+
       const wins: Learning[] = [];
       for (let j = 0; j < count; j++) {
         const winTitles = [
@@ -76,13 +164,14 @@ export async function fetchDailyWins(days = 14): Promise<DailyWins[]> {
           title: winTitles[Math.floor(Math.random() * winTitles.length)],
           content: 'Successfully completed this task with great results.',
           tags: ['productivity', 'engineering'],
+          timestamp: new Date(date.getTime() + j * 60 * 60 * 1000).toISOString(),
           created_at: new Date(date.getTime() + j * 60 * 60 * 1000).toISOString(),
         });
       }
-      
+
       mockWins.push({ date: dateStr, count, wins });
     }
-    
+
     return mockWins;
   }
 }
@@ -180,7 +269,12 @@ export async function fetchLatestInjection(): Promise<InjectionData | null> {
   try {
     const res = await fetch(`${HELPER_API}/api/injection/latest`);
     if (!res.ok) throw new Error('Failed to fetch latest injection');
-    return res.json();
+    const data = await res.json();
+    // API returns { found: true, injection: {...} } or { found: false, message: "..." }
+    if (data.found && data.injection) {
+      return data.injection;
+    }
+    return null;
   } catch (error) {
     // Return mock data for development
     return {
@@ -244,7 +338,9 @@ export async function fetchInjectionHistory(limit = 20): Promise<InjectionHistor
   try {
     const res = await fetch(`${HELPER_API}/api/injection/history?limit=${limit}`);
     if (!res.ok) throw new Error('Failed to fetch injection history');
-    return res.json();
+    const data = await res.json();
+    // API returns { count: N, history: [...] }
+    return data.history || [];
   } catch (error) {
     // Return mock data for development
     return [
@@ -277,7 +373,12 @@ export async function fetchInjectionById(id: string): Promise<InjectionData | nu
   try {
     const res = await fetch(`${HELPER_API}/api/injection/${id}`);
     if (!res.ok) throw new Error('Failed to fetch injection');
-    return res.json();
+    const data = await res.json();
+    // API returns { found: true, injection: {...} } or { found: false, message: "..." }
+    if (data.found && data.injection) {
+      return data.injection;
+    }
+    return null;
   } catch (error) {
     return null;
   }

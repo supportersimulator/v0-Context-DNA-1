@@ -1,12 +1,7 @@
 "use client"
 
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
-import { AuthWrapper } from '@/components/auth-wrapper';
+import DashboardShell from "@/components/dashboard/DashboardShell"
 
-export default function Home() {
-  return (
-    <AuthWrapper>
-      <DashboardShell />
-    </AuthWrapper>
-  );
+export default function Page() {
+  return <DashboardShell />
 }

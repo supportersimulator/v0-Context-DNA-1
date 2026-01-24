@@ -56,21 +56,25 @@ export function TabBar({ activeTab, onTabChange, focusMode, onFocusModeToggle }:
     // Find tabs that are not currently visible
     const visibleIds = new Set(tabs.map((t) => t.id));
     const hiddenTabs = DEFAULT_TABS.filter((t) => !visibleIds.has(t.id));
-    
+
     if (hiddenTabs.length > 0) {
       setTabs([...tabs, hiddenTabs[0]]);
     }
   };
 
+  const [isMounted, setIsMounted] = useState(false);
+
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   return (
-    <div className="flex items-center gap-1 px-4 py-2 bg-secondary border-b border-border overflow-x-auto">
-      <div className="flex items-center gap-1 mr-2">
-        <span className="text-xl">🧬</span>
-        <span className="text-sm font-semibold text-foreground">Context DNA</span>
-      </div>
-      
-      <div className="flex items-center gap-1 flex-1 overflow-x-auto scrollbar-hide">
-        {tabs.map((tab) => (
+    <div className="flex items-center gap-1 flex-1 overflow-x-auto scrollbar-hide h-full">
+      <div className={cn(
+        "flex items-center gap-1 flex-1 h-full",
+        focusMode && "opacity-20 pointer-events-none filter blur-[1px]"
+      )}>
+        {isMounted ? tabs.map((tab) => (
           <div
             key={tab.id}
             draggable
@@ -102,35 +106,22 @@ export function TabBar({ activeTab, onTabChange, focusMode, onFocusModeToggle }:
               </button>
             )}
           </div>
-        ))}
+        )) : (
+          <div className="flex items-center gap-2 px-3 py-1.5 text-muted-foreground text-sm">
+            Loading tabs...
+          </div>
+        )}
       </div>
 
-      {tabs.length < DEFAULT_TABS.length && (
-        <button
-          onClick={handleAddTab}
-          className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted text-muted-foreground transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
-      )}
-
-      {/* Focus Mode Toggle - Live Injection View */}
-      <div className="ml-auto pl-4 border-l border-border">
-        <button
-          onClick={onFocusModeToggle}
-          className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-200",
-            focusMode
-              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-              : "hover:bg-muted text-muted-foreground hover:text-foreground"
-          )}
-          title={focusMode ? "Exit Focus Mode (Esc)" : "Live Injection View"}
-        >
-          <Syringe className={cn("w-4 h-4", focusMode && "animate-pulse")} />
-          <span className="text-sm font-medium whitespace-nowrap">
-            {focusMode ? "Exit Focus" : "Live View"}
-          </span>
-        </button>
+      <div className={cn("flex items-center pl-2", focusMode && "opacity-20")}>
+        {isMounted && tabs.length < DEFAULT_TABS.length && (
+          <button
+            onClick={handleAddTab}
+            className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted text-muted-foreground transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </div>
   );

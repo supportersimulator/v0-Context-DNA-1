@@ -6,7 +6,12 @@ export interface Learning {
   title: string;
   content: string;
   tags: string[];
-  created_at: string;
+  timestamp: string;
+  created_at: string; // Maintain for backward compatibility
+  session_id?: string;
+  injection_id?: string;
+  source?: string;
+  metadata?: Record<string, any>;
   relevance?: number;
 }
 
