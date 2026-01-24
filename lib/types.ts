@@ -54,7 +54,7 @@ export interface ServiceStatus {
   icon: string;
 }
 
-export type TabId = 'home' | 'activity' | 'professor' | 'search' | 'health';
+export type TabId = 'home' | 'activity' | 'professor' | 'search' | 'health' | 'injection';
 
 export interface Tab {
   id: TabId;
@@ -69,6 +69,9 @@ export const DEFAULT_TABS: Tab[] = [
   { id: 'search', label: 'Search', icon: '🔍' },
   { id: 'health', label: 'Health', icon: '💚' },
 ];
+
+// Injection tab is special - shown via focus mode toggle, not in main tab list
+export const INJECTION_TAB: Tab = { id: 'injection', label: 'Live Injection', icon: '💉' };
 
 export const LEARNING_TYPE_CONFIG: Record<LearningType, { emoji: string; color: string; label: string }> = {
   win: { emoji: '🏆', color: 'text-type-win', label: 'Win' },

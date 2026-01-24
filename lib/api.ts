@@ -283,22 +283,94 @@ export async function fetchInjectionById(id: string): Promise<InjectionData | nu
   }
 }
 
-export function subscribeToInjections(onInjection: (data: InjectionData) => void): () => void {
+// Generate unique client ID for multi-IDE support
+function generateClientId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  const platform = typeof window !== 'undefined' ? 'web' : 'node';
+  return `${platform}_${timestamp}_${random}`;
+}
+
+// Connection status type
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+export interface InjectionSubscriptionOptions {
+  onInjection: (data: InjectionData) => void;
+  onStatusChange?: (status: ConnectionStatus) => void;
+  clientId?: string; // Optional: provide your own client ID for tracking
+}
+
+export function subscribeToInjections(
+  optionsOrCallback: InjectionSubscriptionOptions | ((data: InjectionData) => void)
+): () => void {
+  // Support both old callback-only API and new options API
+  const options: InjectionSubscriptionOptions = typeof optionsOrCallback === 'function'
+    ? { onInjection: optionsOrCallback }
+    : optionsOrCallback;
+
+  const { onInjection, onStatusChange } = options;
+  const clientId = options.clientId || generateClientId();
+
   // WebSocket connection for real-time injection updates
-  const wsUrl = HELPER_API.replace('http', 'ws') + '/ws/injections';
+  // Includes client ID for multi-IDE tracking
+  const wsUrl = `${HELPER_API.replace('http', 'ws')}/ws/injections?client_id=${clientId}`;
 
   let ws: WebSocket | null = null;
   let reconnectTimeout: NodeJS.Timeout | null = null;
+  let reconnectAttempts = 0;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
+  let isManualClose = false;
+
+  const updateStatus = (status: ConnectionStatus) => {
+    onStatusChange?.(status);
+  };
 
   const connect = () => {
+    if (isManualClose) return;
+
+    updateStatus('connecting');
+
     try {
       ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        reconnectAttempts = 0; // Reset on successful connection
+        updateStatus('connected');
+
+        // Send registration message with client metadata
+        ws?.send(JSON.stringify({
+          type: 'register',
+          client_id: clientId,
+          platform: typeof window !== 'undefined' ? 'web' : 'electron',
+          timestamp: new Date().toISOString(),
+        }));
+
+        // Start heartbeat to keep connection alive
+        heartbeatInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'heartbeat', client_id: clientId }));
+          }
+        }, 30000); // Heartbeat every 30s
+      };
 
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          if (message.event === 'injection_complete') {
-            onInjection(message.data);
+
+          // Handle different message types
+          switch (message.event || message.type) {
+            case 'injection_complete':
+              onInjection(message.data);
+              break;
+            case 'heartbeat_ack':
+              // Heartbeat acknowledged - connection is healthy
+              break;
+            case 'broadcast':
+              // Broadcast from another IDE - still process the injection
+              if (message.data) {
+                onInjection(message.data);
+              }
+              break;
           }
         } catch (e) {
           console.error('Failed to parse injection message:', e);
@@ -306,17 +378,35 @@ export function subscribeToInjections(onInjection: (data: InjectionData) => void
       };
 
       ws.onclose = () => {
-        // Reconnect after 5 seconds
-        reconnectTimeout = setTimeout(connect, 5000);
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+
+        if (isManualClose) {
+          updateStatus('disconnected');
+          return;
+        }
+
+        updateStatus('disconnected');
+
+        // Exponential backoff for reconnection (max 30s)
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+        reconnectAttempts++;
+
+        reconnectTimeout = setTimeout(connect, delay);
       };
 
-      ws.onerror = (error) => {
-        console.error('Injection WebSocket error:', error);
+      ws.onerror = () => {
+        updateStatus('error');
         ws?.close();
       };
     } catch (error) {
       console.error('Failed to connect to injection WebSocket:', error);
-      reconnectTimeout = setTimeout(connect, 5000);
+      updateStatus('error');
+
+      // Retry with backoff
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+      reconnectAttempts++;
+      reconnectTimeout = setTimeout(connect, delay);
     }
   };
 
@@ -324,7 +414,16 @@ export function subscribeToInjections(onInjection: (data: InjectionData) => void
 
   // Return cleanup function
   return () => {
+    isManualClose = true;
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    if (ws) ws.close();
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    if (ws) {
+      // Send disconnect message before closing
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'disconnect', client_id: clientId }));
+      }
+      ws.close();
+    }
+    updateStatus('disconnected');
   };
 }

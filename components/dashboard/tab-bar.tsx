@@ -6,14 +6,16 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { Tab, TabId } from '@/lib/types';
 import { DEFAULT_TABS } from '@/lib/types';
-import { X, Plus, GripVertical } from 'lucide-react';
+import { X, Plus, GripVertical, Syringe } from 'lucide-react';
 
 interface TabBarProps {
   activeTab: TabId;
   onTabChange: (tabId: TabId) => void;
+  focusMode?: boolean;
+  onFocusModeToggle?: () => void;
 }
 
-export function TabBar({ activeTab, onTabChange }: TabBarProps) {
+export function TabBar({ activeTab, onTabChange, focusMode, onFocusModeToggle }: TabBarProps) {
   const [tabs, setTabs] = useState<Tab[]>(DEFAULT_TABS);
   const [draggedTab, setDraggedTab] = useState<TabId | null>(null);
 
@@ -111,6 +113,25 @@ export function TabBar({ activeTab, onTabChange }: TabBarProps) {
           <Plus className="w-4 h-4" />
         </button>
       )}
+
+      {/* Focus Mode Toggle - Live Injection View */}
+      <div className="ml-auto pl-4 border-l border-border">
+        <button
+          onClick={onFocusModeToggle}
+          className={cn(
+            "flex items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-200",
+            focusMode
+              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
+              : "hover:bg-muted text-muted-foreground hover:text-foreground"
+          )}
+          title={focusMode ? "Exit Focus Mode (Esc)" : "Live Injection View"}
+        >
+          <Syringe className={cn("w-4 h-4", focusMode && "animate-pulse")} />
+          <span className="text-sm font-medium whitespace-nowrap">
+            {focusMode ? "Exit Focus" : "Live View"}
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
