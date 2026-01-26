@@ -5,7 +5,7 @@ import { fetchInjectionHistory, subscribeToInjections } from '@/lib/api';
 import type { InjectionData, RiskLevel, SilverPlatter } from '@/lib/types';
 import { RISK_LEVEL_CONFIG } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Calendar } from '@/components/ui/calendar';
@@ -14,6 +14,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { soundManager } from '@/lib/sound-manager';
 import { SplitPanelLayout } from './split-panel-layout';
 import { LearningPanel } from './learning-panel';
+import { ArchitecturalAwarenessPanel } from './architectural-awareness';
 import { format, isSameDay, startOfDay } from 'date-fns';
 
 interface InjectionFocusViewProps {
@@ -33,6 +34,7 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
   const seenIdsRef = useRef(new Set<string>());
   const initialLoadDone = useRef(false);
 
@@ -103,24 +105,29 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
 
   // Subscribe to real-time WebSocket updates
   useEffect(() => {
-    const unsubscribe = subscribeToInjections((newInjection) => {
-      // Add to history if not already seen
-      if (!seenIdsRef.current.has(newInjection.id)) {
-        seenIdsRef.current.add(newInjection.id);
+    const unsubscribe = subscribeToInjections({
+      onInjection: (newInjection) => {
+        // Add to history if not already seen
+        if (!seenIdsRef.current.has(newInjection.id)) {
+          seenIdsRef.current.add(newInjection.id);
 
-        setInjectionHistory(prev => {
-          // Add to front
-          const updated = [newInjection, ...prev];
-          return updated;
-        });
+          setInjectionHistory(prev => {
+            // Add to front
+            const updated = [newInjection, ...prev];
+            return updated;
+          });
 
-        // If viewing latest (index 0), stay at latest
-        // Otherwise, increment index to keep viewing same injection
-        setCurrentIndex(prev => prev === 0 ? 0 : prev + 1);
+          // If viewing latest (index 0), stay at latest
+          // Otherwise, increment index to keep viewing same injection
+          setCurrentIndex(prev => prev === 0 ? 0 : prev + 1);
 
-        soundManager.playPing();
-        setPulseAnimation(true);
-        setTimeout(() => setPulseAnimation(false), 2000);
+          soundManager.playPing();
+          setPulseAnimation(true);
+          setTimeout(() => setPulseAnimation(false), 2000);
+        }
+      },
+      onStatusChange: (status) => {
+        setWsConnected(status === 'connected');
       }
     });
 
@@ -222,7 +229,10 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
     return (
       <SplitPanelLayout
         leftPanel={waitingPanel}
-        rightPanel={<LearningPanel currentInjection={null} />}
+        rightTopPanel={<LearningPanel currentInjection={null} />}
+        rightBottomPanel={<ArchitecturalAwarenessPanel />}
+        rightTopTitle="Today's Learnings"
+        rightBottomTitle="Architecture"
       />
     );
   }
@@ -316,6 +326,23 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
             </Popover>
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            {/* Real-time status indicator */}
+            <div
+              className={cn(
+                "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                wsConnected
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'bg-yellow-500/20 text-yellow-400'
+              )}
+              title={wsConnected ? 'Real-time updates connected' : 'Reconnecting...'}
+            >
+              {wsConnected ? (
+                <Wifi className="w-3 h-3" />
+              ) : (
+                <WifiOff className="w-3 h-3" />
+              )}
+              {wsConnected ? 'Live' : 'Offline'}
+            </div>
             <span className="font-mono">
               {filteredHistory.length > 0 ? (
                 <>
@@ -630,7 +657,10 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
   return (
     <SplitPanelLayout
       leftPanel={injectionPanel}
-      rightPanel={<LearningPanel currentInjection={injection} />}
+      rightTopPanel={<LearningPanel currentInjection={injection} />}
+      rightBottomPanel={<ArchitecturalAwarenessPanel />}
+      rightTopTitle="Today's Learnings"
+      rightBottomTitle="Architecture"
     />
   );
 }

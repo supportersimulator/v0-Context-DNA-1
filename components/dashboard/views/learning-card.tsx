@@ -12,16 +12,25 @@ interface LearningCardProps {
     isAssociated?: boolean; // Highlight if associated with current injection
 }
 
+// Parse timestamp - handles both with and without 'Z' suffix (treats both as UTC)
+function parseTimestamp(timestamp: string): Date {
+    // If no timezone info, assume UTC and add 'Z'
+    if (!timestamp.endsWith('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
+        return new Date(timestamp + 'Z');
+    }
+    return new Date(timestamp);
+}
+
 export function LearningCard({ learning, isAssociated }: LearningCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const config = LEARNING_TYPE_CONFIG[learning.type] || LEARNING_TYPE_CONFIG.insight;
-    const timeAgo = getTimeAgo(new Date(learning.timestamp));
+    const timestamp = parseTimestamp(learning.timestamp);
+    const timeAgo = getTimeAgo(timestamp);
+    const timeFormatted = formatTime(timestamp);
 
     return (
         <motion.div
             layout
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
             className={cn(
                 "border rounded-lg overflow-hidden transition-all duration-300",
                 isAssociated
@@ -43,8 +52,11 @@ export function LearningCard({ learning, isAssociated }: LearningCardProps) {
                                 <span className={cn("text-xs font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5", config.color)}>
                                     {config.label}
                                 </span>
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                    {timeAgo}
+                                <span className="text-[10px] text-yellow-400/80 font-mono whitespace-nowrap" title={timestamp.toLocaleString()}>
+                                    {timeFormatted}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">
+                                    ({timeAgo})
                                 </span>
                                 {isAssociated && (
                                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary animate-pulse">
@@ -108,4 +120,13 @@ function getTimeAgo(date: Date): string {
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
     return `${Math.floor(seconds / 86400)}d`;
+}
+
+function formatTime(date: Date): string {
+    return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short'
+    });
 }
