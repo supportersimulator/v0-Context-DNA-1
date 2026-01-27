@@ -1,4 +1,4 @@
-import type { Stats, Learning, ConsultResponse, HealthStatus, DailyWins, InjectionData } from './types';
+import type { Stats, Learning, ConsultResponse, HealthStatus, DailyWins, InjectionData, OllamaModel, ModelStatus, UserPlan, ModelDownloadProgress } from './types';
 
 // API URLs - configurable via environment variables
 const MEMORY_API = process.env.NEXT_PUBLIC_MEMORY_API || 'http://127.0.0.1:3456';
@@ -428,4 +428,265 @@ export function subscribeToInjections(
     }
     updateStatus('disconnected');
   };
+}
+
+// =============================================================================
+// LLM MODELS API
+// =============================================================================
+
+const OLLAMA_API = process.env.NEXT_PUBLIC_OLLAMA_API || 'http://127.0.0.1:11434';
+const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5043';
+
+/**
+ * Fetch installed models from Ollama
+ */
+export async function fetchInstalledModels(): Promise<OllamaModel[]> {
+  try {
+    const res = await fetch(`${OLLAMA_API}/api/tags`);
+    if (!res.ok) {
+      throw new Error(`Ollama API error: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.models || [];
+  } catch (error) {
+    console.error('Failed to fetch installed models:', error);
+    return [];
+  }
+}
+
+/**
+ * Check if Ollama is running
+ */
+export async function checkOllamaHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_API}/api/tags`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get the currently active model from local LLM server config
+ */
+export async function getActiveModel(): Promise<string | null> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/status`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.active_model || null;
+  } catch {
+    // Try to get from Ollama directly if local server not running
+    try {
+      const models = await fetchInstalledModels();
+      // Return first installed model as default
+      return models.length > 0 ? models[0].name : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Fetch full model status (installed models, active model, download progress)
+ */
+export async function fetchModelStatus(): Promise<ModelStatus> {
+  const [installedModels, ollamaRunning, activeModel] = await Promise.all([
+    fetchInstalledModels(),
+    checkOllamaHealth(),
+    getActiveModel(),
+  ]);
+
+  return {
+    installedModels,
+    activeModel,
+    downloadProgress: [], // Will be populated by WebSocket
+    ollamaRunning,
+  };
+}
+
+/**
+ * Fetch user's subscription plan/permissions
+ */
+export async function fetchUserPlan(): Promise<UserPlan> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/plan`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      // Default to free tier if can't fetch
+      return {
+        tier: 'free',
+        canSwitchModels: false,
+        canDeleteModels: false,
+        maxModels: 1,
+      };
+    }
+    return res.json();
+  } catch {
+    // Default permissions for development/testing
+    return {
+      tier: 'advanced', // Dev mode gets full access
+      canSwitchModels: true,
+      canDeleteModels: true,
+      maxModels: 10,
+    };
+  }
+}
+
+/**
+ * Download/pull a model from Ollama
+ */
+export async function downloadModel(
+  modelName: string,
+  onProgress?: (progress: ModelDownloadProgress) => void
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_API}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: modelName, stream: true }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to start download: ${res.status}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body');
+    }
+
+    const decoder = new TextDecoder();
+    let downloadedBytes = 0;
+    let totalBytes = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n').filter(Boolean);
+
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+
+          if (data.total) {
+            totalBytes = data.total;
+          }
+          if (data.completed) {
+            downloadedBytes = data.completed;
+          }
+
+          const progress = totalBytes > 0
+            ? Math.round((downloadedBytes / totalBytes) * 100)
+            : 0;
+
+          onProgress?.({
+            modelId: modelName,
+            status: data.status === 'success' ? 'complete' : 'downloading',
+            progress,
+            downloadedBytes,
+            totalBytes,
+          });
+
+          if (data.status === 'success') {
+            return true;
+          }
+        } catch {
+          // Skip malformed JSON lines
+        }
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Model download failed:', error);
+    onProgress?.({
+      modelId: modelName,
+      status: 'error',
+      progress: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      error: error instanceof Error ? error.message : 'Download failed',
+    });
+    return false;
+  }
+}
+
+/**
+ * Switch to a different installed model
+ */
+export async function switchModel(modelName: string): Promise<boolean> {
+  try {
+    // First verify model is installed
+    const models = await fetchInstalledModels();
+    const isInstalled = models.some(m => m.name === modelName || m.model === modelName);
+
+    if (!isInstalled) {
+      throw new Error(`Model ${modelName} is not installed`);
+    }
+
+    // Update local LLM server config
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/switch`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ model: modelName }),
+    });
+
+    if (!res.ok) {
+      // If local server not running, just preload model in Ollama
+      const preloadRes = await fetch(`${OLLAMA_API}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelName,
+          prompt: 'test',
+          stream: false,
+          options: { num_predict: 1 },
+        }),
+      });
+      return preloadRes.ok;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to switch model:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete an installed model
+ */
+export async function deleteModel(modelName: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_API}/api/delete`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: modelName }),
+    });
+
+    return res.ok;
+  } catch (error) {
+    console.error('Failed to delete model:', error);
+    return false;
+  }
+}
+
+/**
+ * Format bytes to human readable string
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }

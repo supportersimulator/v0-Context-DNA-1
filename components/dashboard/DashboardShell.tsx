@@ -9,6 +9,7 @@ import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
 import { SearchView } from './views/search-view';
 import { HealthView } from './views/health-view';
+import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
 import { cn } from '@/lib/utils';
 import { Syringe } from 'lucide-react';
@@ -107,6 +108,8 @@ export default function DashboardShell() {
         return <SearchView />;
       case 'health':
         return <HealthView />;
+      case 'models':
+        return <ModelsView />;
       case 'injection':
         return <InjectionFocusView onClose={exitFocusMode} />;
       default:
