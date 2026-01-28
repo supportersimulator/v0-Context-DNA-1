@@ -267,6 +267,85 @@ export interface UserPlan {
 }
 
 // Available models catalog - MLX models first (recommended for Apple Silicon)
+// =============================================================================
+// WORKSPACE ANALYSIS TYPES
+// =============================================================================
+
+export interface DetectedProject {
+  name: string;
+  path: string;
+  type: 'git_repo' | 'submodule' | 'package' | 'service' | 'module';
+  framework?: string;
+  language?: string;
+  description?: string;
+  confidence: number; // 0-1
+  selected: boolean; // User can toggle
+}
+
+export interface DetectedService {
+  name: string;
+  path: string;
+  type: 'backend' | 'frontend' | 'api' | 'worker' | 'infrastructure' | 'database';
+  framework?: string;
+  port?: number;
+  description?: string;
+}
+
+export interface HierarchyProfile {
+  repo_type: 'monorepo' | 'submodule-monorepo' | 'polyrepo' | 'standard';
+  root_path: string;
+  projects: DetectedProject[];
+  services: DetectedService[];
+  infrastructure: {
+    docker: boolean;
+    terraform: boolean;
+    kubernetes: boolean;
+    docker_compose_paths: string[];
+  };
+  conventions: {
+    naming_style: 'snake_case' | 'camelCase' | 'kebab-case' | 'mixed';
+    config_pattern: string[];
+    test_pattern: string[];
+  };
+  machine_id: string;
+  created_at: string;
+  version: number;
+}
+
+export interface WorkspaceAnalysis {
+  status: 'scanning' | 'complete' | 'error';
+  profile: HierarchyProfile | null;
+  questions: ClarifyingQuestion[];
+  suggestions: string[];
+  error?: string;
+}
+
+export interface ClarifyingQuestion {
+  id: string;
+  question: string;
+  options: { label: string; value: string; recommended?: boolean }[];
+  context?: string;
+  answered?: string;
+}
+
+export interface DeviceInfo {
+  device_id: string;
+  machine_id: string;
+  fingerprint: string;
+  os: string;
+  os_version: string;
+  arch: string;
+  hostname: string;
+  username: string;
+  registered_at?: string;
+}
+
+export interface SystemAnalysis {
+  device: DeviceInfo;
+  hardware: HardwareInfo | null;
+  workspace: WorkspaceAnalysis | null;
+}
+
 export const AVAILABLE_MODELS: AvailableModel[] = [
   // ==========================================================================
   // MLX MODELS (Apple Silicon Native - Recommended)

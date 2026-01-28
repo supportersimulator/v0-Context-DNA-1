@@ -438,7 +438,7 @@ const OLLAMA_API = process.env.NEXT_PUBLIC_OLLAMA_API || 'http://127.0.0.1:11434
 const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5043';
 
 // Import types
-import type { HardwareInfo } from './types';
+import type { HardwareInfo, DeviceInfo, WorkspaceAnalysis, SystemAnalysis, HierarchyProfile } from './types';
 
 /**
  * Fetch installed models from Ollama
@@ -784,6 +784,445 @@ export async function purgeMemory(): Promise<{
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Memory purge failed',
+    };
+  }
+}
+
+// =============================================================================
+// MLX BACKEND API
+// =============================================================================
+
+export interface MLXStatus {
+  is_apple_silicon: boolean;
+  has_metal: boolean;
+  is_rosetta: boolean;
+  python_arch: string;
+  chip_name: string | null;
+  ram_gb: number;
+  mlx_installed: boolean;
+  mlx_version: string | null;
+  metal_available?: boolean;
+  loaded_models: string[];
+  install_instructions: string | null;
+  warnings: string[];
+}
+
+export interface MLXDownloadResult {
+  success: boolean;
+  model_id: string;
+  message?: string;
+  steps: string[];
+  errors: string[];
+}
+
+export interface MLXConfigureResult {
+  success: boolean;
+  model_id: string;
+  backend: string;
+  message?: string;
+  steps: string[];
+  errors: string[];
+}
+
+/**
+ * Get MLX backend status - Apple Silicon native inference
+ */
+export async function fetchMLXStatus(): Promise<MLXStatus | null> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/mlx/status`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Download an MLX model from HuggingFace
+ */
+export async function downloadMLXModel(
+  modelId: string,
+  force = false,
+  onProgress?: (progress: ModelDownloadProgress) => void
+): Promise<MLXDownloadResult> {
+  try {
+    // Set initial progress
+    onProgress?.({
+      modelId,
+      status: 'downloading',
+      progress: 10,
+      downloadedBytes: 0,
+      totalBytes: 0,
+    });
+
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/mlx/download`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ model_id: modelId, force }),
+    });
+
+    const result = await res.json();
+
+    if (result.success) {
+      onProgress?.({
+        modelId,
+        status: 'complete',
+        progress: 100,
+        downloadedBytes: 0,
+        totalBytes: 0,
+      });
+    } else {
+      onProgress?.({
+        modelId,
+        status: 'error',
+        progress: 0,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        error: result.errors?.join(', ') || 'Download failed',
+      });
+    }
+
+    return result;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Download failed';
+    onProgress?.({
+      modelId,
+      status: 'error',
+      progress: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      error: errorMsg,
+    });
+    return {
+      success: false,
+      model_id: modelId,
+      steps: [],
+      errors: [errorMsg],
+    };
+  }
+}
+
+/**
+ * Configure an MLX model as the active model
+ */
+export async function configureMLXModel(
+  modelId: string,
+  options: { preload?: boolean; setAsDefault?: boolean } = {}
+): Promise<MLXConfigureResult> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/mlx/configure`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        model_id: modelId,
+        preload: options.preload ?? false,
+        set_as_default: options.setAsDefault ?? true,
+      }),
+    });
+    return res.json();
+  } catch (error) {
+    return {
+      success: false,
+      model_id: modelId,
+      backend: 'mlx',
+      steps: [],
+      errors: [error instanceof Error ? error.message : 'Configuration failed'],
+    };
+  }
+}
+
+/**
+ * Unload MLX model(s) from memory
+ */
+export async function unloadMLXModel(modelId?: string): Promise<{ success: boolean; message?: string }> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/mlx/unload`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ model_id: modelId }),
+    });
+    return res.json();
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unload failed',
+    };
+  }
+}
+
+// =============================================================================
+// INFERENCE TEST API
+// =============================================================================
+
+export interface InferenceRequest {
+  prompt: string;
+  system?: string;
+  model_ref?: string;
+  backend?: 'mlx' | 'ollama' | 'llamacpp';
+  max_tokens?: number;
+}
+
+export interface InferenceResult {
+  result: string;
+  backend: string;
+  user_mode?: string;
+  is_staff?: boolean;
+  is_beta_user?: boolean;
+  error?: string;
+}
+
+/**
+ * Test inference with local LLM
+ * For development: uses direct Ollama API
+ * For production: would use /contextdna/llm/infer with auth
+ */
+export async function testInference(request: InferenceRequest): Promise<InferenceResult> {
+  const { prompt, system, model_ref, backend = 'ollama', max_tokens = 512 } = request;
+
+  // For development, use direct Ollama API (no auth required)
+  // This bypasses the authenticated /infer endpoint
+  if (backend === 'ollama') {
+    try {
+      const res = await fetch(`${OLLAMA_API}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model_ref || 'qwen2.5-coder:7b',
+          prompt: system ? `System: ${system}\n\nUser: ${prompt}` : prompt,
+          stream: false,
+          options: {
+            num_predict: max_tokens,
+            temperature: 0.7,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.text();
+        return { result: '', backend: 'ollama', error: `Ollama error: ${error}` };
+      }
+
+      const data = await res.json();
+      return {
+        result: data.response || '',
+        backend: 'ollama',
+      };
+    } catch (error) {
+      return {
+        result: '',
+        backend: 'ollama',
+        error: error instanceof Error ? error.message : 'Inference failed',
+      };
+    }
+  }
+
+  // For MLX, use the local LLM API (requires server running)
+  if (backend === 'mlx') {
+    try {
+      const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/mlx/generate`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          prompt,
+          system,
+          model_id: model_ref,
+          max_tokens,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.text();
+        return { result: '', backend: 'mlx', error: `MLX error: ${error}` };
+      }
+
+      const data = await res.json();
+      return {
+        result: data.result || data.response || '',
+        backend: 'mlx',
+      };
+    } catch (error) {
+      return {
+        result: '',
+        backend: 'mlx',
+        error: error instanceof Error ? error.message : 'MLX inference failed',
+      };
+    }
+  }
+
+  return { result: '', backend, error: `Unsupported backend: ${backend}` };
+}
+
+// =============================================================================
+// WORKSPACE & DEVICE ANALYSIS API
+// =============================================================================
+
+/**
+ * Perform comprehensive system analysis: device info + hardware + workspace
+ * This is the main entry point for the "Analyze System" button
+ */
+export async function analyzeSystem(workspacePath?: string): Promise<SystemAnalysis> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/system/analyze`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ workspace_path: workspacePath }),
+    });
+    if (!res.ok) {
+      throw new Error(`System analysis failed: ${res.status}`);
+    }
+    return res.json();
+  } catch (error) {
+    // Fallback: try to get individual components
+    const [device, hardware] = await Promise.all([
+      fetchDeviceInfo().catch(() => null),
+      fetchHardwareInfo().catch(() => null),
+    ]);
+
+    return {
+      device: device || {
+        device_id: 'unknown',
+        machine_id: 'unknown',
+        fingerprint: 'unknown',
+        os: typeof navigator !== 'undefined' ? navigator.platform : 'unknown',
+        os_version: 'unknown',
+        arch: 'unknown',
+        hostname: 'unknown',
+        username: 'unknown',
+      },
+      hardware,
+      workspace: null,
+    };
+  }
+}
+
+/**
+ * Fetch device identification info (fingerprint, device ID, OS details)
+ */
+export async function fetchDeviceInfo(): Promise<DeviceInfo> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/device/info`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error('Failed to fetch device info');
+    return res.json();
+  } catch {
+    // Return basic info from browser if server unavailable
+    return {
+      device_id: 'browser_' + Math.random().toString(36).substring(2, 10),
+      machine_id: 'unknown',
+      fingerprint: 'unknown',
+      os: typeof navigator !== 'undefined' ? navigator.platform : 'unknown',
+      os_version: 'unknown',
+      arch: typeof navigator !== 'undefined' ? (navigator.userAgent.includes('arm') ? 'arm64' : 'x64') : 'unknown',
+      hostname: 'unknown',
+      username: 'unknown',
+    };
+  }
+}
+
+/**
+ * Analyze workspace/codebase structure
+ */
+export async function analyzeWorkspace(rootPath?: string): Promise<WorkspaceAnalysis> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/workspace/analyze`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ root_path: rootPath }),
+    });
+    if (!res.ok) throw new Error('Workspace analysis failed');
+    return res.json();
+  } catch (error) {
+    return {
+      status: 'error',
+      profile: null,
+      questions: [],
+      suggestions: [],
+      error: error instanceof Error ? error.message : 'Analysis failed',
+    };
+  }
+}
+
+/**
+ * Save confirmed hierarchy profile to PostgreSQL
+ */
+export async function saveHierarchyProfile(profile: HierarchyProfile): Promise<{ success: boolean; version: number }> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/hierarchy/save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(profile),
+    });
+    if (!res.ok) throw new Error('Failed to save hierarchy');
+    return res.json();
+  } catch (error) {
+    return { success: false, version: 0 };
+  }
+}
+
+/**
+ * Get saved hierarchy profile from PostgreSQL
+ */
+export async function fetchHierarchyProfile(): Promise<HierarchyProfile | null> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/hierarchy/current`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.profile || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List hierarchy profile versions (for rollback)
+ */
+export async function listHierarchyVersions(limit = 10): Promise<Array<{
+  version: number;
+  created_at: string;
+  source: string;
+  notes?: string;
+}>> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/hierarchy/versions?limit=${limit}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.versions || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Answer a clarifying question during workspace analysis
+ */
+export async function answerClarifyingQuestion(
+  questionId: string,
+  answer: string
+): Promise<WorkspaceAnalysis> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/workspace/answer`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ question_id: questionId, answer }),
+    });
+    if (!res.ok) throw new Error('Failed to submit answer');
+    return res.json();
+  } catch (error) {
+    return {
+      status: 'error',
+      profile: null,
+      questions: [],
+      suggestions: [],
+      error: error instanceof Error ? error.message : 'Failed to submit answer',
     };
   }
 }
