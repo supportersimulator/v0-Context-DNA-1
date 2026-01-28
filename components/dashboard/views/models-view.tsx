@@ -6,14 +6,19 @@ import { cn } from '@/lib/utils';
 import {
   fetchModelStatus,
   fetchUserPlan,
+  fetchHardwareInfo,
+  fetchMemoryStats,
+  purgeMemory,
   downloadModel,
   switchModel,
   deleteModel,
   formatBytes,
+  checkModelCompatibility,
 } from '@/lib/api';
 import type {
   ModelStatus,
   UserPlan,
+  HardwareInfo,
   OllamaModel,
   ModelDownloadProgress,
   AvailableModel,
@@ -26,6 +31,7 @@ import {
   Check,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   HardDrive,
   Cpu,
   RefreshCw,
@@ -33,6 +39,8 @@ import {
   Lock,
   Crown,
   Sparkles,
+  MemoryStick,
+  Zap,
 } from 'lucide-react';
 
 export function ModelsView() {
@@ -51,6 +59,27 @@ export function ModelsView() {
     fetchUserPlan,
     { refreshInterval: 60000 }
   );
+
+  const { data: hardwareInfo } = useSWR(
+    'hardware-info',
+    fetchHardwareInfo,
+    { refreshInterval: 30000 }
+  );
+
+  const { data: memoryStats, mutate: mutateMemory } = useSWR(
+    'memory-stats',
+    fetchMemoryStats,
+    { refreshInterval: 10000 }
+  );
+
+  const [purging, setPurging] = useState(false);
+
+  const handlePurgeMemory = async () => {
+    setPurging(true);
+    await purgeMemory();
+    await mutateMemory();
+    setPurging(false);
+  };
 
   const isLoading = statusLoading || planLoading;
   const installedModelNames = new Set(modelStatus?.installedModels.map(m => m.name) || []);
@@ -182,6 +211,83 @@ export function ModelsView() {
           )}
         </div>
       </div>
+
+      {/* Hardware & Memory Info */}
+      {hardwareInfo && (
+        <div className="glass rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Cpu className="w-4 h-4" />
+              System Hardware
+            </h3>
+            {hardwareInfo.is_apple_silicon && (
+              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                Apple Silicon
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-muted-foreground text-xs">Processor</p>
+              <p className="text-foreground">{hardwareInfo.chip_name || 'Unknown'}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Total RAM</p>
+              <p className="text-foreground">{hardwareInfo.ram_gb} GB</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Available RAM</p>
+              <p className="text-foreground">
+                {memoryStats ? `${memoryStats.available_gb.toFixed(1)} GB` : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Recommended</p>
+              <p className="text-foreground text-xs">{hardwareInfo.recommended_model_name}</p>
+            </div>
+          </div>
+
+          {/* Rosetta 2 Warning */}
+          {hardwareInfo.is_rosetta && (
+            <div className="flex items-start gap-2 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+              <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-yellow-400">Rosetta 2 Detected</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Python is running under x86_64 emulation. MLX requires native ARM64 Python for Metal GPU acceleration.
+                  Run the Context DNA installer to set up a native environment.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Memory Purge Option */}
+          {memoryStats && memoryStats.cache_reclaimable_gb > 1 && (
+            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <MemoryStick className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  ~{memoryStats.cache_reclaimable_gb.toFixed(1)} GB reclaimable from cache
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePurgeMemory}
+                disabled={purging}
+                className="border-border"
+              >
+                {purging ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Zap className="w-4 h-4 mr-1" />
+                )}
+                Free RAM
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Active Model */}
       {modelStatus?.activeModel && (

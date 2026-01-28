@@ -195,6 +195,8 @@ export interface OllamaModel {
   };
 }
 
+export type BackendType = 'mlx' | 'ollama' | 'llamacpp';
+
 export interface AvailableModel {
   id: string;
   name: string;
@@ -206,6 +208,8 @@ export interface AvailableModel {
   category: 'coding' | 'general' | 'embedding' | 'multimodal';
   recommended: boolean;
   tier: 'free' | 'pro' | 'advanced'; // Required subscription tier
+  backend: BackendType; // Which runtime to use
+  appleSiliconOnly?: boolean; // If true, only show on Apple Silicon
 }
 
 export interface ModelDownloadProgress {
@@ -224,6 +228,37 @@ export interface ModelStatus {
   ollamaRunning: boolean;
 }
 
+export interface HardwareInfo {
+  os: string;
+  arch: string;
+  python_arch: string;
+  ram_gb: number;
+  is_apple_silicon: boolean;
+  has_metal: boolean;
+  is_rosetta: boolean;
+  chip_name: string | null;
+  cpu_cores: number | null;
+  gpu_info: string | null;
+  mlx_available: boolean;
+  ollama_available: boolean;
+  recommended_backend: BackendType;
+  recommended_model: string;
+  recommended_model_name: string;
+  recommended_model_size: string;
+  install_command: string;
+  notes: string;
+  warnings: string[];
+  all_models: Array<{
+    size: string;
+    id: string;
+    name: string;
+    ram_required: number;
+    description: string;
+    recommended: boolean;
+    fits_in_ram: boolean;
+  }>;
+}
+
 export interface UserPlan {
   tier: 'free' | 'pro' | 'advanced';
   canSwitchModels: boolean;
@@ -231,36 +266,100 @@ export interface UserPlan {
   maxModels: number;
 }
 
-// Available models catalog - can be extended
+// Available models catalog - MLX models first (recommended for Apple Silicon)
 export const AVAILABLE_MODELS: AvailableModel[] = [
+  // ==========================================================================
+  // MLX MODELS (Apple Silicon Native - Recommended)
+  // ==========================================================================
   {
-    id: 'qwen2.5-coder:7b',
-    name: 'qwen2.5-coder:7b',
-    displayName: 'Qwen 2.5 Coder 7B',
-    description: 'Fast coding assistant, balanced performance',
-    size: '4.5 GB',
-    sizeBytes: 4500000000,
+    id: 'mlx-community/Qwen2.5-Coder-7B-Instruct-4bit',
+    name: 'mlx-community/Qwen2.5-Coder-7B-Instruct-4bit',
+    displayName: 'Qwen 2.5 Coder 7B (MLX)',
+    description: 'Native Apple Silicon - fastest coding assistant',
+    size: '4.2 GB',
+    sizeBytes: 4200000000,
     ramRequired: '8 GB',
     category: 'coding',
     recommended: true,
     tier: 'free',
+    backend: 'mlx',
+    appleSiliconOnly: true,
+  },
+  {
+    id: 'mlx-community/Qwen2.5-Coder-14B-Instruct-4bit',
+    name: 'mlx-community/Qwen2.5-Coder-14B-Instruct-4bit',
+    displayName: 'Qwen 2.5 Coder 14B (MLX)',
+    description: 'Native Apple Silicon - best quality coding',
+    size: '8.5 GB',
+    sizeBytes: 8500000000,
+    ramRequired: '16 GB',
+    category: 'coding',
+    recommended: false,
+    tier: 'pro',
+    backend: 'mlx',
+    appleSiliconOnly: true,
+  },
+  {
+    id: 'mlx-community/Qwen2.5-Coder-14B-Instruct-8bit',
+    name: 'mlx-community/Qwen2.5-Coder-14B-Instruct-8bit',
+    displayName: 'Qwen 2.5 Coder 14B 8-bit (MLX)',
+    description: 'Native Apple Silicon - maximum quality',
+    size: '14.5 GB',
+    sizeBytes: 14500000000,
+    ramRequired: '24 GB',
+    category: 'coding',
+    recommended: false,
+    tier: 'advanced',
+    backend: 'mlx',
+    appleSiliconOnly: true,
+  },
+  {
+    id: 'mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit-mlx',
+    name: 'mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit-mlx',
+    displayName: 'DeepSeek Coder V2 Lite (MLX)',
+    description: 'Native Apple Silicon - excellent completion',
+    size: '4.0 GB',
+    sizeBytes: 4000000000,
+    ramRequired: '8 GB',
+    category: 'coding',
+    recommended: false,
+    tier: 'free',
+    backend: 'mlx',
+    appleSiliconOnly: true,
+  },
+  // ==========================================================================
+  // OLLAMA MODELS (Cross-Platform)
+  // ==========================================================================
+  {
+    id: 'qwen2.5-coder:7b',
+    name: 'qwen2.5-coder:7b',
+    displayName: 'Qwen 2.5 Coder 7B (Ollama)',
+    description: 'Cross-platform - fast coding assistant',
+    size: '4.5 GB',
+    sizeBytes: 4500000000,
+    ramRequired: '8 GB',
+    category: 'coding',
+    recommended: false,
+    tier: 'free',
+    backend: 'ollama',
   },
   {
     id: 'qwen2.5-coder:14b',
     name: 'qwen2.5-coder:14b',
-    displayName: 'Qwen 2.5 Coder 14B',
-    description: 'Larger model with better reasoning',
+    displayName: 'Qwen 2.5 Coder 14B (Ollama)',
+    description: 'Cross-platform - better reasoning',
     size: '9.0 GB',
     sizeBytes: 9000000000,
     ramRequired: '16 GB',
     category: 'coding',
     recommended: false,
     tier: 'pro',
+    backend: 'ollama',
   },
   {
     id: 'llama3.1:8b',
     name: 'llama3.1:8b',
-    displayName: 'Llama 3.1 8B',
+    displayName: 'Llama 3.1 8B (Ollama)',
     description: 'General purpose with strong reasoning',
     size: '4.7 GB',
     sizeBytes: 4700000000,
@@ -268,11 +367,12 @@ export const AVAILABLE_MODELS: AvailableModel[] = [
     category: 'general',
     recommended: false,
     tier: 'pro',
+    backend: 'ollama',
   },
   {
     id: 'codellama:7b',
     name: 'codellama:7b',
-    displayName: 'Code Llama 7B',
+    displayName: 'Code Llama 7B (Ollama)',
     description: 'Meta code generation specialist',
     size: '3.8 GB',
     sizeBytes: 3800000000,
@@ -280,11 +380,12 @@ export const AVAILABLE_MODELS: AvailableModel[] = [
     category: 'coding',
     recommended: false,
     tier: 'free',
+    backend: 'ollama',
   },
   {
     id: 'nomic-embed-text',
     name: 'nomic-embed-text',
-    displayName: 'Nomic Embed Text',
+    displayName: 'Nomic Embed Text (Ollama)',
     description: 'Fast embeddings for semantic search',
     size: '274 MB',
     sizeBytes: 274000000,
@@ -292,11 +393,12 @@ export const AVAILABLE_MODELS: AvailableModel[] = [
     category: 'embedding',
     recommended: true,
     tier: 'free',
+    backend: 'ollama',
   },
   {
     id: 'deepseek-coder:6.7b',
     name: 'deepseek-coder:6.7b',
-    displayName: 'DeepSeek Coder 6.7B',
+    displayName: 'DeepSeek Coder 6.7B (Ollama)',
     description: 'Excellent for code completion',
     size: '3.8 GB',
     sizeBytes: 3800000000,
@@ -304,11 +406,12 @@ export const AVAILABLE_MODELS: AvailableModel[] = [
     category: 'coding',
     recommended: false,
     tier: 'advanced',
+    backend: 'ollama',
   },
   {
     id: 'llama3.1:70b',
     name: 'llama3.1:70b',
-    displayName: 'Llama 3.1 70B',
+    displayName: 'Llama 3.1 70B (Ollama)',
     description: 'Top-tier reasoning (GPU required)',
     size: '40 GB',
     sizeBytes: 40000000000,
@@ -316,5 +419,6 @@ export const AVAILABLE_MODELS: AvailableModel[] = [
     category: 'general',
     recommended: false,
     tier: 'advanced',
+    backend: 'ollama',
   },
 ];

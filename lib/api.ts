@@ -437,6 +437,9 @@ export function subscribeToInjections(
 const OLLAMA_API = process.env.NEXT_PUBLIC_OLLAMA_API || 'http://127.0.0.1:11434';
 const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5043';
 
+// Import types
+import type { HardwareInfo } from './types';
+
 /**
  * Fetch installed models from Ollama
  */
@@ -689,4 +692,173 @@ export function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// =============================================================================
+// HARDWARE DETECTION & MEMORY MANAGEMENT
+// =============================================================================
+
+/**
+ * Fetch hardware information including Apple Silicon detection,
+ * Rosetta 2 status, RAM, and model recommendations
+ */
+export async function fetchHardwareInfo(): Promise<HardwareInfo | null> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/hardware`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Memory statistics for model loading decisions
+ */
+export interface MemoryStats {
+  total_gb: number;
+  available_gb: number;
+  used_gb: number;
+  percent_used: number;
+  cache_reclaimable_gb: number;
+  realistic_available_gb: number;
+  can_purge: boolean;
+  purge_estimate_gb: number;
+}
+
+/**
+ * Fetch current memory statistics
+ */
+export async function fetchMemoryStats(): Promise<MemoryStats | null> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/memory-stats`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get memory purge info (how much RAM can be freed)
+ */
+export async function fetchMemoryPurgeInfo(): Promise<{
+  can_purge: boolean;
+  estimated_free_gb: number;
+  requires_admin: boolean;
+  platform: string;
+} | null> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/memory-purge-info`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Purge system memory cache (macOS only, requires admin)
+ */
+export async function purgeMemory(): Promise<{
+  success: boolean;
+  freed_gb?: number;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/llm/memory-purge`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    return res.json();
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Memory purge failed',
+    };
+  }
+}
+
+/**
+ * Check hardware and memory compatibility for a specific model
+ */
+export function checkModelCompatibility(
+  hardware: HardwareInfo | null,
+  memory: MemoryStats | null,
+  model: { backend: string; ramRequired: string; appleSiliconOnly?: boolean }
+): {
+  compatible: boolean;
+  issues: string[];
+  warnings: string[];
+} {
+  const issues: string[] = [];
+  const warnings: string[] = [];
+
+  if (!hardware) {
+    issues.push('Unable to detect hardware - local LLM server may not be running');
+    return { compatible: false, issues, warnings };
+  }
+
+  // Check Apple Silicon requirement
+  if (model.appleSiliconOnly && !hardware.is_apple_silicon) {
+    issues.push('This model requires Apple Silicon (M1/M2/M3/M4/M5)');
+  }
+
+  // Check MLX backend availability
+  if (model.backend === 'mlx' && !hardware.mlx_available) {
+    if (hardware.is_apple_silicon) {
+      warnings.push('MLX not installed - run the installer to enable Apple Silicon acceleration');
+    } else {
+      issues.push('MLX requires Apple Silicon - use an Ollama model instead');
+    }
+  }
+
+  // Check Ollama availability
+  if (model.backend === 'ollama' && !hardware.ollama_available) {
+    warnings.push('Ollama not running - start Ollama to use this model');
+  }
+
+  // Check Rosetta 2 warning for MLX
+  if (model.backend === 'mlx' && hardware.is_rosetta) {
+    warnings.push(
+      'Python is running under Rosetta 2 - MLX requires native ARM64 Python for GPU acceleration'
+    );
+  }
+
+  // Check RAM requirements
+  const ramRequired = parseInt(model.ramRequired.replace(/[^0-9]/g, ''), 10);
+  if (!isNaN(ramRequired)) {
+    const availableRam = memory?.realistic_available_gb ?? hardware.ram_gb;
+
+    if (ramRequired > hardware.ram_gb) {
+      issues.push(`Model requires ${ramRequired}GB RAM but system only has ${hardware.ram_gb}GB`);
+    } else if (memory && ramRequired > availableRam) {
+      if (memory.can_purge && memory.purge_estimate_gb > 0) {
+        warnings.push(
+          `Low available RAM (${availableRam.toFixed(1)}GB). ` +
+          `Purging cache could free ~${memory.purge_estimate_gb.toFixed(1)}GB.`
+        );
+      } else {
+        warnings.push(
+          `Low available RAM (${availableRam.toFixed(1)}GB). ` +
+          `Close other applications before loading this model.`
+        );
+      }
+    }
+  }
+
+  return {
+    compatible: issues.length === 0,
+    issues,
+    warnings,
+  };
 }
