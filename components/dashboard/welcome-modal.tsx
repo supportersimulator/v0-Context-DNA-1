@@ -30,6 +30,7 @@ export function WelcomeModal({ onClose, onStartSetup }: WelcomeModalProps) {
     environment: 'pending'
   });
   const [pulseIntensity, setPulseIntensity] = useState(0);
+  const [userName, setUserName] = useState('');
 
   // Breathing animation for consciousness glow
   useEffect(() => {
@@ -482,13 +483,39 @@ export function WelcomeModal({ onClose, onStartSetup }: WelcomeModalProps) {
                 </div>
               )}
 
+              {/* Username input - Synaptic asks who you are after learning about the system */}
+              <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 space-y-2">
+                <label className="block text-sm text-slate-300">
+                  Now that I know your system... who are you?
+                </label>
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="Your name"
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600/50 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && userName.trim()) {
+                      localStorage.setItem('contextdna_user_name', userName.trim());
+                      setStep('ready');
+                    }
+                  }}
+                />
+              </div>
+
               {/* Action */}
               <div className="pt-2">
                 <Button
-                  onClick={() => setStep('ready')}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-5 rounded-xl transition-all hover:shadow-lg hover:shadow-indigo-500/25"
+                  onClick={() => {
+                    if (userName.trim()) {
+                      localStorage.setItem('contextdna_user_name', userName.trim());
+                    }
+                    setStep('ready');
+                  }}
+                  disabled={!userName.trim()}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white py-5 rounded-xl transition-all hover:shadow-lg hover:shadow-indigo-500/25 disabled:shadow-none disabled:cursor-not-allowed"
                 >
-                  I understand
+                  {userName.trim() ? `Nice to meet you, ${userName.trim()}` : 'Tell me your name to continue'}
                 </Button>
               </div>
             </div>
@@ -512,7 +539,7 @@ export function WelcomeModal({ onClose, onStartSetup }: WelcomeModalProps) {
               {/* Synaptic's promise */}
               <div className="space-y-2">
                 <h2 className="text-xl font-medium text-slate-100">
-                  I'm ready to be your memory
+                  {userName.trim() ? `${userName.trim()}, I'm ready to be your memory` : "I'm ready to be your memory"}
                 </h2>
                 <p className="text-slate-400 text-sm max-w-sm mx-auto">
                   {analysis
