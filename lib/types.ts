@@ -59,7 +59,7 @@ export interface ServiceStatus {
   icon: string;
 }
 
-export type TabId = 'home' | 'activity' | 'professor' | 'search' | 'health' | 'models' | 'injection';
+export type TabId = 'home' | 'activity' | 'professor' | 'search' | 'health' | 'models' | 'injection' | 'install';
 
 export interface Tab {
   id: TabId;
@@ -74,6 +74,7 @@ export const DEFAULT_TABS: Tab[] = [
   { id: 'search', label: 'Search', icon: '🔍' },
   { id: 'health', label: 'Health', icon: '💚' },
   { id: 'models', label: 'Models', icon: '🤖' },
+  { id: 'install', label: 'Install', icon: '📥' },
 ];
 
 // Injection tab is special - shown via focus mode toggle, not in main tab list
@@ -344,6 +345,112 @@ export interface SystemAnalysis {
   device: DeviceInfo;
   hardware: HardwareInfo | null;
   workspace: WorkspaceAnalysis | null;
+}
+
+// =============================================================================
+// INSTALLATION WIZARD TYPES
+// =============================================================================
+
+export type InstallPriority = 'required' | 'recommended' | 'optional';
+
+export type ComponentCategory =
+  | 'runtime'
+  | 'version_control'
+  | 'ide'
+  | 'extension'
+  | 'ai_backend'
+  | 'container';
+
+export interface InstallComponent {
+  id: string;
+  name: string;
+  description: string;
+  priority: InstallPriority;
+  category: ComponentCategory;
+  is_installed: boolean;
+  installed_version?: string;
+  install_command?: string;
+  verify_command?: string;
+  estimated_time?: number; // seconds
+}
+
+export interface InstallationPlan {
+  steps: InstallStep[];
+  total_steps: number;
+  estimated_total_time: number;
+  custom_paths?: {
+    workspace?: string;
+    context_dna?: string;
+  };
+  use_aarons_baseline: boolean;
+}
+
+export interface InstallStep {
+  order: number;
+  component_id: string;
+  name: string;
+  description: string;
+  category: string;
+  priority: string;
+  install_command?: string;
+  verify_command?: string;
+  estimated_time: number;
+}
+
+export interface InstallStepResult {
+  component_id: string;
+  name: string;
+  status: 'pending' | 'success' | 'failed' | 'skipped' | 'timeout' | 'error';
+  output?: string;
+  error?: string;
+}
+
+export interface InstallationStatus {
+  status: 'idle' | 'analyzing' | 'planning' | 'installing' | 'complete' | 'complete_with_errors' | 'error';
+  progress: number;
+  current_step?: string | null;
+  steps_completed: string[];
+  errors: string[];
+  plan?: InstallationPlan | null;
+}
+
+export interface InstallWizardAnalysis {
+  hardware: HardwareInfo | null;
+  device: DeviceInfo | null;  // Device fingerprint for AWS security verification
+  environment: {
+    tools: Record<string, {
+      installed: boolean;
+      version?: string;
+      path?: string;
+      install_command?: string;
+    }>;
+    extensions: Array<{
+      id: string;
+      name: string;
+      installed: boolean;
+      required: boolean;
+    }>;
+    workspaces: string[];
+    missing_critical: string[];
+    missing_recommended: string[];
+    ready_for_context_dna: boolean;
+    install_recommendations: string[];
+  };
+  components: InstallComponent[];
+  aarons_baseline: Record<string, any>;
+  ready_for_context_dna: boolean;
+  missing_required: InstallComponent[];
+  // Scan metadata (from concurrent analyzer)
+  scan_times?: Record<string, number>;  // Time taken for each scan in seconds
+  scan_errors?: string[];  // Any errors during scanning
+}
+
+export interface InstallExecutionResult {
+  status: string;
+  results: InstallStepResult[];
+  errors: string[];
+  success_count: number;
+  total_count: number;
 }
 
 export const AVAILABLE_MODELS: AvailableModel[] = [

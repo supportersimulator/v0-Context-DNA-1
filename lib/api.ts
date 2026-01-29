@@ -438,7 +438,17 @@ const OLLAMA_API = process.env.NEXT_PUBLIC_OLLAMA_API || 'http://127.0.0.1:11434
 const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5043';
 
 // Import types
-import type { HardwareInfo, DeviceInfo, WorkspaceAnalysis, SystemAnalysis, HierarchyProfile } from './types';
+import type {
+  HardwareInfo,
+  DeviceInfo,
+  WorkspaceAnalysis,
+  SystemAnalysis,
+  HierarchyProfile,
+  InstallWizardAnalysis,
+  InstallationPlan,
+  InstallationStatus,
+  InstallExecutionResult,
+} from './types';
 
 /**
  * Fetch installed models from Ollama
@@ -1300,4 +1310,127 @@ export function checkModelCompatibility(
     issues,
     warnings,
   };
+}
+
+// =============================================================================
+// INSTALLATION WIZARD API
+// =============================================================================
+
+/**
+ * Phase 1: Analyze system for installation wizard
+ * Returns hardware, environment, components, and Aaron's baseline recommendations
+ */
+export async function installWizardAnalyze(): Promise<InstallWizardAnalysis> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/install/wizard/analyze`, {
+      headers: getAuthHeaders(),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      throw new Error(`Install wizard analysis failed: ${res.status}`);
+    }
+    return res.json();
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Analysis failed');
+  }
+}
+
+/**
+ * Phase 2: Generate installation plan based on user selections
+ */
+export async function installWizardPlan(options: {
+  selected_components: string[];
+  use_aarons_baseline?: boolean;
+  custom_paths?: {
+    workspace?: string;
+    context_dna?: string;
+  };
+}): Promise<{ plan: InstallationPlan; ready: boolean }> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/install/wizard/plan`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        selected_components: options.selected_components,
+        use_aarons_baseline: options.use_aarons_baseline ?? true,
+        custom_paths: options.custom_paths,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Install wizard plan failed: ${res.status}`);
+    }
+    return res.json();
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Plan generation failed');
+  }
+}
+
+/**
+ * Phase 3: Execute the installation plan
+ */
+export async function installWizardExecute(options?: {
+  dry_run?: boolean;
+  skip_installed?: boolean;
+}): Promise<InstallExecutionResult> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/install/wizard/execute`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        dry_run: options?.dry_run ?? false,
+        skip_installed: options?.skip_installed ?? true,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Install wizard execution failed: ${res.status}`);
+    }
+    return res.json();
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Execution failed');
+  }
+}
+
+/**
+ * Get current installation status
+ */
+export async function installWizardStatus(): Promise<InstallationStatus> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/install/wizard/status`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      throw new Error(`Install wizard status failed: ${res.status}`);
+    }
+    return res.json();
+  } catch (error) {
+    return {
+      status: 'error',
+      progress: 0,
+      current_step: null,
+      steps_completed: [],
+      errors: [error instanceof Error ? error.message : 'Status check failed'],
+      plan: null,
+    };
+  }
+}
+
+/**
+ * Reset installation wizard state
+ */
+export async function installWizardReset(): Promise<{ status: string; message: string }> {
+  try {
+    const res = await fetch(`${LOCAL_LLM_API}/contextdna/install/wizard/reset`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      throw new Error(`Install wizard reset failed: ${res.status}`);
+    }
+    return res.json();
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Reset failed',
+    };
+  }
 }

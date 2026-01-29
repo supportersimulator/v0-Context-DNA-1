@@ -11,14 +11,19 @@ import { SearchView } from './views/search-view';
 import { HealthView } from './views/health-view';
 import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
+import { InstallWizardView } from './views/install-wizard-view';
+import { WelcomeModal } from './welcome-modal';
 import { cn } from '@/lib/utils';
 import { Syringe } from 'lucide-react';
+
+const FIRST_TIME_KEY = 'contextdna_first_visit_completed';
 
 export default function DashboardShell() {
   const [activeTab, setActiveTab] = useState<TabId>('home');
   const [tabs, setTabs] = useState<Tab[]>(DEFAULT_TABS);
   const [focusMode, setFocusMode] = useState(false);
   const [previousTab, setPreviousTab] = useState<TabId>('home');
+  const [showWelcome, setShowWelcome] = useState(false);
 
   // Handle tab change - exit focus mode if switching to non-injection tab
   const handleTabChange = useCallback((tabId: string) => {
@@ -67,6 +72,34 @@ export default function DashboardShell() {
     setActiveTab(previousTab);
   }, [previousTab]);
 
+  // First-time user detection
+  useEffect(() => {
+    // Check if this is the user's first visit
+    const hasVisitedBefore = localStorage.getItem(FIRST_TIME_KEY);
+    if (!hasVisitedBefore) {
+      // Small delay to let the page render first
+      const timer = setTimeout(() => {
+        setShowWelcome(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Handle welcome modal close
+  const handleWelcomeClose = useCallback(() => {
+    setShowWelcome(false);
+    // Mark as visited so we don't show again
+    localStorage.setItem(FIRST_TIME_KEY, 'true');
+  }, []);
+
+  // Handle start setup from welcome modal
+  const handleStartSetup = useCallback(() => {
+    setShowWelcome(false);
+    localStorage.setItem(FIRST_TIME_KEY, 'true');
+    // Navigate to install wizard
+    handleTabChange('install');
+  }, [handleTabChange]);
+
   // Keyboard shortcut: Cmd+I to toggle focus mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -110,6 +143,8 @@ export default function DashboardShell() {
         return <HealthView />;
       case 'models':
         return <ModelsView />;
+      case 'install':
+        return <InstallWizardView />;
       case 'injection':
         return <InjectionFocusView onClose={exitFocusMode} />;
       default:
@@ -119,6 +154,14 @@ export default function DashboardShell() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Welcome Modal for first-time users */}
+      {showWelcome && (
+        <WelcomeModal
+          onClose={handleWelcomeClose}
+          onStartSetup={handleStartSetup}
+        />
+      )}
+
       {/* Tab bar */}
       {/* Top Header / Tab Bar Area */}
       <div className="flex items-center gap-1 px-4 py-2 bg-secondary border-b border-border w-full flex-shrink-0">
