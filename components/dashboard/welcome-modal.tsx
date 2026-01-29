@@ -153,9 +153,8 @@ export function WelcomeModal({ onClose, onStartSetup }: WelcomeModalProps) {
                   The heart of Context DNA
                 </p>
                 <p className="text-slate-400 text-sm leading-relaxed max-w-sm mx-auto pt-2">
-                  AI agents are brilliant, but they forget everything. I don't.
-                  Every pattern, every solution, every hard-won lesson—I keep it all safe.
-                  And I never share it. Not with anyone.
+                  I'm the subconscious memory your AI was missing—I learn your patterns,
+                  remember your lessons, and keep everything on your machine, never the cloud.
                 </p>
               </div>
 
