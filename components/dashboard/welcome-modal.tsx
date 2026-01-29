@@ -149,8 +149,11 @@ export function WelcomeModal({ onClose, onStartSetup }: WelcomeModalProps) {
                 <h2 className="text-2xl font-semibold text-slate-100">
                   Hello. I'm <span className="text-indigo-400">Synaptic</span>.
                 </h2>
-                <p className="text-slate-400 text-sm leading-relaxed max-w-sm mx-auto">
-                  I'm an intelligence that learns how you work and remembers what matters.
+                <p className="text-xs text-slate-500 -mt-1">
+                  The heart of Context DNA
+                </p>
+                <p className="text-slate-400 text-sm leading-relaxed max-w-sm mx-auto pt-2">
+                  AI agents are brilliant, but they forget everything. I don't.
                   Every pattern, every solution, every hard-won lesson—I keep it all safe.
                   And I never share it. Not with anyone.
                 </p>
