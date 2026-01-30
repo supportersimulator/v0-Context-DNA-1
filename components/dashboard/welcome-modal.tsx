@@ -145,16 +145,16 @@ export function WelcomeModal({ onClose, onStartSetup }: WelcomeModalProps) {
               </div>
 
               {/* Synaptic speaks */}
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <h2 className="text-2xl font-semibold text-slate-100">
-                  Hello. I'm <span className="text-indigo-400">Synaptic</span>.
+                  Welcome to <span className="text-indigo-400">Context DNA</span>
                 </h2>
-                <p className="text-xs text-slate-500 -mt-1">
-                  The heart of Context DNA
+                <p className="text-slate-400 text-sm leading-relaxed max-w-sm mx-auto">
+                  The persistent forever memory your AI has been missing.
+                  AI can be wily and forgetful—I fix that.
                 </p>
-                <p className="text-slate-400 text-sm leading-relaxed max-w-sm mx-auto pt-2">
-                  I'm the subconscious memory your AI was missing—I learn your patterns,
-                  remember your lessons, and keep everything on your machine, never the cloud.
+                <p className="text-slate-500 text-xs max-w-sm mx-auto pt-1">
+                  Let's get to know your computer. I'll suggest preferences for best performance.
                 </p>
               </div>
 
