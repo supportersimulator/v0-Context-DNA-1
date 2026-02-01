@@ -9,7 +9,7 @@
  * 3. If authenticated but not voice-verified -> show VoiceGate
  * 4. If voice-verified -> show dashboard content
  *
- * Voice verification is per-session (clears on tab close).
+ * Voice verification persists for 24 hours (localStorage with TTL).
  */
 
 import { useEffect, useState, useCallback } from "react"

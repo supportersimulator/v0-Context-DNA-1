@@ -25,23 +25,109 @@ import { getStoredUsername, getDeviceToken, storeDeviceToken } from '@/lib/auth/
 // =============================================================================
 
 function getBaseUrl(): string {
-  if (typeof window === 'undefined') return 'http://localhost:8888'
+  if (typeof window === 'undefined') return 'http://localhost:8888/api/contextdna'
   const hostname = window.location.hostname
-  // Local development - connect directly to Synaptic
+  // Local development - connect directly to Django backend
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:8888'
+    return 'http://localhost:8888/api/contextdna'
   }
-  // Production - use Cloudflare Tunnel
-  return 'https://voice.contextdna.io'
+  // Production - use Cloudflare Tunnel → Django backend
+  return 'https://voice.contextdna.io/api/contextdna'
 }
 
-// Session storage keys
+// =============================================================================
+// Fetch with Retry - Automatic retry on network errors with exponential backoff
+// =============================================================================
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 3
+): Promise<Response> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options)
+      return response
+    } catch (error) {
+      lastError = error as Error
+      if (attempt < maxRetries - 1) {
+        // Exponential backoff: 1s, 2s, 3s...
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+      }
+    }
+  }
+  throw lastError
+}
+
+// Storage keys (localStorage for persistence across sessions)
 const VOICE_VERIFIED_KEY = 'voice_verified'
+const VOICE_VERIFIED_AT_KEY = 'voice_verified_at'
 const MACHINE_FINGERPRINT_KEY = 'machine_fingerprint'
 
 // Recording configuration
 const RECORDING_DURATION = 4000 // 4 seconds for better voice capture
 const SIMILARITY_THRESHOLD = 0.70
+
+// Verification TTL configuration
+const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+/**
+ * Check if we're on localhost (local machine = voice optional)
+ */
+function isLocalAccess(): boolean {
+  if (typeof window === 'undefined') return false
+  const hostname = window.location.hostname
+  return hostname === 'localhost' || hostname === '127.0.0.1'
+}
+
+/**
+ * Check if voice verification is still valid (within TTL)
+ */
+function isVerificationValid(): boolean {
+  if (typeof window === 'undefined') return false
+
+  const verified = localStorage.getItem(VOICE_VERIFIED_KEY)
+  const verifiedAt = localStorage.getItem(VOICE_VERIFIED_AT_KEY)
+
+  if (verified !== 'true' || !verifiedAt) return false
+
+  const verifiedTime = parseInt(verifiedAt, 10)
+  const now = Date.now()
+  const elapsed = now - verifiedTime
+
+  // Check if within TTL
+  if (elapsed < VERIFICATION_TTL_MS) {
+    return true
+  }
+
+  // Expired - clear verification
+  localStorage.removeItem(VOICE_VERIFIED_KEY)
+  localStorage.removeItem(VOICE_VERIFIED_AT_KEY)
+  return false
+}
+
+/**
+ * Store verification timestamp
+ */
+function storeVerification(): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(VOICE_VERIFIED_KEY, 'true')
+  localStorage.setItem(VOICE_VERIFIED_AT_KEY, Date.now().toString())
+}
+
+/**
+ * Get time remaining until reverification needed
+ */
+function getVerificationTimeRemaining(): number {
+  if (typeof window === 'undefined') return 0
+  const verifiedAt = localStorage.getItem(VOICE_VERIFIED_AT_KEY)
+  if (!verifiedAt) return 0
+
+  const verifiedTime = parseInt(verifiedAt, 10)
+  const remaining = VERIFICATION_TTL_MS - (Date.now() - verifiedTime)
+  return Math.max(0, remaining)
+}
 
 // =============================================================================
 // Types
@@ -59,6 +145,7 @@ type GateState =
   | 'verify_processing'// Checking voice match
   | 'verified'         // Voice matched - access granted
   | 'unauthorized'     // Voice didn't match - UNAUTHORIZED
+  | 'challenge'        // Machine fingerprint mismatch - additional verification required
   | 'error'            // System error
 
 interface VoiceGateProps {
@@ -119,6 +206,11 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
   const [similarity, setSimilarity] = useState<number | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string>('')
+  const [challengeInfo, setChallengeInfo] = useState<{
+    reason?: string
+    expected_fingerprint?: string
+    current_fingerprint?: string
+  } | null>(null)
 
   // Audio refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -131,17 +223,29 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
   const machineFingerprint = getMachineFingerprint()
 
   // ==========================================================================
-  // Check if already verified this session
+  // Check if already verified (within 24-hour TTL)
   // ==========================================================================
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const verified = sessionStorage.getItem(VOICE_VERIFIED_KEY)
-      if (verified === 'true') {
+      // Check if verification is still valid (within TTL)
+      if (isVerificationValid()) {
+        const remaining = getVerificationTimeRemaining()
+        const hours = Math.floor(remaining / (60 * 60 * 1000))
+        console.log(`[VoiceGate] Verification valid for ${hours}h more`)
+        onVerified()
+        return
+      }
+
+      // Local access: Auto-bypass voice auth (physical presence = authenticated)
+      // Voice auth is only required for remote access via Cloudflare tunnel
+      if (isLocalAccess()) {
+        console.log('[VoiceGate] Local access detected - auto-bypassing voice auth')
+        storeVerification() // Store so we don't re-check for 24h
         onVerified()
         return
       }
     }
-    // Check enrollment status
+    // Remote access: Check enrollment status and require voice auth
     checkEnrollmentStatus()
   }, [])
 
@@ -154,8 +258,9 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
 
     try {
       const baseUrl = getBaseUrl()
-      const response = await fetch(
-        `${baseUrl}/voice/enrollment-status?user_email=${encodeURIComponent(email)}`
+      const response = await fetchWithRetry(
+        `${baseUrl}/voice/enrollment-status/?user_email=${encodeURIComponent(email)}`,
+        { method: 'GET' }
       )
 
       if (!response.ok) {
@@ -287,14 +392,17 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
       formData.append('machine_fingerprint', machineFingerprint)
 
       const baseUrl = getBaseUrl()
-      const response = await fetch(`${baseUrl}/voice/enroll`, {
-        method: 'POST',
-        body: formData,
-      })
+      const response = await fetchWithRetry(
+        `${baseUrl}/voice/enroll/`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      )
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Enrollment failed')
+        throw new Error(errorData.error || errorData.detail || 'Enrollment failed')
       }
 
       const result = await response.json()
@@ -350,10 +458,13 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
       formData.append('machine_fingerprint', machineFingerprint)
 
       const baseUrl = getBaseUrl()
-      const response = await fetch(`${baseUrl}/voice/verify`, {
-        method: 'POST',
-        body: formData,
-      })
+      const response = await fetchWithRetry(
+        `${baseUrl}/voice/verify/`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      )
 
       if (!response.ok) {
         throw new Error('Verification request failed')
@@ -362,13 +473,29 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
       const result = await response.json()
       setSimilarity(result.similarity)
 
+      // Check for challenge mode (machine fingerprint mismatch)
+      // Check for challenge mode - backend returns requires_additional_verification
+      if (result.requires_additional_verification || result.challenge || result.challenge_mode) {
+        setState('challenge')
+        setStatusMessage('Additional verification required')
+        setChallengeInfo({
+          reason: result.challenge_reason || result.reason || 'Device fingerprint mismatch detected',
+          expected_fingerprint: result.expected_fingerprint,
+          current_fingerprint: result.current_fingerprint || machineFingerprint,
+        })
+        setErrorMessage('You are accessing from an unrecognized device. Additional verification is needed to confirm your identity.')
+        console.log('[VoiceGate] Challenge mode triggered:', result.challenge_reason || 'fingerprint mismatch')
+        return
+      }
+
       if (result.is_match) {
         // SUCCESS - Voice verified
         setState('verified')
         setStatusMessage(`Welcome back! (${Math.round(result.similarity * 100)}% match)`)
 
-        // Store verification in session
-        sessionStorage.setItem(VOICE_VERIFIED_KEY, 'true')
+        // Store verification with timestamp (24-hour TTL)
+        storeVerification()
+        console.log('[VoiceGate] Voice verified - valid for 24 hours')
 
         // Transition after animation
         setTimeout(() => {
@@ -403,10 +530,27 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
   const handleRetry = () => {
     setErrorMessage(null)
     setSimilarity(null)
-    if (state === 'unauthorized' || state === 'error') {
+    setChallengeInfo(null)
+    if (state === 'unauthorized' || state === 'error' || state === 'challenge') {
       setState('verify_ready')
       setStatusMessage('Speak to verify your identity')
     }
+  }
+
+  // ==========================================================================
+  // Contact Support Handler (for challenge mode)
+  // ==========================================================================
+  const handleContactSupport = () => {
+    // Open email client with pre-filled support request
+    const subject = encodeURIComponent('Voice Authentication Challenge - Device Verification')
+    const body = encodeURIComponent(
+      `Hello,\n\nI'm experiencing a device verification challenge when trying to access Context DNA.\n\n` +
+      `User Email: ${email}\n` +
+      `Current Machine ID: ${machineFingerprint}\n` +
+      `Challenge Reason: ${challengeInfo?.reason || 'Unknown'}\n\n` +
+      `Please help me verify my identity and update my device registration.\n\nThank you.`
+    )
+    window.open(`mailto:support@contextdna.io?subject=${subject}&body=${body}`, '_blank')
   }
 
   // ==========================================================================
@@ -451,8 +595,9 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
                 "text-lg font-medium",
                 state === 'verified' && "text-green-400",
                 state === 'unauthorized' && "text-red-400",
+                state === 'challenge' && "text-amber-400",
                 state === 'error' && "text-red-400",
-                !['verified', 'unauthorized', 'error'].includes(state) && "text-zinc-300"
+                !['verified', 'unauthorized', 'challenge', 'error'].includes(state) && "text-zinc-300"
               )}>
                 {statusMessage}
               </p>
@@ -490,14 +635,16 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
                 "flex items-start gap-3 p-4 rounded-lg border",
                 state === 'unauthorized'
                   ? "bg-red-900/20 border-red-500/50"
+                  : state === 'challenge'
+                  ? "bg-amber-900/20 border-amber-500/50"
                   : "bg-yellow-900/20 border-yellow-500/30"
               )}>
                 <span className="text-xl flex-shrink-0">
-                  {state === 'unauthorized' ? '🚨' : '⚠️'}
+                  {state === 'unauthorized' ? '🚨' : state === 'challenge' ? '🔐' : '⚠️'}
                 </span>
                 <span className={cn(
                   "text-sm",
-                  state === 'unauthorized' ? "text-red-300" : "text-yellow-300"
+                  state === 'unauthorized' ? "text-red-300" : state === 'challenge' ? "text-amber-300" : "text-yellow-300"
                 )}>
                   {errorMessage}
                 </span>
@@ -590,6 +737,42 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
                   🔄 Retry Connection
                 </Button>
               )}
+
+              {state === 'challenge' && (
+                <>
+                  {/* Challenge Mode Explanation */}
+                  <div className="bg-amber-900/10 border border-amber-500/30 rounded-lg p-4 space-y-2">
+                    <p className="text-amber-200 text-sm font-medium">Why am I seeing this?</p>
+                    <p className="text-amber-300/80 text-xs">
+                      Your voice matched, but we detected you are accessing from a different device
+                      than the one originally registered. This security measure protects your account
+                      from unauthorized access.
+                    </p>
+                    {challengeInfo?.reason && (
+                      <p className="text-amber-400/60 text-xs mt-2">
+                        Reason: {challengeInfo.reason}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Challenge Action Buttons */}
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleRetry}
+                      className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-medium rounded-lg hover:from-amber-400 hover:to-orange-500"
+                    >
+                      🔄 Try Verification Again
+                    </Button>
+                    <Button
+                      onClick={handleContactSupport}
+                      variant="outline"
+                      className="w-full py-3 px-4 border-amber-500/50 text-amber-300 hover:bg-amber-900/20"
+                    >
+                      📧 Contact Support
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Help Text */}
@@ -598,6 +781,8 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
                 ? 'Record 3 voice samples to create your unique voice fingerprint'
                 : state === 'unauthorized'
                 ? 'Voice authentication protects your personal Synaptic instance'
+                : state === 'challenge'
+                ? 'Device verification ensures secure access from trusted machines'
                 : 'Voice verification ensures only you can access your data'
               }
             </p>
@@ -686,6 +871,12 @@ function StatusIcon({ state }: { state: GateState }) {
       bgClass: 'bg-red-900/30',
       ringClass: 'border-red-500',
     },
+    challenge: {
+      emoji: '🔐',
+      bgClass: 'bg-amber-900/30',
+      ringClass: 'border-amber-500',
+      animate: 'animate-pulse',
+    },
     error: {
       emoji: '❌',
       bgClass: 'bg-red-900/30',
@@ -730,11 +921,11 @@ function StatusIcon({ state }: { state: GateState }) {
 // =============================================================================
 
 /**
- * Check if voice verification is active for this session
+ * Check if voice verification is active and within TTL
  */
 export function isVoiceVerified(): boolean {
   if (typeof window === 'undefined') return false
-  return sessionStorage.getItem(VOICE_VERIFIED_KEY) === 'true'
+  return isVerificationValid()
 }
 
 /**
@@ -742,7 +933,8 @@ export function isVoiceVerified(): boolean {
  */
 export function clearVoiceVerification(): void {
   if (typeof window !== 'undefined') {
-    sessionStorage.removeItem(VOICE_VERIFIED_KEY)
+    localStorage.removeItem(VOICE_VERIFIED_KEY)
+    localStorage.removeItem(VOICE_VERIFIED_AT_KEY)
   }
 }
 

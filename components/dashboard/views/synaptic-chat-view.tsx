@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Send, Zap, Brain, MessageCircle } from "lucide-react";
+import { Send, Zap, Brain, MessageCircle, Mic, MicOff, Volume2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -12,6 +12,8 @@ interface ChatMessage {
   sender: "aaron" | "synaptic";
   message: string;
 }
+
+type VoiceState = "idle" | "recording" | "processing" | "speaking";
 
 // Box-drawing character detection regex
 // Matches Unicode box-drawing block (U+2500-U+257F)
@@ -53,7 +55,18 @@ function renderMessageContent(message: string, isNew: boolean = false) {
   return <span className="whitespace-pre-wrap">{message}</span>;
 }
 
+// Determine voice WebSocket URL based on environment
+function getVoiceWebSocketUrl(): string {
+  if (typeof window === "undefined") return "ws://localhost:8888/voice";
+  const hostname = window.location.hostname;
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "ws://localhost:8888/voice";
+  }
+  return "wss://voice.contextdna.io/voice";
+}
+
 export function SynapticChatView() {
+  // Text chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
@@ -61,6 +74,26 @@ export function SynapticChatView() {
   const wsRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Voice mode state
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceConnected, setVoiceConnected] = useState(false);
+
+  // Voice refs
+  const voiceWsRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  // Filter messages for display - voice mode shows only Synaptic responses
+  const displayMessages = useMemo(() => {
+    if (voiceMode) {
+      return messages.filter(msg => msg.sender === "synaptic");
+    }
+    return messages;
+  }, [messages, voiceMode]);
+
+  // Text chat WebSocket connection
   const connect = useCallback(() => {
     setConnecting(true);
     const ws = new WebSocket("ws://localhost:8888/chat");
@@ -104,13 +137,192 @@ export function SynapticChatView() {
     wsRef.current = ws;
   }, []);
 
+  // Audio context getter
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    return audioContextRef.current;
+  }, []);
+
+  // Play base64-encoded MP3 audio from TTS
+  const playBase64Audio = useCallback(async (base64Audio: string) => {
+    try {
+      const audioContext = getAudioContext();
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+
+      // Decode base64 to binary
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Decode and play audio
+      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.onended = () => setVoiceState("idle");
+      source.start();
+    } catch (err) {
+      console.error("[Voice] Audio playback failed:", err);
+      setVoiceState("idle");
+    }
+  }, [getAudioContext]);
+
+  // Voice WebSocket connection
+  const connectVoice = useCallback(() => {
+    const ws = new WebSocket(getVoiceWebSocketUrl());
+
+    ws.onopen = () => {
+      setVoiceConnected(true);
+      console.log("[Voice] Connected to", getVoiceWebSocketUrl());
+    };
+
+    ws.onclose = () => {
+      setVoiceConnected(false);
+      setVoiceState("idle");
+      console.log("[Voice] Disconnected");
+      // Reconnect if voice mode still active
+      if (voiceMode) {
+        setTimeout(connectVoice, 3000);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error("[Voice] WebSocket error:", err);
+    };
+
+    ws.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "ready") {
+          console.log("[Voice] Server ready:", data);
+        } else if (data.type === "transcript") {
+          // User's transcribed speech - don't add to messages in voice mode
+          console.log("[Voice] Transcript:", data.text);
+          setVoiceState("processing");
+        } else if (data.type === "processing") {
+          // Processing stage update (stt/llm/tts)
+          console.log("[Voice] Processing stage:", data.stage);
+        } else if (data.type === "response") {
+          // Synaptic's response - ADD to messages
+          setMessages(prev => [...prev, {
+            id: `voice-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            sender: "synaptic",
+            message: data.text
+          }]);
+
+          // Play audio if present
+          if (data.audio && data.audio_format === "mp3") {
+            setVoiceState("speaking");
+            await playBase64Audio(data.audio);
+          } else {
+            setVoiceState("idle");
+          }
+        } else if (data.type === "error") {
+          console.error("[Voice] Server error:", data.message);
+          setVoiceState("idle");
+        }
+      } catch (err) {
+        console.error("[Voice] Message parse error:", err);
+      }
+    };
+
+    voiceWsRef.current = ws;
+  }, [voiceMode, playBase64Audio]);
+
+  // Start recording audio
+  const startRecording = useCallback(async () => {
+    if (!voiceConnected || voiceState !== "idle") return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      });
+
+      chunksRef.current = [];
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks
+        stream.getTracks().forEach(t => t.stop());
+
+        // Send audio to server
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        if (voiceWsRef.current?.readyState === WebSocket.OPEN && blob.size > 0) {
+          const arrayBuffer = await blob.arrayBuffer();
+          voiceWsRef.current.send(arrayBuffer);
+          setVoiceState("processing");
+        } else {
+          setVoiceState("idle");
+        }
+      };
+
+      mediaRecorder.start(100); // Collect data every 100ms
+      mediaRecorderRef.current = mediaRecorder;
+      setVoiceState("recording");
+    } catch (err) {
+      console.error("[Voice] Microphone access failed:", err);
+      setVoiceState("idle");
+    }
+  }, [voiceConnected, voiceState]);
+
+  // Stop recording audio
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+  }, []);
+
+  // Text chat connection effect
   useEffect(() => {
     connect();
     return () => wsRef.current?.close();
   }, [connect]);
 
+  // Voice WebSocket connection effect
   useEffect(() => {
-    // Auto-scroll to bottom
+    if (voiceMode) {
+      connectVoice();
+    } else {
+      if (voiceWsRef.current) {
+        voiceWsRef.current.close(1000);
+        voiceWsRef.current = null;
+      }
+      setVoiceConnected(false);
+      setVoiceState("idle");
+    }
+    return () => {
+      if (voiceWsRef.current) {
+        voiceWsRef.current.close();
+      }
+    };
+  }, [voiceMode, connectVoice]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -135,10 +347,11 @@ export function SynapticChatView() {
         <div>
           <h2 className="font-semibold">Synaptic Fast Chat</h2>
           <p className="text-xs text-muted-foreground">
-            Full Memory Access • WebSocket • Sub-10ms
+            {voiceMode ? "Voice Mode • STT → LLM → TTS" : "Full Memory Access • WebSocket • Sub-10ms"}
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {/* Connection Status */}
           {connecting ? (
             <span className="text-yellow-500 text-xs flex items-center gap-1">
               <Zap className="h-3 w-3 animate-pulse" />
@@ -147,29 +360,51 @@ export function SynapticChatView() {
           ) : connected ? (
             <span className="text-green-500 text-xs flex items-center gap-1">
               <Zap className="h-3 w-3" />
-              Connected
+              {voiceMode && voiceConnected ? "Voice Ready" : "Connected"}
             </span>
           ) : (
             <span className="text-red-500 text-xs">Disconnected</span>
           )}
+
+          {/* Voice Mode Toggle */}
+          <Button
+            variant={voiceMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => setVoiceMode(!voiceMode)}
+            className="ml-2"
+            title={voiceMode ? "Switch to Text Mode" : "Switch to Voice Mode"}
+          >
+            {voiceMode ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+          </Button>
         </div>
       </div>
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
-          {messages.length === 0 && (
+          {displayMessages.length === 0 && (
             <div className="text-center text-muted-foreground py-8">
               <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>Start a conversation with Synaptic</p>
-              <p className="text-xs mt-1">
-                Try: patterns, history, status, search [topic]
-              </p>
+              {voiceMode ? (
+                <>
+                  <p>Voice Mode Active</p>
+                  <p className="text-xs mt-1">
+                    Hold the mic button to speak with Synaptic
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>Start a conversation with Synaptic</p>
+                  <p className="text-xs mt-1">
+                    Try: patterns, history, status, search [topic]
+                  </p>
+                </>
+              )}
             </div>
           )}
-          {messages.map((msg, index) => {
+          {displayMessages.map((msg, index) => {
             const isBoxMessage = containsBoxDrawing(msg.message);
-            const isNew = index === messages.length - 1;
+            const isNew = index === displayMessages.length - 1;
 
             return (
               <div
@@ -219,21 +454,65 @@ export function SynapticChatView() {
         </div>
       </ScrollArea>
 
-      {/* Input */}
+      {/* Input Area */}
       <div className="p-4 border-t border-border">
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Talk to Synaptic..."
-            disabled={!connected}
-            className="flex-1"
-          />
-          <Button onClick={send} disabled={!connected || !input.trim()}>
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+        {voiceMode ? (
+          /* Voice Mode UI - Hold to Talk */
+          <div className="flex items-center justify-center gap-4 py-2">
+            <Button
+              className={`w-16 h-16 rounded-full transition-all duration-200 ${
+                voiceState === "recording"
+                  ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/50"
+                  : voiceState === "processing"
+                  ? "bg-yellow-500 hover:bg-yellow-600 cursor-wait"
+                  : voiceState === "speaking"
+                  ? "bg-blue-500 hover:bg-blue-600 cursor-wait"
+                  : "bg-primary hover:bg-primary/90"
+              }`}
+              disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "recording")}
+              onPointerDown={() => voiceState === "idle" && startRecording()}
+              onPointerUp={() => voiceState === "recording" && stopRecording()}
+              onPointerLeave={() => voiceState === "recording" && stopRecording()}
+            >
+              {voiceState === "recording" ? (
+                <Mic className="h-6 w-6 animate-pulse text-white" />
+              ) : voiceState === "processing" ? (
+                <Loader2 className="h-6 w-6 animate-spin text-white" />
+              ) : voiceState === "speaking" ? (
+                <Volume2 className="h-6 w-6 animate-pulse text-white" />
+              ) : (
+                <Mic className="h-6 w-6" />
+              )}
+            </Button>
+            <div className="text-sm text-muted-foreground min-w-[100px]">
+              {voiceState === "idle" && "Hold to speak"}
+              {voiceState === "recording" && (
+                <span className="text-red-500 font-medium">Recording...</span>
+              )}
+              {voiceState === "processing" && (
+                <span className="text-yellow-500 font-medium">Processing...</span>
+              )}
+              {voiceState === "speaking" && (
+                <span className="text-blue-500 font-medium">Speaking...</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Text Mode UI - Standard Input */
+          <div className="flex gap-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Talk to Synaptic..."
+              disabled={!connected}
+              className="flex-1"
+            />
+            <Button onClick={send} disabled={!connected || !input.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
