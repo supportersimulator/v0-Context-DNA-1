@@ -25,14 +25,15 @@ import { getStoredUsername, getDeviceToken, storeDeviceToken } from '@/lib/auth/
 // =============================================================================
 
 function getBaseUrl(): string {
-  if (typeof window === 'undefined') return 'http://localhost:8888/api/contextdna'
+  if (typeof window === 'undefined') return 'http://localhost:8000/api/contextdna'
   const hostname = window.location.hostname
-  // Local development - connect directly to Django backend
+  // Local development - connect to local Django backend
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:8888/api/contextdna'
+    return 'http://localhost:8000/api/contextdna'
   }
-  // Production - use Cloudflare Tunnel → Django backend
-  return 'https://voice.contextdna.io/api/contextdna'
+  // Production - use EC2 Django backend directly for voice AUTH
+  // (voice.contextdna.io is for voice CHAT via Synaptic, not auth)
+  return 'https://api.ersimulator.com/api/contextdna'
 }
 
 // =============================================================================
