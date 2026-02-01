@@ -313,18 +313,33 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
     setState('loading')
     setErrorMessage(null)
 
+    const baseUrl = getBaseUrl()
+    const fullUrl = `${baseUrl}/voice/enrollment-status/?user_email=${encodeURIComponent(email)}`
+
+    // DETAILED DEBUG LOGGING
+    console.log('[VoiceGate] ========== ENROLLMENT CHECK START ==========')
+    console.log('[VoiceGate] rawUsername:', rawUsername)
+    console.log('[VoiceGate] isUUID:', isUUID)
+    console.log('[VoiceGate] resolvedEmail:', resolvedEmail)
+    console.log('[VoiceGate] syncEmail:', syncEmail)
+    console.log('[VoiceGate] FINAL email:', email)
+    console.log('[VoiceGate] baseUrl:', baseUrl)
+    console.log('[VoiceGate] fullUrl:', fullUrl)
+    console.log('[VoiceGate] deviceToken:', deviceToken ? deviceToken.slice(0, 8) + '...' : 'null')
+
     try {
-      const baseUrl = getBaseUrl()
-      const response = await fetchWithRetry(
-        `${baseUrl}/voice/enrollment-status/?user_email=${encodeURIComponent(email)}`,
-        { method: 'GET' }
-      )
+      console.log('[VoiceGate] Making fetch request...')
+      const response = await fetchWithRetry(fullUrl, { method: 'GET' })
+      console.log('[VoiceGate] Response received:', response.status, response.statusText)
 
       if (!response.ok) {
-        throw new Error('Failed to check enrollment status')
+        const errorText = await response.text()
+        console.error('[VoiceGate] Response not OK:', response.status, errorText)
+        throw new Error(`Server returned ${response.status}: ${errorText}`)
       }
 
       const result = await response.json()
+      console.log('[VoiceGate] Result:', JSON.stringify(result))
 
       if (result.enrolled) {
         // User has voiceprint - go to verification
@@ -335,20 +350,21 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
         setState('enroll_intro')
         setStatusMessage('Set up your voice fingerprint')
       }
+      console.log('[VoiceGate] ========== ENROLLMENT CHECK SUCCESS ==========')
     } catch (err) {
-      // Log the actual error for debugging
-      console.error('[VoiceGate] Enrollment check failed:', err)
-      console.error('[VoiceGate] Email used:', email)
-      console.error('[VoiceGate] Base URL:', getBaseUrl())
+      console.error('[VoiceGate] ========== ENROLLMENT CHECK FAILED ==========')
+      console.error('[VoiceGate] Error type:', err?.constructor?.name)
+      console.error('[VoiceGate] Error message:', err instanceof Error ? err.message : String(err))
+      console.error('[VoiceGate] Full error:', err)
 
-      // Provide more specific error message
+      // Provide specific error message based on error type
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-        setErrorMessage('Network error. Check your internet connection.')
-      } else if (errorMsg.includes('Failed to check enrollment')) {
-        setErrorMessage('Voice server returned an error. Please try again.')
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('fetch')) {
+        setErrorMessage(`Network error connecting to ${baseUrl}. Check browser console.`)
+      } else if (errorMsg.includes('Server returned')) {
+        setErrorMessage(errorMsg)
       } else {
-        setErrorMessage(`Voice server unavailable: ${errorMsg}`)
+        setErrorMessage(`Connection failed: ${errorMsg}`)
       }
       setState('error')
     }
@@ -806,22 +822,8 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
                   >
                     🔄 Retry Connection
                   </Button>
-                  <Button
-                    onClick={() => {
-                      console.log('[VoiceGate] Bypass activated - voice server unavailable')
-                      // Store temporary bypass (valid for 1 hour)
-                      if (typeof window !== 'undefined') {
-                        localStorage.setItem('voice_bypass', Date.now().toString())
-                      }
-                      onVerified()
-                    }}
-                    variant="ghost"
-                    className="w-full py-3 px-4 text-zinc-500 hover:text-zinc-300 text-sm"
-                  >
-                    Skip for now (1 hour)
-                  </Button>
-                  <p className="text-zinc-600 text-xs text-center">
-                    Voice server unreachable. You can skip verification temporarily.
+                  <p className="text-zinc-500 text-xs text-center mt-2">
+                    Check browser console (F12) for detailed error info
                   </p>
                 </div>
               )}
