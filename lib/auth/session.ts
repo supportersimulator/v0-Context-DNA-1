@@ -149,10 +149,24 @@ export function getStoredUsername(): string | null {
 
 /**
  * Check if user is authenticated.
- * Requires device token linked to account OR valid JWT.
- * First-time users must login via Supabase to establish device token.
+ * Priority:
+ * 1. Admin domain bypass (staff-only, backend handles auth via Origin header)
+ * 2. V0 preview bypass (for development)
+ * 3. Device token linked to real account (primary auth)
+ * 4. Valid JWT token (fallback during login flow)
  */
 export function isAuthenticated(): boolean {
+  // Admin domain - always authenticated (backend attaches aarontjomsland@gmail.com via Origin)
+  // Device token is optional here since backend handles auth
+  if (isAdminDomain()) {
+    return true;
+  }
+
+  // v0 preview bypass - always authenticated for UI development
+  if (isV0Preview()) {
+    return true;
+  }
+
   // Device token linked to real account = authenticated
   if (getDeviceToken() && isDeviceLinked()) {
     return true;

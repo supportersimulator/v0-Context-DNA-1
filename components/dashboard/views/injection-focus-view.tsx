@@ -5,7 +5,7 @@ import { fetchInjectionHistory, subscribeToInjections } from '@/lib/api';
 import type { InjectionData, RiskLevel, SilverPlatter } from '@/lib/types';
 import { RISK_LEVEL_CONFIG } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon, Wifi, WifiOff } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon, Wifi, WifiOff, LayoutDashboard, Syringe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Calendar } from '@/components/ui/calendar';
@@ -654,6 +654,7 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
     </ScrollArea>
   );
 
+  // Navigation is handled by DashboardShell - this view just renders the 3-panel layout
   return (
     <SplitPanelLayout
       leftPanel={injectionPanel}

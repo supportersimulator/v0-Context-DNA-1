@@ -12,18 +12,42 @@ import { HealthView } from './views/health-view';
 import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
 import { InstallWizardView } from './views/install-wizard-view';
+import { SynapticChatView } from './views/synaptic-chat-view';
 import { WelcomeModal } from './welcome-modal';
 import { cn } from '@/lib/utils';
-import { Syringe } from 'lucide-react';
+import { Syringe, Brain, LayoutDashboard } from 'lucide-react';
 
 const FIRST_TIME_KEY = 'contextdna_first_visit_completed';
 
 export default function DashboardShell() {
-  const [activeTab, setActiveTab] = useState<TabId>('home');
+  // Default to Synaptic view on login (middle button)
+  const [activeTab, setActiveTab] = useState<TabId>('synaptic');
   const [tabs, setTabs] = useState<Tab[]>(DEFAULT_TABS);
   const [focusMode, setFocusMode] = useState(false);
-  const [previousTab, setPreviousTab] = useState<TabId>('home');
+  const [previousTab, setPreviousTab] = useState<TabId>('synaptic');
   const [showWelcome, setShowWelcome] = useState(false);
+
+  // Handle URL parameters for deep linking (e.g., ?view=injection from Synaptic 8888)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get('view');
+      if (view === 'injection') {
+        // Auto-enter focus mode / Live View
+        setPreviousTab('synaptic');
+        setActiveTab('injection');
+        setFocusMode(true);
+        // Clean up URL without reload
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (view === 'synaptic') {
+        setActiveTab('synaptic');
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (view === 'home') {
+        setActiveTab('home');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   // Handle tab change - exit focus mode if switching to non-injection tab
   const handleTabChange = useCallback((tabId: string) => {
@@ -100,34 +124,81 @@ export default function DashboardShell() {
     handleTabChange('install');
   }, [handleTabChange]);
 
-  // Keyboard shortcut: Cmd+I to toggle focus mode
+  // Keyboard shortcuts for instant view switching
+  // ⌘1 = Live Dashboard (3-panel injection view)
+  // ⌘2 = Synaptic Cowork Chat
+  // ⌘3 = Home Overview
+  // ⌘4 = Professor
+  // ⌘I = Toggle focus mode (legacy)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape to exit
+      // Escape to exit focus mode
       if (e.key === 'Escape' && focusMode) {
         exitFocusMode();
+        return;
       }
 
-      // Cmd+I (or Ctrl+I) to toggle
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'i' || e.code === 'KeyI')) {
-        e.preventDefault();
-        console.log("Shortcut triggered: Cmd+I"); // Debug log for user
+      // Don't handle shortcuts when typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
 
-        if (focusMode) {
-          exitFocusMode();
-        } else {
-          // Explicitly save current tab before switching
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // ⌘1 = Live Dashboard (3-panel injection focus mode)
+      if (isMod && e.key === '1') {
+        e.preventDefault();
+        if (!focusMode) {
           const current = activeTab;
-          setPreviousTab(current === 'injection' ? 'home' : current);
+          setPreviousTab(current === 'injection' ? 'synaptic' : current);
           setActiveTab('injection');
           setFocusMode(true);
         }
+        return;
+      }
+
+      // ⌘2 = Synaptic Cowork Chat
+      if (isMod && e.key === '2') {
+        e.preventDefault();
+        if (focusMode) setFocusMode(false);
+        setActiveTab('synaptic');
+        return;
+      }
+
+      // ⌘3 = Home Overview dashboard
+      if (isMod && e.key === '3') {
+        e.preventDefault();
+        if (focusMode) setFocusMode(false);
+        setActiveTab('home');
+        return;
+      }
+
+      // ⌘4 = Professor view
+      if (isMod && e.key === '4') {
+        e.preventDefault();
+        if (focusMode) setFocusMode(false);
+        setActiveTab('professor');
+        return;
+      }
+
+      // ⌘I = Toggle focus mode (legacy shortcut)
+      if (isMod && (e.key === 'i' || e.code === 'KeyI')) {
+        e.preventDefault();
+        if (focusMode) {
+          exitFocusMode();
+        } else {
+          const current = activeTab;
+          setPreviousTab(current === 'injection' ? 'synaptic' : current);
+          setActiveTab('injection');
+          setFocusMode(true);
+        }
+        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [focusMode, activeTab, exitFocusMode]); // Fixed dependencies
+  }, [focusMode, activeTab, exitFocusMode]);
 
   const renderView = () => {
     switch (activeTab) {
@@ -145,6 +216,8 @@ export default function DashboardShell() {
         return <ModelsView />;
       case 'install':
         return <InstallWizardView />;
+      case 'synaptic':
+        return <SynapticChatView />;
       case 'injection':
         return <InjectionFocusView onClose={exitFocusMode} />;
       default:
@@ -172,24 +245,66 @@ export default function DashboardShell() {
           <span className="text-sm font-semibold text-foreground">Context DNA</span>
         </div>
 
-        {/* 2. Focus Mode Toggle (Fixed & Explicit) */}
-        <div className="mr-4 flex-shrink-0 border-r border-border pr-4 h-6 flex items-center">
-          <button
-            onClick={focusMode ? exitFocusMode : () => handleTabChange('injection')}
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-300 border border-transparent",
-              focusMode
-                ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(34,197,94,0.6)] animate-pulse font-bold"
-                : "bg-background/50 hover:bg-background border-white/10 text-muted-foreground hover:text-foreground"
-            )}
-            style={{ minWidth: '110px' }}
-            title="Toggle Live Injection Focus Mode (Cmd+I)"
-          >
-            <Syringe className={cn("w-4 h-4", focusMode && "animate-none")} />
-            <span className="text-xs font-bold uppercase tracking-wider">
-              {focusMode ? "EXIT VIEW" : "LIVE VIEW"}
-            </span>
-          </button>
+        {/* 2. Quick Navigation: Dashboard | Synaptic | Live View */}
+        <div className="flex items-center mr-4 flex-shrink-0 border-r border-border pr-4">
+          <div className="flex bg-background/30 rounded-lg p-0.5 gap-0.5">
+            {/* Dashboard Button */}
+            <button
+              onClick={() => {
+                if (focusMode) setFocusMode(false);
+                setActiveTab('home');
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                !focusMode && activeTab === 'home'
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+              title="Dashboard (⌘3)"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Dashboard</span>
+            </button>
+
+            {/* Synaptic Button - Main View (default after login) */}
+            <button
+              onClick={() => {
+                if (focusMode) setFocusMode(false);
+                setActiveTab('synaptic');
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                !focusMode && activeTab === 'synaptic'
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+              title="Synaptic Chat (⌘2)"
+            >
+              <Brain className="w-3.5 h-3.5" />
+              <span>Synaptic</span>
+            </button>
+
+            {/* Live View Button */}
+            <button
+              onClick={() => {
+                if (!focusMode) {
+                  setPreviousTab(activeTab === 'injection' ? 'synaptic' : activeTab);
+                  setActiveTab('injection');
+                  setFocusMode(true);
+                }
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                focusMode
+                  ? "bg-primary text-primary-foreground shadow-[0_0_10px_rgba(34,197,94,0.4)]"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+              title="Live View (⌘1)"
+            >
+              <Syringe className="w-3.5 h-3.5" />
+              <span>Live View</span>
+            </button>
+          </div>
         </div>
 
         {/* 3. Draggable Tabs (Flexible) */}
