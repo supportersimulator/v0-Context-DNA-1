@@ -1,17 +1,33 @@
 "use client"
 
-import { useEffect, useState } from "react"
+/**
+ * AuthWrapper - Complete authentication flow for Context DNA admin
+ *
+ * Authentication Flow:
+ * 1. Check device auth / Supabase session
+ * 2. If not authenticated -> redirect to /login
+ * 3. If authenticated but not voice-verified -> show VoiceGate
+ * 4. If voice-verified -> show dashboard content
+ *
+ * Voice verification is per-session (clears on tab close).
+ */
+
+import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { initDeviceAuth, isAuthenticated, getStoredUsername, logout } from "@/lib/auth/session"
+import { VoiceGate, isVoiceVerified, clearVoiceVerification } from "@/components/auth/voice-gate"
 
 interface AuthWrapperProps {
   children: React.ReactNode
+  /** If true, skip voice verification (for pages that don't need it) */
+  skipVoiceGate?: boolean
 }
 
-export function AuthWrapper({ children }: AuthWrapperProps) {
+export function AuthWrapper({ children, skipVoiceGate = false }: AuthWrapperProps) {
   const router = useRouter()
   const [checking, setChecking] = useState(true)
   const [authenticated, setAuthenticated] = useState(false)
+  const [voiceVerified, setVoiceVerified] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -30,6 +46,13 @@ export function AuthWrapper({ children }: AuthWrapperProps) {
 
       const authed = isAuthenticated()
       setAuthenticated(authed)
+
+      // Check if voice is already verified this session
+      if (authed) {
+        const voiceOk = skipVoiceGate || isVoiceVerified()
+        setVoiceVerified(voiceOk)
+      }
+
       setChecking(false)
 
       if (!authed) {
@@ -42,7 +65,12 @@ export function AuthWrapper({ children }: AuthWrapperProps) {
     return () => {
       cancelled = true
     }
-  }, [router])
+  }, [router, skipVoiceGate])
+
+  // Handle voice verification complete
+  const handleVoiceVerified = useCallback(() => {
+    setVoiceVerified(true)
+  }, [])
 
   if (checking) {
     return (
@@ -59,6 +87,11 @@ export function AuthWrapper({ children }: AuthWrapperProps) {
     return null // Will redirect to login
   }
 
+  // Show voice gate if not voice-verified
+  if (!voiceVerified) {
+    return <VoiceGate onVerified={handleVoiceVerified} />
+  }
+
   return <>{children}</>
 }
 
@@ -66,6 +99,8 @@ export function useAuth() {
   const router = useRouter()
 
   const handleLogout = async () => {
+    // Clear voice verification on logout
+    clearVoiceVerification()
     await logout()
     router.push("/login")
   }

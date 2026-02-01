@@ -59,7 +59,7 @@ export interface ServiceStatus {
   icon: string;
 }
 
-export type TabId = 'home' | 'activity' | 'professor' | 'search' | 'health' | 'models' | 'injection' | 'install';
+export type TabId = 'home' | 'activity' | 'professor' | 'search' | 'health' | 'models' | 'injection' | 'install' | 'synaptic' | 'voice';
 
 export interface Tab {
   id: TabId;
@@ -74,6 +74,8 @@ export const DEFAULT_TABS: Tab[] = [
   { id: 'search', label: 'Search', icon: '🔍' },
   { id: 'health', label: 'Health', icon: '💚' },
   { id: 'models', label: 'Models', icon: '🤖' },
+  { id: 'synaptic', label: 'Synaptic', icon: '⚡' },
+  { id: 'voice', label: 'Voice', icon: '🎙️' },
   { id: 'install', label: 'Install', icon: '📥' },
 ];
 
