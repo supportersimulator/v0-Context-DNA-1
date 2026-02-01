@@ -19,6 +19,21 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { getStoredUsername, getDeviceToken, storeDeviceToken } from '@/lib/auth/session'
+import { supabase } from '@/lib/supabase/client'
+
+// =============================================================================
+// Get User Email from Supabase Session
+// =============================================================================
+
+async function getSupabaseUserEmail(): Promise<string | null> {
+  if (!supabase) return null
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    return user?.email || null
+  } catch {
+    return null
+  }
+}
 
 // =============================================================================
 // API Configuration
@@ -213,6 +228,9 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
     current_fingerprint?: string
   } | null>(null)
 
+  // Resolved email state (for async Supabase lookup when UUID detected)
+  const [resolvedEmail, setResolvedEmail] = useState<string | null>(null)
+
   // Audio refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -220,16 +238,38 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
 
   // Get user info - ensure we use a valid email address
   const rawUsername = userEmail || getStoredUsername() || 'user@contextdna.io'
-  // If it's a username without @, append @gmail.com (standard for admin users)
-  // If it looks like a UUID, use fallback email
+  // Check if rawUsername looks like a UUID (Supabase user ID)
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawUsername)
-  const email = isUUID
-    ? 'aarontjomsland@gmail.com'  // Fallback for UUID edge case
+
+  // Synchronous email resolution (used as fallback/initial value)
+  const syncEmail = isUUID
+    ? 'user@contextdna.io'  // Placeholder until async resolution completes
     : rawUsername.includes('@')
       ? rawUsername
       : `${rawUsername}@gmail.com`
+
+  // Use resolved email if available, otherwise sync email
+  const email = resolvedEmail || syncEmail
   const deviceToken = getDeviceToken()
   const machineFingerprint = getMachineFingerprint()
+
+  // Async email resolution: If UUID detected, fetch real email from Supabase
+  useEffect(() => {
+    if (isUUID && !resolvedEmail) {
+      console.log('[VoiceGate] UUID detected, resolving email from Supabase...')
+      getSupabaseUserEmail().then((supabaseEmail) => {
+        if (supabaseEmail) {
+          console.log(`[VoiceGate] Resolved email: ${supabaseEmail}`)
+          setResolvedEmail(supabaseEmail)
+        } else {
+          console.warn('[VoiceGate] Could not resolve email from Supabase session')
+        }
+      })
+    } else if (!isUUID && rawUsername.includes('@')) {
+      // Email was provided directly, no resolution needed
+      setResolvedEmail(rawUsername)
+    }
+  }, [isUUID, rawUsername, resolvedEmail])
 
   // ==========================================================================
   // Check if already verified (within 24-hour TTL)
@@ -254,9 +294,17 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
         return
       }
     }
+
+    // Wait for email resolution if UUID was detected
+    // This ensures we have a real email before checking enrollment
+    if (isUUID && !resolvedEmail) {
+      console.log('[VoiceGate] Waiting for email resolution...')
+      return
+    }
+
     // Remote access: Check enrollment status and require voice auth
     checkEnrollmentStatus()
-  }, [])
+  }, [resolvedEmail, isUUID])
 
   // ==========================================================================
   // Check Enrollment Status
