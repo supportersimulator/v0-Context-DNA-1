@@ -218,8 +218,16 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
 
-  // Get user info
-  const email = userEmail || getStoredUsername() || 'user@contextdna.io'
+  // Get user info - ensure we use a valid email address
+  const rawUsername = userEmail || getStoredUsername() || 'user@contextdna.io'
+  // If it's a username without @, append @gmail.com (standard for admin users)
+  // If it looks like a UUID, use fallback email
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawUsername)
+  const email = isUUID
+    ? 'aarontjomsland@gmail.com'  // Fallback for UUID edge case
+    : rawUsername.includes('@')
+      ? rawUsername
+      : `${rawUsername}@gmail.com`
   const deviceToken = getDeviceToken()
   const machineFingerprint = getMachineFingerprint()
 
