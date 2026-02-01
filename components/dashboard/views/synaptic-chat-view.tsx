@@ -55,14 +55,29 @@ function renderMessageContent(message: string, isNew: boolean = false) {
   return <span className="whitespace-pre-wrap">{message}</span>;
 }
 
+// Import session token getter for WebSocket auth
+import { getVoiceSessionToken } from "@/components/auth/voice-gate";
+
 // Determine voice WebSocket URL based on environment
+// Includes EC2-issued session_token for authentication ("1 stream" model)
 function getVoiceWebSocketUrl(): string {
   if (typeof window === "undefined") return "ws://localhost:8888/voice";
   const hostname = window.location.hostname;
+  let baseUrl: string;
+
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "ws://localhost:8888/voice";
+    baseUrl = "ws://localhost:8888/voice";
+  } else {
+    baseUrl = "wss://voice.contextdna.io/voice";
   }
-  return "wss://voice.contextdna.io/voice";
+
+  // Append session token if available (for EC2-verified voice sessions)
+  const sessionToken = getVoiceSessionToken();
+  if (sessionToken) {
+    return `${baseUrl}?session_token=${encodeURIComponent(sessionToken)}`;
+  }
+
+  return baseUrl;
 }
 
 export function SynapticChatView() {

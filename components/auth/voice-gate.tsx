@@ -82,6 +82,8 @@ async function fetchWithRetry(
 const VOICE_VERIFIED_KEY = 'voice_verified'
 const VOICE_VERIFIED_AT_KEY = 'voice_verified_at'
 const MACHINE_FINGERPRINT_KEY = 'machine_fingerprint'
+const VOICE_SESSION_TOKEN_KEY = 'voice_session_token'
+const VOICE_SESSION_TOKEN_EXPIRES_KEY = 'voice_session_token_expires'
 
 // Recording configuration
 const RECORDING_DURATION = 4000 // 4 seconds for better voice capture
@@ -126,12 +128,20 @@ function isVerificationValid(): boolean {
 }
 
 /**
- * Store verification timestamp
+ * Store verification timestamp and session token
  */
-function storeVerification(): void {
+function storeVerification(sessionToken?: string, sessionTokenExpires?: string): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(VOICE_VERIFIED_KEY, 'true')
   localStorage.setItem(VOICE_VERIFIED_AT_KEY, Date.now().toString())
+
+  // Store session token for WebSocket connections
+  if (sessionToken) {
+    localStorage.setItem(VOICE_SESSION_TOKEN_KEY, sessionToken)
+    if (sessionTokenExpires) {
+      localStorage.setItem(VOICE_SESSION_TOKEN_EXPIRES_KEY, sessionTokenExpires)
+    }
+  }
 }
 
 /**
@@ -580,9 +590,12 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
         setState('verified')
         setStatusMessage(`Welcome back! (${Math.round(result.similarity * 100)}% match)`)
 
-        // Store verification with timestamp (24-hour TTL)
-        storeVerification()
+        // Store verification with timestamp and session token (24-hour TTL for local, 5min for token)
+        storeVerification(result.session_token, result.session_token_expires)
         console.log('[VoiceGate] Voice verified - valid for 24 hours')
+        if (result.session_token) {
+          console.log('[VoiceGate] Session token received for WebSocket auth')
+        }
 
         // Transition after animation
         setTimeout(() => {
@@ -1035,4 +1048,44 @@ export function clearVoiceVerification(): void {
  */
 export function getStoredMachineFingerprint(): string {
   return getMachineFingerprint()
+}
+
+/**
+ * Get the EC2-issued session token for WebSocket authentication
+ * Returns null if no token or token expired
+ */
+export function getVoiceSessionToken(): string | null {
+  if (typeof window === 'undefined') return null
+
+  const token = localStorage.getItem(VOICE_SESSION_TOKEN_KEY)
+  const expiresStr = localStorage.getItem(VOICE_SESSION_TOKEN_EXPIRES_KEY)
+
+  if (!token) return null
+
+  // Check if token expired (server sends ISO timestamp)
+  if (expiresStr) {
+    try {
+      const expires = new Date(expiresStr)
+      if (new Date() > expires) {
+        // Token expired - clear it
+        localStorage.removeItem(VOICE_SESSION_TOKEN_KEY)
+        localStorage.removeItem(VOICE_SESSION_TOKEN_EXPIRES_KEY)
+        return null
+      }
+    } catch {
+      // Invalid date, still return token
+    }
+  }
+
+  return token
+}
+
+/**
+ * Clear session token (for logout or re-auth)
+ */
+export function clearVoiceSessionToken(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(VOICE_SESSION_TOKEN_KEY)
+    localStorage.removeItem(VOICE_SESSION_TOKEN_EXPIRES_KEY)
+  }
 }

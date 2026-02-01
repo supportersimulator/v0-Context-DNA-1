@@ -4,22 +4,33 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Mic, MicOff, Brain, Zap, Volume2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getVoiceSessionToken } from "@/components/auth/voice-gate";
 
 type VoiceState = "idle" | "recording" | "processing" | "speaking";
 
 // Determine WebSocket URL based on environment
+// Includes EC2-issued session_token for authentication ("1 stream" model)
 function getVoiceWebSocketUrl(): string {
   if (typeof window === "undefined") return "ws://localhost:8888/voice";
 
   const hostname = window.location.hostname;
+  let baseUrl: string;
 
   // Local development - connect directly
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "ws://localhost:8888/voice";
+    baseUrl = "ws://localhost:8888/voice";
+  } else {
+    // Production/preview - use Cloudflare Tunnel
+    baseUrl = "wss://voice.contextdna.io/voice";
   }
 
-  // Production/preview - use Cloudflare Tunnel
-  return "wss://voice.contextdna.io/voice";
+  // Append session token if available (for EC2-verified voice sessions)
+  const sessionToken = getVoiceSessionToken();
+  if (sessionToken) {
+    return `${baseUrl}?session_token=${encodeURIComponent(sessionToken)}`;
+  }
+
+  return baseUrl;
 }
 
 interface AudioChunk {
