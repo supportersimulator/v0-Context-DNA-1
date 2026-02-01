@@ -42,13 +42,15 @@ async function getSupabaseUserEmail(): Promise<string | null> {
 function getBaseUrl(): string {
   if (typeof window === 'undefined') return 'http://localhost:8000/api/contextdna'
   const hostname = window.location.hostname
-  // Local development - connect to local Django backend
+
+  // Local development - connect to local Django backend directly
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'http://localhost:8000/api/contextdna'
   }
-  // Production - use EC2 Django backend directly for voice AUTH
-  // (voice.contextdna.io is for voice CHAT via Synaptic, not auth)
-  return 'https://api.ersimulator.com/api/contextdna'
+
+  // Production - use Next.js API proxy routes (avoids browser CORS issues)
+  // The proxy routes forward to api.ersimulator.com server-side
+  return '/api'
 }
 
 // =============================================================================
