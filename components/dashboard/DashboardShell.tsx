@@ -13,11 +13,15 @@ import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
 import { InstallWizardView } from './views/install-wizard-view';
 import { SynapticChatView } from './views/synaptic-chat-view';
+import { VoiceChatView } from './views/voice-chat-view';
 import { WelcomeModal } from './welcome-modal';
+import { VoiceWakeOverlay } from '../auth/voice-wake-overlay';
 import { cn } from '@/lib/utils';
-import { Syringe, Brain, LayoutDashboard } from 'lucide-react';
+import { Syringe, Brain, LayoutDashboard, Mic } from 'lucide-react';
+import { getStoredUsername } from '@/lib/auth/session';
 
 const FIRST_TIME_KEY = 'contextdna_first_visit_completed';
+const VOICE_VERIFIED_KEY = 'synaptic_voice_verified';
 
 export default function DashboardShell() {
   // Default to Synaptic view on login (middle button)
@@ -26,6 +30,20 @@ export default function DashboardShell() {
   const [focusMode, setFocusMode] = useState(false);
   const [previousTab, setPreviousTab] = useState<TabId>('synaptic');
   const [showWelcome, setShowWelcome] = useState(false);
+  const [voiceVerified, setVoiceVerified] = useState<boolean | null>(null);
+
+  // Check voice verification status on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const verified = sessionStorage.getItem(VOICE_VERIFIED_KEY) === 'true';
+      setVoiceVerified(verified);
+    }
+  }, []);
+
+  // Handle voice wake completion
+  const handleVoiceWake = useCallback(() => {
+    setVoiceVerified(true);
+  }, []);
 
   // Handle URL parameters for deep linking (e.g., ?view=injection from Synaptic 8888)
   useEffect(() => {
@@ -44,6 +62,9 @@ export default function DashboardShell() {
         window.history.replaceState({}, '', window.location.pathname);
       } else if (view === 'home') {
         setActiveTab('home');
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (view === 'voice') {
+        setActiveTab('voice');
         window.history.replaceState({}, '', window.location.pathname);
       }
     }
@@ -181,6 +202,14 @@ export default function DashboardShell() {
         return;
       }
 
+      // ⌘5 = Voice Chat
+      if (isMod && e.key === '5') {
+        e.preventDefault();
+        if (focusMode) setFocusMode(false);
+        setActiveTab('voice');
+        return;
+      }
+
       // ⌘I = Toggle focus mode (legacy shortcut)
       if (isMod && (e.key === 'i' || e.code === 'KeyI')) {
         e.preventDefault();
@@ -217,7 +246,20 @@ export default function DashboardShell() {
       case 'install':
         return <InstallWizardView />;
       case 'synaptic':
-        return <SynapticChatView />;
+        // Show voice wake overlay if not verified
+        return (
+          <div className="relative h-full">
+            <SynapticChatView />
+            {voiceVerified === false && (
+              <VoiceWakeOverlay
+                onWake={handleVoiceWake}
+                userEmail={getStoredUsername() || 'user@contextdna.io'}
+              />
+            )}
+          </div>
+        );
+      case 'voice':
+        return <VoiceChatView />;
       case 'injection':
         return <InjectionFocusView onClose={exitFocusMode} />;
       default:
@@ -282,6 +324,24 @@ export default function DashboardShell() {
             >
               <Brain className="w-3.5 h-3.5" />
               <span>Synaptic</span>
+            </button>
+
+            {/* Voice Chat Button - Mobile-friendly voice interaction */}
+            <button
+              onClick={() => {
+                if (focusMode) setFocusMode(false);
+                setActiveTab('voice');
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                !focusMode && activeTab === 'voice'
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+              title="Voice Chat (⌘5)"
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>Voice</span>
             </button>
 
             {/* Live View Button */}
