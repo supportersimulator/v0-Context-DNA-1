@@ -336,8 +336,20 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
         setStatusMessage('Set up your voice fingerprint')
       }
     } catch (err) {
-      // Server unavailable - cannot authenticate (security)
-      setErrorMessage('Voice server unavailable. Cannot authenticate.')
+      // Log the actual error for debugging
+      console.error('[VoiceGate] Enrollment check failed:', err)
+      console.error('[VoiceGate] Email used:', email)
+      console.error('[VoiceGate] Base URL:', getBaseUrl())
+
+      // Provide more specific error message
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        setErrorMessage('Network error. Check your internet connection.')
+      } else if (errorMsg.includes('Failed to check enrollment')) {
+        setErrorMessage('Voice server returned an error. Please try again.')
+      } else {
+        setErrorMessage(`Voice server unavailable: ${errorMsg}`)
+      }
       setState('error')
     }
   }
@@ -787,12 +799,31 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
               )}
 
               {state === 'error' && (
-                <Button
-                  onClick={checkEnrollmentStatus}
-                  className="w-full py-4 px-4 bg-gradient-to-r from-zinc-600 to-zinc-700 text-white font-medium rounded-lg hover:from-zinc-500 hover:to-zinc-600"
-                >
-                  🔄 Retry Connection
-                </Button>
+                <div className="space-y-3">
+                  <Button
+                    onClick={checkEnrollmentStatus}
+                    className="w-full py-4 px-4 bg-gradient-to-r from-zinc-600 to-zinc-700 text-white font-medium rounded-lg hover:from-zinc-500 hover:to-zinc-600"
+                  >
+                    🔄 Retry Connection
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      console.log('[VoiceGate] Bypass activated - voice server unavailable')
+                      // Store temporary bypass (valid for 1 hour)
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('voice_bypass', Date.now().toString())
+                      }
+                      onVerified()
+                    }}
+                    variant="ghost"
+                    className="w-full py-3 px-4 text-zinc-500 hover:text-zinc-300 text-sm"
+                  >
+                    Skip for now (1 hour)
+                  </Button>
+                  <p className="text-zinc-600 text-xs text-center">
+                    Voice server unreachable. You can skip verification temporarily.
+                  </p>
+                </div>
               )}
 
               {state === 'challenge' && (
