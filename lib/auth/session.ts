@@ -306,6 +306,15 @@ export function isDeviceLinked(): boolean {
 }
 
 /**
+ * Store a device token (public wrapper for voice auth).
+ * Used when enrolling voice fingerprint to bind device.
+ */
+export function storeDeviceToken(token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(DEVICE_TOKEN_KEY, token);
+}
+
+/**
  * Save device token and user ID to localStorage.
  */
 function saveDeviceToken(token: string, linked: boolean = false, userId?: number): void {
