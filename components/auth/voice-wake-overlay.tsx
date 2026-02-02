@@ -26,10 +26,17 @@ type WakeState =
   | "enroll_success";   // Enrollment complete
 
 function getBaseUrl(): string {
-  if (typeof window === "undefined") return "http://localhost:8888";
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? "http://localhost:8888"
-    : "https://voice.contextdna.io";
+  if (typeof window === "undefined") return "http://localhost:8000/api/contextdna";
+  const hostname = window.location.hostname;
+
+  // Local development - connect to local Django backend directly
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://localhost:8000/api/contextdna";
+  }
+
+  // Production - use Next.js API proxy routes (avoids browser CORS issues)
+  // The proxy routes forward to api.ersimulator.com server-side
+  return "/api";
 }
 
 export function VoiceWakeOverlay({ onWake, userEmail }: VoiceWakeOverlayProps) {
