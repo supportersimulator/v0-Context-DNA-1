@@ -1,30 +1,96 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Send, Zap, Brain, MessageCircle, Mic, MicOff, Volume2, Loader2 } from "lucide-react";
+/**
+ * Unified Synaptic Chat View - Voice + Text Hybrid Interface
+ *
+ * COWORK UI STYLING: Warm coral accent (#d97857) on dark background
+ *
+ * UX Pattern (inspired by ChatGPT voice):
+ * - Single unified chat thread for both voice and text
+ * - Voice input: Speak → process silently → show only Synaptic's response
+ * - Text input: Type → show user message → show Synaptic's response
+ * - Both modes play TTS for Synaptic's responses
+ * - No transcription clutter for voice input
+ */
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+
+// =============================================================================
+// Theme Configuration - Warm Coral Cowork UI
+// =============================================================================
+type ThemeMode = "dark" | "light";
+
+const THEME_KEY = "synaptic_theme_mode";
+
+// Warm coral accent used in both modes
+const ACCENT = {
+  primary: "#d97857",      // Warm coral
+  hover: "#e8896a",        // Lighter coral
+  muted: "rgba(217,120,87,0.15)",
+  glow: "rgba(217,120,87,0.3)",
+};
+
+// Theme-specific styles
+const THEMES = {
+  dark: {
+    bg: "bg-[#0f0f12]",
+    bgSecondary: "bg-[#161619]",
+    bgHover: "hover:bg-[#1e1e22]",
+    bgMuted: "bg-[#1e1e22]",
+    text: "text-[#f5f5f5]",
+    textMuted: "text-[#a0a0a5]",
+    border: "border-[#2a2a2e]",
+    userBubble: "bg-[#d97857] text-white",
+    synapticBubble: "bg-[#1e1e22] text-[#f5f5f5]",
+    inputBg: "bg-[#1e1e22]/80",
+  },
+  light: {
+    bg: "bg-[#faf8f6]",
+    bgSecondary: "bg-white",
+    bgHover: "hover:bg-[#f0ece8]",
+    bgMuted: "bg-[#f5f1ed]",
+    text: "text-[#1a1a1a]",
+    textMuted: "text-[#6b6b6b]",
+    border: "border-[#e5e0db]",
+    userBubble: "bg-[#d97857] text-white",
+    synapticBubble: "bg-white text-[#1a1a1a] border border-[#e5e0db]",
+    inputBg: "bg-white",
+  },
+};
+
+// Import session token getter for WebSocket auth
+import { getVoiceSessionToken } from "@/components/auth/voice-gate";
+
+// =============================================================================
+// Types
+// =============================================================================
 
 interface ChatMessage {
   id: string;
   timestamp: string;
-  sender: "aaron" | "synaptic";
-  message: string;
+  sender: "user" | "synaptic";
+  content: string;
+  source: "text" | "voice"; // Track input method
 }
 
-type VoiceState = "idle" | "recording" | "processing" | "speaking";
+type VoiceState = "idle" | "listening" | "processing" | "speaking";
 
-// Box-drawing character detection regex
-// Matches Unicode box-drawing block (U+2500-U+257F)
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+// Box-drawing character detection for 8th Intelligence messages
 const BOX_DRAWING_REGEX = /[\u2500-\u257F]/;
 
-// Detects if a message contains 8th Intelligence formatted box
 function containsBoxDrawing(text: string): boolean {
   return BOX_DRAWING_REGEX.test(text);
 }
 
-// Check for specific Synaptic markers
 function isSynapticBoxMessage(text: string): boolean {
   const hasBoxChars = containsBoxDrawing(text);
   const hasSynapticMarker = /\[START:\s*Synaptic\s+to\s+(Aaron|Atlas)\]/i.test(text) ||
@@ -32,34 +98,7 @@ function isSynapticBoxMessage(text: string): boolean {
   return hasBoxChars && hasSynapticMarker;
 }
 
-// Render message with special box styling
-function renderMessageContent(message: string, isNew: boolean = false) {
-  if (isSynapticBoxMessage(message)) {
-    return (
-      <div className={`synaptic-box-message ${isNew ? 'is-new' : ''}`}>
-        {message}
-      </div>
-    );
-  }
-
-  // Regular message with basic box detection
-  if (containsBoxDrawing(message)) {
-    return (
-      <div className="synaptic-box-message">
-        {message}
-      </div>
-    );
-  }
-
-  // Standard message rendering
-  return <span className="whitespace-pre-wrap">{message}</span>;
-}
-
-// Import session token getter for WebSocket auth
-import { getVoiceSessionToken } from "@/components/auth/voice-gate";
-
-// Determine voice WebSocket URL based on environment
-// Includes EC2-issued session_token for authentication ("1 stream" model)
+// WebSocket URL with session token
 function getVoiceWebSocketUrl(): string {
   if (typeof window === "undefined") return "ws://localhost:8888/voice";
   const hostname = window.location.hostname;
@@ -71,7 +110,6 @@ function getVoiceWebSocketUrl(): string {
     baseUrl = "wss://voice.contextdna.io/voice";
   }
 
-  // Append session token if available (for EC2-verified voice sessions)
   const sessionToken = getVoiceSessionToken();
   if (sessionToken) {
     return `${baseUrl}?session_token=${encodeURIComponent(sessionToken)}`;
@@ -80,49 +118,101 @@ function getVoiceWebSocketUrl(): string {
   return baseUrl;
 }
 
+function getTextWebSocketUrl(): string {
+  if (typeof window === "undefined") return "ws://localhost:8888/chat";
+  const hostname = window.location.hostname;
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "ws://localhost:8888/chat";
+  }
+
+  return "wss://voice.contextdna.io/chat";
+}
+
+// =============================================================================
+// Main Component
+// =============================================================================
+
 export function SynapticChatView() {
-  // Text chat state
+  // Theme state (persisted to localStorage)
+  const [theme, setTheme] = useState<ThemeMode>("dark");
+
+  // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(true);
-  const wsRef = useRef<WebSocket | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Voice mode state
-  const [voiceMode, setVoiceMode] = useState(false);
-  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  // Connection state
+  const [textConnected, setTextConnected] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
 
-  // Voice refs
+  // Voice state
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+
+  // Get current theme styles
+  const t = THEMES[theme];
+
+  // Refs
+  const textWsRef = useRef<WebSocket | null>(null);
   const voiceWsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Filter messages for display - voice mode shows only Synaptic responses
-  const displayMessages = useMemo(() => {
-    if (voiceMode) {
-      return messages.filter(msg => msg.sender === "synaptic");
+  // ==========================================================================
+  // Audio Context
+  // ==========================================================================
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
-    return messages;
-  }, [messages, voiceMode]);
+    return audioContextRef.current;
+  }, []);
 
-  // Text chat WebSocket connection
-  const connect = useCallback(() => {
-    setConnecting(true);
-    const ws = new WebSocket("ws://localhost:8888/chat");
+  // Play base64-encoded MP3 audio
+  const playBase64Audio = useCallback(async (base64Audio: string) => {
+    try {
+      const audioContext = getAudioContext();
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.onended = () => setVoiceState("idle");
+      source.start();
+    } catch (err) {
+      console.error("[Audio] Playback failed:", err);
+      setVoiceState("idle");
+    }
+  }, [getAudioContext]);
+
+  // ==========================================================================
+  // Text Chat WebSocket
+  // ==========================================================================
+
+  const connectTextChat = useCallback(() => {
+    const ws = new WebSocket(getTextWebSocketUrl());
 
     ws.onopen = () => {
-      setConnected(true);
+      setTextConnected(true);
       setConnecting(false);
     };
 
     ws.onclose = () => {
-      setConnected(false);
-      setConnecting(false);
-      // Reconnect after 2s
-      setTimeout(connect, 2000);
+      setTextConnected(false);
+      setTimeout(connectTextChat, 3000);
     };
 
     ws.onmessage = (e) => {
@@ -132,79 +222,47 @@ export function SynapticChatView() {
           data.messages.map((m: any, i: number) => ({
             id: `hist-${i}`,
             timestamp: m.timestamp,
-            sender: m.sender,
-            message: m.message,
+            sender: m.sender === "aaron" ? "user" : "synaptic",
+            content: m.message,
+            source: "text" as const,
           }))
         );
       } else if (data.type === "message") {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `msg-${Date.now()}`,
-            timestamp: data.timestamp,
-            sender: data.sender,
-            message: data.message,
-          },
-        ]);
+        // Only add if it's from Synaptic (user messages already added locally)
+        if (data.sender === "synaptic") {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              timestamp: data.timestamp,
+              sender: "synaptic",
+              content: data.message,
+              source: "text",
+            },
+          ]);
+        }
       }
     };
 
-    wsRef.current = ws;
+    textWsRef.current = ws;
   }, []);
 
-  // Audio context getter
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    return audioContextRef.current;
-  }, []);
+  // ==========================================================================
+  // Voice WebSocket
+  // ==========================================================================
 
-  // Play base64-encoded MP3 audio from TTS
-  const playBase64Audio = useCallback(async (base64Audio: string) => {
-    try {
-      const audioContext = getAudioContext();
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-
-      // Decode base64 to binary
-      const binaryString = atob(base64Audio);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      // Decode and play audio
-      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.onended = () => setVoiceState("idle");
-      source.start();
-    } catch (err) {
-      console.error("[Voice] Audio playback failed:", err);
-      setVoiceState("idle");
-    }
-  }, [getAudioContext]);
-
-  // Voice WebSocket connection
   const connectVoice = useCallback(() => {
     const ws = new WebSocket(getVoiceWebSocketUrl());
 
     ws.onopen = () => {
       setVoiceConnected(true);
-      console.log("[Voice] Connected to", getVoiceWebSocketUrl());
+      console.log("[Voice] Connected");
     };
 
     ws.onclose = () => {
       setVoiceConnected(false);
       setVoiceState("idle");
-      console.log("[Voice] Disconnected");
-      // Reconnect if voice mode still active
-      if (voiceMode) {
-        setTimeout(connectVoice, 3000);
-      }
+      setTimeout(connectVoice, 3000);
     };
 
     ws.onerror = (err) => {
@@ -215,25 +273,21 @@ export function SynapticChatView() {
       try {
         const data = JSON.parse(event.data);
 
-        if (data.type === "ready") {
-          console.log("[Voice] Server ready:", data);
-        } else if (data.type === "transcript") {
-          // User's transcribed speech - don't add to messages in voice mode
-          console.log("[Voice] Transcript:", data.text);
+        if (data.type === "transcript") {
+          // User's speech transcribed - DON'T show in chat (silent processing)
+          console.log("[Voice] Transcript (silent):", data.text);
           setVoiceState("processing");
-        } else if (data.type === "processing") {
-          // Processing stage update (stt/llm/tts)
-          console.log("[Voice] Processing stage:", data.stage);
         } else if (data.type === "response") {
           // Synaptic's response - ADD to messages
           setMessages(prev => [...prev, {
             id: `voice-${Date.now()}`,
             timestamp: new Date().toISOString(),
             sender: "synaptic",
-            message: data.text
+            content: data.text,
+            source: "voice",
           }]);
 
-          // Play audio if present
+          // Play TTS audio if present
           if (data.audio && data.audio_format === "mp3") {
             setVoiceState("speaking");
             await playBase64Audio(data.audio);
@@ -250,9 +304,12 @@ export function SynapticChatView() {
     };
 
     voiceWsRef.current = ws;
-  }, [voiceMode, playBase64Audio]);
+  }, [playBase64Audio]);
 
-  // Start recording audio
+  // ==========================================================================
+  // Recording
+  // ==========================================================================
+
   const startRecording = useCallback(async () => {
     if (!voiceConnected || voiceState !== "idle") return;
 
@@ -265,6 +322,11 @@ export function SynapticChatView() {
           noiseSuppression: true
         }
       });
+
+      // Resume audio context (required on mobile)
+      if (audioContextRef.current?.state === "suspended") {
+        await audioContextRef.current.resume();
+      }
 
       chunksRef.current = [];
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -280,11 +342,9 @@ export function SynapticChatView() {
       };
 
       mediaRecorder.onstop = async () => {
-        // Stop all tracks
         stream.getTracks().forEach(t => t.stop());
-
-        // Send audio to server
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+
         if (voiceWsRef.current?.readyState === WebSocket.OPEN && blob.size > 0) {
           const arrayBuffer = await blob.arrayBuffer();
           voiceWsRef.current.send(arrayBuffer);
@@ -294,16 +354,15 @@ export function SynapticChatView() {
         }
       };
 
-      mediaRecorder.start(100); // Collect data every 100ms
+      mediaRecorder.start(100);
       mediaRecorderRef.current = mediaRecorder;
-      setVoiceState("recording");
+      setVoiceState("listening");
     } catch (err) {
       console.error("[Voice] Microphone access failed:", err);
       setVoiceState("idle");
     }
   }, [voiceConnected, voiceState]);
 
-  // Stop recording audio
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
@@ -311,30 +370,52 @@ export function SynapticChatView() {
     }
   }, []);
 
-  // Text chat connection effect
-  useEffect(() => {
-    connect();
-    return () => wsRef.current?.close();
-  }, [connect]);
+  // ==========================================================================
+  // Send Text Message
+  // ==========================================================================
 
-  // Voice WebSocket connection effect
-  useEffect(() => {
-    if (voiceMode) {
-      connectVoice();
-    } else {
-      if (voiceWsRef.current) {
-        voiceWsRef.current.close(1000);
-        voiceWsRef.current = null;
-      }
-      setVoiceConnected(false);
-      setVoiceState("idle");
+  const sendTextMessage = useCallback(() => {
+    if (!input.trim() || !textWsRef.current || textWsRef.current.readyState !== WebSocket.OPEN) {
+      return;
     }
-    return () => {
-      if (voiceWsRef.current) {
-        voiceWsRef.current.close();
-      }
+
+    // Add user message to chat immediately
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      sender: "user",
+      content: input.trim(),
+      source: "text",
     };
-  }, [voiceMode, connectVoice]);
+    setMessages(prev => [...prev, userMessage]);
+
+    // Send to server
+    textWsRef.current.send(JSON.stringify({ message: input.trim() }));
+    setInput("");
+  }, [input]);
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendTextMessage();
+    }
+  };
+
+  // ==========================================================================
+  // Effects
+  // ==========================================================================
+
+  // Connect on mount
+  useEffect(() => {
+    connectTextChat();
+    connectVoice();
+
+    return () => {
+      textWsRef.current?.close();
+      voiceWsRef.current?.close();
+      audioContextRef.current?.close();
+    };
+  }, [connectTextChat, connectVoice]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -343,191 +424,289 @@ export function SynapticChatView() {
     }
   }, [messages]);
 
-  const send = () => {
-    if (input.trim() && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ message: input }));
-      setInput("");
-    }
-  };
+  // ==========================================================================
+  // Theme persistence
+  // ==========================================================================
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") send();
-  };
+  useEffect(() => {
+    const saved = localStorage.getItem(THEME_KEY) as ThemeMode | null;
+    if (saved === "light" || saved === "dark") {
+      setTheme(saved);
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev: ThemeMode) => {
+      const next: ThemeMode = prev === "dark" ? "light" : "dark";
+      localStorage.setItem(THEME_KEY, next);
+      return next;
+    });
+  }, []);
+
+  // ==========================================================================
+  // Render
+  // ==========================================================================
+
+  const isConnected = textConnected || voiceConnected;
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b border-border">
-        <Brain className="h-6 w-6 text-primary" />
-        <div>
-          <h2 className="font-semibold">Synaptic Fast Chat</h2>
-          <p className="text-xs text-muted-foreground">
-            {voiceMode ? "Voice Mode • STT → LLM → TTS" : "Full Memory Access • WebSocket • Sub-10ms"}
+    <div className={cn("flex flex-col h-full transition-colors duration-300", t.bg)}>
+      {/* Header - Warm coral accent */}
+      <div className={cn("flex items-center gap-3 p-4 border-b", t.border, t.bgSecondary)}>
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center"
+          style={{ backgroundColor: ACCENT.muted }}
+        >
+          <Brain className="h-5 w-5" style={{ color: ACCENT.primary }} />
+        </div>
+        <div className="flex-1">
+          <h2 className={cn("font-semibold", t.text)}>Synaptic</h2>
+          <p className={cn("text-xs", t.textMuted)}>
+            {voiceState === "listening" ? "Listening..." :
+             voiceState === "processing" ? "Thinking..." :
+             voiceState === "speaking" ? "Speaking..." :
+             "Voice + Text • Hold mic or type"}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {/* Connection Status */}
-          {connecting ? (
-            <span className="text-yellow-500 text-xs flex items-center gap-1">
-              <Zap className="h-3 w-3 animate-pulse" />
-              Connecting...
-            </span>
-          ) : connected ? (
-            <span className="text-green-500 text-xs flex items-center gap-1">
-              <Zap className="h-3 w-3" />
-              {voiceMode && voiceConnected ? "Voice Ready" : "Connected"}
-            </span>
-          ) : (
-            <span className="text-red-500 text-xs">Disconnected</span>
-          )}
-
-          {/* Voice Mode Toggle */}
-          <Button
-            variant={voiceMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => setVoiceMode(!voiceMode)}
-            className="ml-2"
-            title={voiceMode ? "Switch to Text Mode" : "Switch to Voice Mode"}
+        <div className="flex items-center gap-3">
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className={cn(
+              "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+              t.bgMuted, t.bgHover
+            )}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {voiceMode ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-          </Button>
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4" style={{ color: ACCENT.primary }} />
+            ) : (
+              <Moon className="h-4 w-4" style={{ color: ACCENT.primary }} />
+            )}
+          </button>
+          {/* Connection indicator */}
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full",
+              isConnected
+                ? "bg-emerald-500"
+                : connecting
+                ? "animate-pulse"
+                : "bg-red-500"
+            )} style={!isConnected && connecting ? { backgroundColor: ACCENT.primary } : {}} />
+            <span className={cn("text-xs", t.textMuted)}>
+              {isConnected ? "Connected" : connecting ? "Connecting..." : "Offline"}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Messages */}
+      {/* Messages Area */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-        <div className="space-y-4">
-          {displayMessages.length === 0 && (
-            <div className="text-center text-muted-foreground py-8">
-              <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              {voiceMode ? (
-                <>
-                  <p>Voice Mode Active</p>
-                  <p className="text-xs mt-1">
-                    Hold the mic button to speak with Synaptic
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p>Start a conversation with Synaptic</p>
-                  <p className="text-xs mt-1">
-                    Try: patterns, history, status, search [topic]
-                  </p>
-                </>
-              )}
+        <div className="space-y-4 max-w-3xl mx-auto">
+          {messages.length === 0 ? (
+            <div className={cn("text-center py-12", t.textMuted)}>
+              <div
+                className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+                style={{ backgroundColor: ACCENT.muted }}
+              >
+                <MessageCircle className="h-8 w-8" style={{ color: ACCENT.primary, opacity: 0.7 }} />
+              </div>
+              <p className={cn("text-lg font-medium mb-2", t.text)}>Talk to Synaptic</p>
+              <p className="text-sm opacity-70">
+                Hold the mic to speak, or type a message
+              </p>
+            </div>
+          ) : (
+            messages.map((msg) => {
+              const isBoxMessage = isSynapticBoxMessage(msg.content);
+
+              return (
+                <div
+                  key={msg.id}
+                  className={cn(
+                    "flex",
+                    msg.sender === "user" ? "justify-end" : "justify-start"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "rounded-2xl max-w-[85%]",
+                      isBoxMessage
+                        ? "p-0 border"
+                        : msg.sender === "user"
+                        ? cn("px-4 py-3", t.userBubble)
+                        : cn("px-4 py-3", t.synapticBubble)
+                    )}
+                    style={isBoxMessage ? {
+                      backgroundColor: ACCENT.muted,
+                      borderColor: `rgba(217,120,87,0.3)`,
+                    } : {}}
+                  >
+                    {/* Sender indicator for Synaptic (non-box messages) */}
+                    {msg.sender === "synaptic" && !isBoxMessage && (
+                      <div className={cn("flex items-center gap-2 mb-1 text-xs", t.textMuted)}>
+                        <Brain className="h-3 w-3" style={{ color: ACCENT.primary }} />
+                        <span>Synaptic</span>
+                        {msg.source === "voice" && (
+                          <Volume2 className="h-3 w-3" style={{ color: ACCENT.primary }} />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Message content */}
+                    {isBoxMessage ? (
+                      <div className="synaptic-box-message p-4">
+                        <pre className={cn("whitespace-pre-wrap font-mono text-sm leading-relaxed", t.text)}>
+                          {msg.content}
+                        </pre>
+                      </div>
+                    ) : (
+                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    )}
+
+                    {/* Box message footer */}
+                    {isBoxMessage && (
+                      <div className={cn("flex items-center gap-2 px-4 pb-3 text-xs", t.textMuted)}>
+                        <Brain className="h-3 w-3" style={{ color: ACCENT.primary }} />
+                        <span>8th Intelligence</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          {/* Processing indicator */}
+          {voiceState === "processing" && (
+            <div className="flex justify-start">
+              <div
+                className={cn("rounded-2xl px-4 py-3 flex items-center gap-2", t.synapticBubble)}
+              >
+                <Loader2 className="h-4 w-4 animate-spin" style={{ color: ACCENT.primary }} />
+                <span className={cn("text-sm", t.textMuted)}>Thinking...</span>
+              </div>
             </div>
           )}
-          {displayMessages.map((msg, index) => {
-            const isBoxMessage = containsBoxDrawing(msg.message);
-            const isNew = index === displayMessages.length - 1;
-
-            return (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${
-                  msg.sender === "aaron" ? "items-end" : "items-start"
-                }`}
-              >
-                <div
-                  className={`rounded-lg ${
-                    isBoxMessage
-                      ? "max-w-[95%] p-0" // Box messages get more width, padding handled by CSS
-                      : `max-w-[80%] p-3 ${
-                          msg.sender === "aaron"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        }`
-                  }`}
-                >
-                  {!isBoxMessage && (
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-semibold">
-                        {msg.sender === "aaron" ? "You" : "🧠 Synaptic"}
-                      </span>
-                      <span className="text-xs opacity-50">
-                        {new Date(msg.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                  )}
-                  <div className="text-sm">
-                    {renderMessageContent(msg.message, isNew)}
-                  </div>
-                  {isBoxMessage && (
-                    <div className="flex items-center gap-2 mt-2 px-4 pb-2 text-muted-foreground">
-                      <span className="text-xs font-semibold text-primary/80">
-                        🧠 8th Intelligence
-                      </span>
-                      <span className="text-xs opacity-50">
-                        {new Date(msg.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
         </div>
       </ScrollArea>
 
-      {/* Input Area */}
-      <div className="p-4 border-t border-border">
-        {voiceMode ? (
-          /* Voice Mode UI - Hold to Talk */
-          <div className="flex items-center justify-center gap-4 py-2">
-            <Button
-              className={`w-16 h-16 rounded-full transition-all duration-200 ${
-                voiceState === "recording"
-                  ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/50"
-                  : voiceState === "processing"
-                  ? "bg-yellow-500 hover:bg-yellow-600 cursor-wait"
-                  : voiceState === "speaking"
-                  ? "bg-blue-500 hover:bg-blue-600 cursor-wait"
-                  : "bg-primary hover:bg-primary/90"
-              }`}
-              disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "recording")}
-              onPointerDown={() => voiceState === "idle" && startRecording()}
-              onPointerUp={() => voiceState === "recording" && stopRecording()}
-              onPointerLeave={() => voiceState === "recording" && stopRecording()}
+      {/* Input Area - Hybrid Voice + Text with warm coral accent */}
+      <div className={cn("p-4 border-t backdrop-blur", t.border, t.bgSecondary)}>
+        <div className="max-w-3xl mx-auto">
+          {/* Voice recording indicator */}
+          {voiceState === "listening" && (
+            <div
+              className="flex items-center justify-center gap-3 mb-4 py-3 rounded-lg border"
+              style={{
+                backgroundColor: "rgba(239,68,68,0.1)",
+                borderColor: "rgba(239,68,68,0.3)"
+              }}
             >
-              {voiceState === "recording" ? (
+              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-red-400 font-medium">Listening... Release to send</span>
+            </div>
+          )}
+
+          {voiceState === "speaking" && (
+            <div
+              className="flex items-center justify-center gap-3 mb-4 py-3 rounded-lg border"
+              style={{
+                backgroundColor: ACCENT.muted,
+                borderColor: `rgba(217,120,87,0.3)`
+              }}
+            >
+              <Volume2 className="h-4 w-4 animate-pulse" style={{ color: ACCENT.primary }} />
+              <span className="font-medium" style={{ color: ACCENT.primary }}>Speaking...</span>
+            </div>
+          )}
+
+          {/* Input row */}
+          <div className="flex items-center gap-3">
+            {/* Voice Button - Warm coral when idle */}
+            <Button
+              size="lg"
+              className={cn(
+                "w-14 h-14 rounded-full shrink-0 transition-all duration-200 touch-none border-0",
+                voiceState === "listening"
+                  ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30"
+                  : voiceState === "processing"
+                  ? "cursor-wait"
+                  : voiceState === "speaking"
+                  ? "cursor-wait"
+                  : ""
+              )}
+              style={
+                voiceState === "idle"
+                  ? { backgroundColor: ACCENT.primary }
+                  : voiceState === "processing"
+                  ? { backgroundColor: ACCENT.hover }
+                  : voiceState === "speaking"
+                  ? { backgroundColor: ACCENT.primary }
+                  : {}
+              }
+              disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "listening")}
+              onPointerDown={() => voiceState === "idle" && startRecording()}
+              onPointerUp={() => voiceState === "listening" && stopRecording()}
+              onPointerLeave={() => voiceState === "listening" && stopRecording()}
+              onPointerCancel={() => voiceState === "listening" && stopRecording()}
+            >
+              {voiceState === "listening" ? (
                 <Mic className="h-6 w-6 animate-pulse text-white" />
               ) : voiceState === "processing" ? (
                 <Loader2 className="h-6 w-6 animate-spin text-white" />
               ) : voiceState === "speaking" ? (
                 <Volume2 className="h-6 w-6 animate-pulse text-white" />
               ) : (
-                <Mic className="h-6 w-6" />
+                <Mic className="h-6 w-6 text-white" />
               )}
             </Button>
-            <div className="text-sm text-muted-foreground min-w-[100px]">
-              {voiceState === "idle" && "Hold to speak"}
-              {voiceState === "recording" && (
-                <span className="text-red-500 font-medium">Recording...</span>
-              )}
-              {voiceState === "processing" && (
-                <span className="text-yellow-500 font-medium">Processing...</span>
-              )}
-              {voiceState === "speaking" && (
-                <span className="text-blue-500 font-medium">Speaking...</span>
-              )}
+
+            {/* Text Input */}
+            <div className="flex-1 relative">
+              <Input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder="Type a message..."
+                disabled={!textConnected || voiceState !== "idle"}
+                className={cn(
+                  "pr-12 h-12 rounded-full border transition-colors",
+                  t.inputBg, t.text, t.border,
+                  "focus:outline-none"
+                )}
+                style={{
+                  // @ts-ignore - custom focus style
+                  "--tw-ring-color": ACCENT.muted,
+                }}
+              />
+              <Button
+                size="sm"
+                onClick={sendTextMessage}
+                disabled={!textConnected || !input.trim() || voiceState !== "idle"}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full p-0 border-0"
+                style={{ backgroundColor: ACCENT.primary }}
+              >
+                <Send className="h-4 w-4 text-white" />
+              </Button>
             </div>
           </div>
-        ) : (
-          /* Text Mode UI - Standard Input */
-          <div className="flex gap-2">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Talk to Synaptic..."
-              disabled={!connected}
-              className="flex-1"
-            />
-            <Button onClick={send} disabled={!connected || !input.trim()}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
+
+          {/* Help text */}
+          <p className={cn("text-xs text-center mt-3", t.textMuted)}>
+            {voiceState === "idle" ? (
+              "Hold mic to speak • Type to chat"
+            ) : voiceState === "listening" ? (
+              "Release when done speaking"
+            ) : voiceState === "processing" ? (
+              "Processing your request..."
+            ) : (
+              "Synaptic is responding..."
+            )}
+          </p>
+        </div>
       </div>
     </div>
   );
