@@ -75,7 +75,6 @@ export const DEFAULT_TABS: Tab[] = [
   { id: 'health', label: 'Health', icon: '💚' },
   { id: 'models', label: 'Models', icon: '🤖' },
   { id: 'synaptic', label: 'Synaptic', icon: '⚡' },
-  { id: 'voice', label: 'Voice', icon: '🎙️' },
   { id: 'install', label: 'Install', icon: '📥' },
 ];
 

@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon } from "lucide-react";
+import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon, Code2, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 type ThemeMode = "dark" | "light";
 
 const THEME_KEY = "synaptic_theme_mode";
+const DEV_MODE_KEY = "synaptic_dev_mode";
 
 // Warm coral accent used in both modes
 const ACCENT = {
@@ -76,6 +77,8 @@ interface ChatMessage {
   sender: "user" | "synaptic";
   content: string;
   source: "text" | "voice"; // Track input method
+  fullText?: string; // Full markdown text for dev mode
+  isDevMode?: boolean; // Whether this response was in dev mode
 }
 
 type VoiceState = "idle" | "listening" | "processing" | "speaking";
@@ -136,6 +139,9 @@ function getTextWebSocketUrl(): string {
 export function SynapticChatView() {
   // Theme state (persisted to localStorage)
   const [theme, setTheme] = useState<ThemeMode>("dark");
+
+  // Dev mode: VOICE (terse, spoken) vs DEV (full visual + brief narrator)
+  const [devMode, setDevMode] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -279,12 +285,15 @@ export function SynapticChatView() {
           setVoiceState("processing");
         } else if (data.type === "response") {
           // Synaptic's response - ADD to messages
+          // In dev mode, full_text has markdown; content has voice summary
           setMessages(prev => [...prev, {
             id: `voice-${Date.now()}`,
             timestamp: new Date().toISOString(),
             sender: "synaptic",
             content: data.text,
             source: "voice",
+            fullText: data.full_text, // Full markdown when dev_mode=true
+            isDevMode: data.dev_mode,
           }]);
 
           // Play TTS audio if present
@@ -293,6 +302,22 @@ export function SynapticChatView() {
             await playBase64Audio(data.audio);
           } else {
             setVoiceState("idle");
+          }
+        } else if (data.type === "dev_mode_updated") {
+          // Mode switched (via voice command or UI toggle)
+          const newMode = data.enabled;
+          setDevMode(newMode);
+          localStorage.setItem(DEV_MODE_KEY, String(newMode));
+          console.log(`[Voice] Mode switched to ${newMode ? "DEV" : "VOICE"} via ${data.trigger || "server"}`);
+          // Add system message for visibility
+          if (data.trigger === "voice_command") {
+            setMessages(prev => [...prev, {
+              id: `sys-${Date.now()}`,
+              timestamp: new Date().toISOString(),
+              sender: "synaptic",
+              content: `🎛️ Switched to ${newMode ? "Dev Mode" : "Voice Mode"} (${newMode ? "full visual output" : "terse spoken output"})`,
+              source: "voice",
+            }]);
           }
         } else if (data.type === "error") {
           console.error("[Voice] Server error:", data.message);
@@ -433,12 +458,34 @@ export function SynapticChatView() {
     if (saved === "light" || saved === "dark") {
       setTheme(saved);
     }
+    // Load dev mode from localStorage
+    const savedDevMode = localStorage.getItem(DEV_MODE_KEY);
+    if (savedDevMode === "true") {
+      setDevMode(true);
+    }
   }, []);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev: ThemeMode) => {
       const next: ThemeMode = prev === "dark" ? "light" : "dark";
       localStorage.setItem(THEME_KEY, next);
+      return next;
+    });
+  }, []);
+
+  // Toggle dev mode and notify server
+  const toggleDevMode = useCallback(() => {
+    setDevMode((prev) => {
+      const next = !prev;
+      localStorage.setItem(DEV_MODE_KEY, String(next));
+      // Send to voice WebSocket server
+      if (voiceWsRef.current?.readyState === WebSocket.OPEN) {
+        voiceWsRef.current.send(JSON.stringify({
+          type: "set_dev_mode",
+          enabled: next
+        }));
+      }
+      console.log(`[Synaptic] Dev mode ${next ? "enabled" : "disabled"} (${next ? "DEV" : "VOICE"} projection)`);
       return next;
     });
   }, []);
@@ -469,6 +516,23 @@ export function SynapticChatView() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Dev mode toggle - VOICE vs DEV projection */}
+          <button
+            onClick={toggleDevMode}
+            className={cn(
+              "w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative",
+              t.bgMuted, t.bgHover,
+              devMode && "ring-2 ring-offset-1"
+            )}
+            style={devMode ? { ringColor: ACCENT.primary, ringOffsetColor: 'transparent' } : {}}
+            title={devMode ? "Dev mode: Full visual + brief narrator" : "Voice mode: Terse spoken output"}
+          >
+            {devMode ? (
+              <Code2 className="h-4 w-4" style={{ color: ACCENT.primary }} />
+            ) : (
+              <AudioLines className="h-4 w-4" style={{ color: ACCENT.primary }} />
+            )}
+          </button>
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
@@ -559,6 +623,17 @@ export function SynapticChatView() {
                       <div className="synaptic-box-message p-4">
                         <pre className={cn("whitespace-pre-wrap font-mono text-sm leading-relaxed", t.text)}>
                           {msg.content}
+                        </pre>
+                      </div>
+                    ) : msg.isDevMode && msg.fullText ? (
+                      // Dev mode: Show full markdown text with code styling
+                      <div className="text-sm">
+                        <div className={cn("text-xs mb-2 px-2 py-1 rounded inline-flex items-center gap-1", t.bgMuted)}>
+                          <Code2 className="h-3 w-3" style={{ color: ACCENT.primary }} />
+                          <span style={{ color: ACCENT.primary }}>Dev Mode</span>
+                        </div>
+                        <pre className={cn("whitespace-pre-wrap font-mono text-xs leading-relaxed mt-2", t.text)}>
+                          {msg.fullText}
                         </pre>
                       </div>
                     ) : (
