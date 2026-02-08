@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { PanelLeft, PanelRight, Rows, Columns } from 'lucide-react';
+import { PanelLeft, PanelRight, Rows, Columns, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface SplitPanelLayoutProps {
     leftPanel: React.ReactNode;
@@ -20,6 +21,8 @@ interface SplitPanelLayoutProps {
     rightBottomTitle?: string;
 }
 
+type PanelFullscreenState = 'none' | 'left' | 'rightTop' | 'rightBottom';
+
 export function SplitPanelLayout({
     leftPanel,
     rightPanel,
@@ -32,6 +35,14 @@ export function SplitPanelLayout({
 }: SplitPanelLayoutProps) {
     const [isMobile, setIsMobile] = useState(false);
     const [activeTab, setActiveTab] = useState<'left' | 'rightTop' | 'rightBottom'>('left');
+    const [fullscreen, setFullscreen] = useState<PanelFullscreenState>('none');
+
+    // Resizer state (pixels for absolute positioning)
+    const [leftPanelWidth, setLeftPanelWidth] = useState(400);
+    const [rightTopPanelHeight, setRightTopPanelHeight] = useState(280);
+    const [isDraggingVertical, setIsDraggingVertical] = useState(false);
+    const [isDraggingHorizontal, setIsDraggingHorizontal] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Determine if we're in 3-panel mode
     const isThreePanelMode = rightTopPanel !== undefined && rightBottomPanel !== undefined;
@@ -51,6 +62,97 @@ export function SplitPanelLayout({
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    // Vertical (left/right) resizer drag handler
+    useEffect(() => {
+        if (!isDraggingVertical) return;
+
+        const handleVerticalDrag = (e: MouseEvent) => {
+            if (!containerRef.current) return;
+            const rect = containerRef.current.getBoundingClientRect();
+            const newWidth = e.clientX - rect.left;
+            const minWidth = 350;
+            const maxWidth = rect.width - 400; // Reserve 400px for right panel
+
+            if (newWidth >= minWidth && newWidth <= maxWidth) {
+                setLeftPanelWidth(newWidth);
+            }
+        };
+
+        const handleVerticalDragEnd = () => {
+            setIsDraggingVertical(false);
+        };
+
+        document.addEventListener('mousemove', handleVerticalDrag);
+        document.addEventListener('mouseup', handleVerticalDragEnd);
+        return () => {
+            document.removeEventListener('mousemove', handleVerticalDrag);
+            document.removeEventListener('mouseup', handleVerticalDragEnd);
+        };
+    }, [isDraggingVertical]);
+
+    // Horizontal (top/bottom) resizer drag handler
+    useEffect(() => {
+        if (!isDraggingHorizontal) return;
+
+        const handleHorizontalDrag = (e: MouseEvent) => {
+            if (!containerRef.current) return;
+            const rightPanel = containerRef.current.querySelector('[data-panel="right"]') as HTMLElement;
+            if (!rightPanel) return;
+
+            const rect = rightPanel.getBoundingClientRect();
+            const newHeight = e.clientY - rect.top;
+            const minHeight = 180;
+            const maxHeight = rect.height - 180;
+
+            if (newHeight >= minHeight && newHeight <= maxHeight) {
+                setRightTopPanelHeight(newHeight);
+            }
+        };
+
+        const handleHorizontalDragEnd = () => {
+            setIsDraggingHorizontal(false);
+        };
+
+        document.addEventListener('mousemove', handleHorizontalDrag);
+        document.addEventListener('mouseup', handleHorizontalDragEnd);
+        return () => {
+            document.removeEventListener('mousemove', handleHorizontalDrag);
+            document.removeEventListener('mouseup', handleHorizontalDragEnd);
+        };
+    }, [isDraggingHorizontal]);
+
+    if (fullscreen !== 'none') {
+        // Fullscreen mode - show single panel at full size
+        const fullscreenTitle =
+            fullscreen === 'left' ? leftTitle :
+            fullscreen === 'rightTop' ? topTitle : bottomTitle;
+
+        const fullscreenContent =
+            fullscreen === 'left' ? leftPanel :
+            fullscreen === 'rightTop' ? topPanel : bottomPanel;
+
+        return (
+            <div className="flex flex-col h-full">
+                {/* Fullscreen Header */}
+                <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-background/95 backdrop-blur z-10 shrink-0">
+                    <h2 className="font-medium text-foreground">{fullscreenTitle} (Fullscreen)</h2>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setFullscreen('none')}
+                        className="h-8 w-8 p-0"
+                    >
+                        <X className="w-4 h-4" />
+                    </Button>
+                </div>
+                {/* Fullscreen Content */}
+                <div className="flex-1 overflow-hidden">
+                    {fullscreenContent}
+                </div>
+            </div>
+        );
+    }
 
     if (isMobile) {
         // Mobile: tabs for all panels
@@ -107,35 +209,129 @@ export function SplitPanelLayout({
         );
     }
 
-    // Desktop Split Layout
+    // Desktop Split Layout with Draggable Resizers
     return (
-        <div className="flex h-full w-full overflow-hidden">
-            {/* Left Panel (Flexible, min 400px) */}
-            <div className="flex-1 min-w-[400px] border-r border-border/50 relative">
-                {leftPanel}
+        <div ref={containerRef} className="flex h-full w-full overflow-hidden group">
+            {/* Left Panel - Resizable Width */}
+            <div
+                style={{ width: `${leftPanelWidth}px` }}
+                className={cn(
+                    "relative flex flex-col border-r transition-colors",
+                    isDraggingVertical
+                        ? "border-primary/50 bg-secondary/30"
+                        : "border-border/50"
+                )}
+            >
+                {/* Panel Header with Fullscreen Button */}
+                <div className="flex items-center justify-between px-4 py-2 mb-2 shrink-0">
+                    <span className="text-xs text-muted-foreground font-medium uppercase">{leftTitle}</span>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setFullscreen('left')}
+                        className="h-6 w-6 p-0"
+                        title="Fullscreen"
+                    >
+                        <PanelLeft className="w-3 h-3" />
+                    </Button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                    {leftPanel}
+                </div>
             </div>
 
-            {/* Right Panel(s) */}
-            <div className="w-[400px] xl:w-[450px] shrink-0 bg-background/50 relative flex flex-col">
+            {/* Vertical Resizer - Draggable between left and right panels */}
+            <div
+                onMouseDown={() => setIsDraggingVertical(true)}
+                className={cn(
+                    "w-1 bg-border/50 hover:bg-primary/50 cursor-col-resize transition-colors select-none",
+                    isDraggingVertical && "bg-primary w-1.5 shadow-lg"
+                )}
+                title="Drag to resize panels"
+            />
+
+            {/* Right Panel(s) - Fixed Width */}
+            <div
+                data-panel="right"
+                className="flex-1 min-w-[400px] bg-background/50 relative flex flex-col"
+            >
                 {isThreePanelMode ? (
                     <>
-                        {/* Top Right Panel (flex-1 to take available space) */}
-                        <div className="flex-1 min-h-[200px] overflow-hidden border-b border-border/50">
-                            {topPanel}
+                        {/* Top Right Panel - Resizable Height */}
+                        <div
+                            style={{ height: `${rightTopPanelHeight}px` }}
+                            className={cn(
+                                "relative overflow-hidden border-b flex flex-col transition-colors",
+                                isDraggingHorizontal
+                                    ? "border-primary/50 bg-secondary/30"
+                                    : "border-border/50"
+                            )}
+                        >
+                            {/* Panel Header with Fullscreen Button */}
+                            <div className="flex items-center justify-between px-4 py-2 shrink-0">
+                                <span className="text-xs text-muted-foreground font-medium uppercase">{topTitle}</span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setFullscreen('rightTop')}
+                                    className="h-6 w-6 p-0"
+                                    title="Fullscreen"
+                                >
+                                    <PanelRight className="w-3 h-3" />
+                                </Button>
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                {topPanel}
+                            </div>
                         </div>
 
-                        {/* Bottom Right Panel (fixed height with min/max) */}
-                        <div className="h-[280px] min-h-[200px] max-h-[400px] overflow-hidden">
-                            {bottomPanel}
+                        {/* Horizontal Resizer - Draggable between top and bottom panels */}
+                        <div
+                            onMouseDown={() => setIsDraggingHorizontal(true)}
+                            className={cn(
+                                "h-1 bg-border/50 hover:bg-primary/50 cursor-row-resize transition-colors select-none",
+                                isDraggingHorizontal && "bg-primary h-1.5 shadow-lg"
+                            )}
+                            title="Drag to resize panels"
+                        />
+
+                        {/* Bottom Right Panel - Flex to fill */}
+                        <div className={cn(
+                            "relative flex-1 overflow-hidden flex flex-col transition-colors",
+                            isDraggingHorizontal
+                                ? "border-primary/50 bg-secondary/30"
+                                : "border-border/50"
+                        )}>
+                            {/* Panel Header with Fullscreen Button */}
+                            <div className="flex items-center justify-between px-4 py-2 shrink-0">
+                                <span className="text-xs text-muted-foreground font-medium uppercase">{bottomTitle}</span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setFullscreen('rightBottom')}
+                                    className="h-6 w-6 p-0"
+                                    title="Fullscreen"
+                                >
+                                    <PanelRight className="w-3 h-3" />
+                                </Button>
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                {bottomPanel}
+                            </div>
                         </div>
                     </>
                 ) : (
                     // Single right panel (backward compatible)
-                    topPanel
+                    <>
+                        {/* Panel Header */}
+                        <div className="flex items-center justify-between px-4 py-2 shrink-0">
+                            <span className="text-xs text-muted-foreground font-medium uppercase">{topTitle}</span>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            {topPanel}
+                        </div>
+                    </>
                 )}
-
-                {/* Absolute border for resize handle visual */}
-                <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-border/50 cursor-col-resize hover:bg-primary/50 transition-colors" />
             </div>
         </div>
     );
