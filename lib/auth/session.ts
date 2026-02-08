@@ -59,6 +59,9 @@ function isV0Preview(): boolean {
 
   const hostname = window.location.hostname;
 
+  // Local development bypass
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+
   // v0.dev preview domains
   if (hostname.endsWith('.v0.dev')) return true;
   if (hostname.includes('v0.app')) return true;

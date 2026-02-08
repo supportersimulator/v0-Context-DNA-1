@@ -699,11 +699,11 @@ export function SynapticChatView() {
 
           {/* Input row */}
           <div className="flex items-center gap-3">
-            {/* Voice Button - Warm coral when idle */}
+            {/* Voice Button - Warm coral when idle - Mobile & Desktop compatible */}
             <Button
               size="lg"
               className={cn(
-                "w-14 h-14 rounded-full shrink-0 transition-all duration-200 touch-none border-0",
+                "w-14 h-14 rounded-full shrink-0 transition-all duration-200 border-0",
                 voiceState === "listening"
                   ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30"
                   : voiceState === "processing"
@@ -714,14 +714,29 @@ export function SynapticChatView() {
               )}
               style={
                 voiceState === "idle"
-                  ? { backgroundColor: ACCENT.primary }
+                  ? { backgroundColor: ACCENT.primary, touchAction: "none" }
                   : voiceState === "processing"
-                  ? { backgroundColor: ACCENT.hover }
+                  ? { backgroundColor: ACCENT.hover, touchAction: "none" }
                   : voiceState === "speaking"
-                  ? { backgroundColor: ACCENT.primary }
-                  : {}
+                  ? { backgroundColor: ACCENT.primary, touchAction: "none" }
+                  : { touchAction: "none" }
               }
               disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "listening")}
+              onMouseDown={() => voiceState === "idle" && startRecording()}
+              onMouseUp={() => voiceState === "listening" && stopRecording()}
+              onMouseLeave={() => voiceState === "listening" && stopRecording()}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                voiceState === "idle" && startRecording();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                voiceState === "listening" && stopRecording();
+              }}
+              onTouchCancel={(e) => {
+                e.preventDefault();
+                voiceState === "listening" && stopRecording();
+              }}
               onPointerDown={() => voiceState === "idle" && startRecording()}
               onPointerUp={() => voiceState === "listening" && stopRecording()}
               onPointerLeave={() => voiceState === "listening" && stopRecording()}
