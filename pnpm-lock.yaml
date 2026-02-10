@@ -125,6 +125,15 @@ importers:
       date-fns:
         specifier: 4.1.0
         version: 4.1.0
+      dockview:
+        specifier: ^4.13.1
+        version: 4.13.1(react@19.2.0)
+      dockview-core:
+        specifier: ^4.13.1
+        version: 4.13.1
+      dockview-react:
+        specifier: ^4.13.1
+        version: 4.13.1(react@19.2.0)
       embla-carousel-react:
         specifier: 8.5.1
         version: 8.5.1(react@19.2.0)
@@ -1454,6 +1463,17 @@ packages:
 
   detect-node-es@1.1.0:
     resolution: {integrity: sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ==}
+
+  dockview-core@4.13.1:
+    resolution: {integrity: sha512-+7vR0ZEoL8CNck6NqDVUMqBT22niwBu5CMMI137dZ3c8NDc7c5Si+3dGEqQgM4lNtHBLAtvypo1C4p21J2wkiQ==}
+
+  dockview-react@4.13.1:
+    resolution: {integrity: sha512-xnK0mUq+gzME/QyzM5nn+SsQO26AA2qZlCuqi1KX7wux52KIUSMraQHN5AY9Qm2qCVb/NHhCZoZNSysb/GS79A==}
+
+  dockview@4.13.1:
+    resolution: {integrity: sha512-K8xnYt3Rvkx8MYKHaEsb8aFaPyQclKRRkXS9JcpQPZUgqxumTLnSidgdd6uIfzEps6yJsXoZGQGJ9PtcaKyDcQ==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   dom-helpers@5.2.1:
     resolution: {integrity: sha512-nRCa7CK3VTrM2NmGkIy4cbK7IZlgBE/PYMn55rrXefr5xXDP0LdtfPnblFDoVdcAfslJ7or6iqAUnx0CCGIWQA==}
@@ -3156,6 +3176,19 @@ snapshots:
   detect-libc@2.1.2: {}
 
   detect-node-es@1.1.0: {}
+
+  dockview-core@4.13.1: {}
+
+  dockview-react@4.13.1(react@19.2.0):
+    dependencies:
+      dockview: 4.13.1(react@19.2.0)
+    transitivePeerDependencies:
+      - react
+
+  dockview@4.13.1(react@19.2.0):
+    dependencies:
+      dockview-core: 4.13.1
+      react: 19.2.0
 
   dom-helpers@5.2.1:
     dependencies:

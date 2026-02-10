@@ -1,12 +1,18 @@
 "use client"
 
-import DashboardShell from "@/components/dashboard/DashboardShell"
+import { DockviewShell } from "@/components/ide/dockview-shell"
 import { AuthWrapper } from "@/components/auth-wrapper"
+import { ChatProvider } from "@/lib/contexts/chat-context"
+import { ResponsiveProvider } from "@/lib/contexts/responsive-context"
 
 export default function Page() {
   return (
     <AuthWrapper>
-      <DashboardShell />
+      <ResponsiveProvider>
+        <ChatProvider>
+          <DockviewShell />
+        </ChatProvider>
+      </ResponsiveProvider>
     </AuthWrapper>
   )
 }

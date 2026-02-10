@@ -1,5 +1,30 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import 'dockview-react/dist/styles/dockview.css';
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dockview Theme Override — ContextDNA Dark Mode
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dockview-theme-dark {
+  --dv-background-color: #0a0a0f;
+  --dv-paneview-header-border-color: #2a2a35;
+  --dv-tabs-and-actions-container-background-color: #111118;
+  --dv-activegroup-visiblepanel-tab-background-color: #1a1a24;
+  --dv-activegroup-visiblepanel-tab-color: #e5e5e5;
+  --dv-activegroup-hiddenpanel-tab-background-color: #111118;
+  --dv-activegroup-hiddenpanel-tab-color: #6b6b75;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #16161d;
+  --dv-inactivegroup-visiblepanel-tab-color: #6b6b75;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #111118;
+  --dv-inactivegroup-hiddenpanel-tab-color: #4a4a55;
+  --dv-tab-divider-color: #2a2a35;
+  --dv-separator-border: #2a2a35;
+  --dv-group-view-background-color: #0a0a0f;
+  --dv-tabs-container-scrollbar-color: #22c55e;
+  --dv-drag-over-background-color: rgba(34, 197, 94, 0.1);
+  --dv-drag-over-border-color: #22c55e;
+  --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -358,4 +383,136 @@
 
 .synaptic-box-message::-webkit-scrollbar-thumb:hover {
   background: rgba(34, 197, 94, 0.6);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive Panel System
+   CSS classes driven by ResizeObserver in responsive-panel.tsx
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Base responsive panel container */
+.responsive-panel {
+  position: relative;
+  container-type: inline-size;
+}
+
+/* ── Compact mode (width < 300px): panels should stack vertically ─────── */
+
+.panel-compact .panel-row {
+  flex-direction: column;
+}
+
+.panel-compact .panel-sidebar {
+  display: none;
+}
+
+.panel-compact .panel-grid {
+  grid-template-columns: 1fr;
+}
+
+.panel-compact .panel-hide-compact {
+  display: none;
+}
+
+/* ── Tiny mode (width < 200px): hide secondary content ───────────────── */
+
+.panel-tiny .panel-secondary {
+  display: none;
+}
+
+.panel-tiny .panel-hide-tiny {
+  display: none;
+}
+
+.panel-tiny .panel-text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Collapsed placeholder ────────────────────────────────────────────── */
+
+.collapsed-placeholder {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: #0a0a0f;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.collapsed-placeholder:hover {
+  background: #111118;
+}
+
+.collapsed-placeholder:hover .collapsed-placeholder__hint {
+  opacity: 1;
+}
+
+.collapsed-placeholder:hover svg {
+  color: #4ade80;
+  filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.4));
+}
+
+/* Horizontal layout (short-wide panels) */
+.collapsed-placeholder--horizontal {
+  flex-direction: row;
+  gap: 8px;
+  padding: 0 12px;
+  justify-content: flex-start;
+}
+
+/* Vertical layout (narrow-tall panels) */
+.collapsed-placeholder--vertical {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 4px;
+  justify-content: center;
+}
+
+.collapsed-placeholder__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #e5e5e5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collapsed-placeholder__label--vertical {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  max-height: calc(100% - 40px);
+}
+
+.collapsed-placeholder__hint {
+  font-size: 10px;
+  color: #6b6b75;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+/* ── Container query utilities (for panels that want pure CSS adaptation) */
+/* These work alongside the JS-driven classes for panels preferring CSS-only */
+
+@container (max-width: 299px) {
+  .cq-stack {
+    flex-direction: column !important;
+  }
+  .cq-hide-compact {
+    display: none !important;
+  }
+  .cq-grid-single {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@container (max-width: 199px) {
+  .cq-hide-tiny {
+    display: none !important;
+  }
 }

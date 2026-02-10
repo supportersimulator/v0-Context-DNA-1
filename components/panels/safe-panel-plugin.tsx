@@ -63,7 +63,7 @@ export function SafePanelPlugin({
     loadTime: 0,
   });
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<NodeJS.Timeout>(undefined);
   const retryCountRef = useRef(0);
 
   useEffect(() => {
@@ -174,10 +174,7 @@ export function SafePanelPlugin({
           <iframe
             ref={iframeRef}
             src={config.url}
-            sandbox={
-              // Strict sandbox permissions - add permissions as needed
-              new DOMTokenList()
-            }
+            sandbox="allow-scripts"
             className='w-full h-full border-0'
             title={config.name}
           />
@@ -202,45 +199,36 @@ export function SafePanelPlugin({
   return null;
 }
 
-/**
- * Panel Plugin Security Guidelines
- *
- * When creating external panel sources:
- *
- * 1. API Panels:
- *    - Endpoint must return JSON with { html, css, js }
- *    - JS must communicate via postMessage() API
- *    - No direct DOM access
- *
- * 2. WebSocket Panels:
- *    - Send updates as JSON
- *    - Listen for commands from parent
- *    - Graceful reconnection
- *
- * 3. Webhook Panels:
- *    - Sent from external systems
- *    - Always sanitize content
- *    - Validate source
- *
- * 4. iframe Panels:
- *    - Completely isolated by browser
- *    - Must communicate via postMessage
- *    - No access to parent window
- *    - Perfect for untrusted sources
- *
- * Message API Example:
- * ```typescript
- * // Panel sends data to parent
- * parent.postMessage({
- *   type: 'panel-update',
- *   panelId: 'my-panel',
- *   data: { /* ... */ }
- * }, '*');
- *
- * // Parent receives and validates
- * window.addEventListener('message', (event) => {
- *   if (event.source !== expectedPanel) return;
- *   // Process event.data
- * });
- * ```
- */
+// ---------------------------------------------------------------------------
+// Panel Plugin Security Guidelines
+//
+// When creating external panel sources:
+//
+// 1. API Panels:
+//    - Endpoint must return JSON with { html, css, js }
+//    - JS must communicate via postMessage() API
+//    - No direct DOM access
+//
+// 2. WebSocket Panels:
+//    - Send updates as JSON
+//    - Listen for commands from parent
+//    - Graceful reconnection
+//
+// 3. Webhook Panels:
+//    - Sent from external systems
+//    - Always sanitize content
+//    - Validate source
+//
+// 4. iframe Panels:
+//    - Completely isolated by browser
+//    - Must communicate via postMessage
+//    - No access to parent window
+//    - Perfect for untrusted sources
+//
+// Message API Example:
+//   parent.postMessage({ type: 'panel-update', panelId: 'my-panel', data: {} }, '*');
+//   window.addEventListener('message', (event) => {
+//     if (event.source !== expectedPanel) return;
+//     // Process event.data
+//   });
+// ---------------------------------------------------------------------------
