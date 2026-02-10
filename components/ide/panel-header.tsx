@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Pin,
   PinOff,
@@ -213,8 +213,43 @@ export function PanelHeader({
 export function RightHeaderActions({
   containerApi,
   activePanel,
+  group,
 }: IDockviewHeaderActionsProps) {
   const [maximized, setMaximized] = useState(false);
+  const [isFloating, setIsFloating] = useState(false);
+
+  // Sync floating state from group location on mount and location changes
+  useEffect(() => {
+    setIsFloating(group.api.location.type === 'floating');
+    const disposable = group.api.onDidLocationChange(() => {
+      setIsFloating(group.api.location.type === 'floating');
+    });
+    return () => disposable.dispose();
+  }, [group]);
+
+  const handleFloat = useCallback(() => {
+    if (!activePanel) return;
+
+    if (isFloating) {
+      // Dock back: re-add panel to the main grid
+      containerApi.addPanel({
+        id: `${activePanel.id}_docked`,
+        component: activePanel.id,
+        title: activePanel.title ?? activePanel.id,
+      });
+      containerApi.removePanel(activePanel);
+    } else {
+      // Float: detach to bottom-right corner
+      const floatW = 400;
+      const floatH = 350;
+      containerApi.addFloatingGroup(activePanel, {
+        x: Math.max(0, containerApi.width - floatW - 16),
+        y: Math.max(0, containerApi.height - floatH - 16),
+        width: floatW,
+        height: floatH,
+      });
+    }
+  }, [activePanel, containerApi, isFloating]);
 
   const handleMaximize = useCallback(() => {
     if (maximized) {
@@ -237,6 +272,19 @@ export function RightHeaderActions({
 
   return (
     <div className="flex items-center gap-0.5 pr-1">
+      {/* Float / Dock toggle */}
+      <button
+        className={`${btnClass} ${isFloating ? 'text-[#22c55e]' : ''}`}
+        onClick={handleFloat}
+        title={isFloating ? 'Dock panel' : 'Float panel'}
+      >
+        {isFloating ? (
+          <PinOff className="w-3 h-3" />
+        ) : (
+          <Pin className="w-3 h-3" />
+        )}
+      </button>
+      {/* Maximize / Restore */}
       <button
         className={btnClass}
         onClick={handleMaximize}
@@ -248,6 +296,7 @@ export function RightHeaderActions({
           <Maximize2 className="w-3 h-3" />
         )}
       </button>
+      {/* Close */}
       <button
         className={`${btnClass} hover:bg-red-500/20 hover:text-red-400`}
         onClick={handleClose}

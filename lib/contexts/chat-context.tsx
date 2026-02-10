@@ -19,7 +19,7 @@ interface ChatContextType {
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   scrollToBottom: () => void;
-  lastMessageRef: React.RefObject<HTMLDivElement>;
+  lastMessageRef: React.RefObject<HTMLDivElement | null>;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);

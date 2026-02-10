@@ -429,6 +429,7 @@ export function DockviewShell() {
           onReady={handleReady}
           components={panelComponents}
           rightHeaderActionsComponent={RightHeaderActions}
+          floatingGroupBounds="boundedWithinViewport"
         />
       </div>
     </div>

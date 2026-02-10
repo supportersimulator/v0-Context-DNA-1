@@ -65,7 +65,7 @@ const itemVariants = {
         y: 0,
         scale: 1,
         transition: {
-            type: "spring",
+            type: "spring" as const,
             stiffness: 200,
             damping: 20,
             duration: 0.5
@@ -80,7 +80,7 @@ const itemVariants = {
 
 // Layout transition for smooth card repositioning
 const layoutTransition = {
-    type: "spring",
+    type: "spring" as const,
     stiffness: 300,
     damping: 30,
     duration: 0.4

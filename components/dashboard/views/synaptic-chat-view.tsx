@@ -524,7 +524,7 @@ export function SynapticChatView() {
               t.bgMuted, t.bgHover,
               devMode && "ring-2 ring-offset-1"
             )}
-            style={devMode ? { ringColor: ACCENT.primary, ringOffsetColor: 'transparent' } : {}}
+            style={devMode ? { '--tw-ring-color': ACCENT.primary, '--tw-ring-offset-color': 'transparent' } as React.CSSProperties : {}}
             title={devMode ? "Dev mode: Full visual + brief narrator" : "Voice mode: Terse spoken output"}
           >
             {devMode ? (
