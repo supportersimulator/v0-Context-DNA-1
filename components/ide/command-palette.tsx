@@ -38,6 +38,10 @@ import {
   BookOpen,
   Clock,
   Sparkles,
+  Bug,
+  Puzzle,
+  Users,
+  Map,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -186,6 +190,10 @@ export function createDefaultCommands(actions: {
   toggleMemory?: () => void;
   toggleTimeline?: () => void;
   toggleInlineAssistant?: () => void;
+  toggleDebug?: () => void;
+  toggleExtensions?: () => void;
+  toggleCollaboration?: () => void;
+  toggleMinimap?: () => void;
 }): Command[] {
   const noop = () => {};
   return [
@@ -310,6 +318,35 @@ export function createDefaultCommands(actions: {
       category: 'View',
       icon: <Clock className="w-4 h-4" />,
       action: actions.toggleTimeline ?? noop,
+    },
+    {
+      id: 'view:toggle-debug',
+      label: 'Toggle Debug Panel',
+      category: 'View',
+      icon: <Bug className="w-4 h-4" />,
+      action: actions.toggleDebug ?? noop,
+    },
+    {
+      id: 'view:toggle-extensions',
+      label: 'Toggle Extensions',
+      category: 'View',
+      shortcut: 'Cmd+Shift+X',
+      icon: <Puzzle className="w-4 h-4" />,
+      action: actions.toggleExtensions ?? noop,
+    },
+    {
+      id: 'view:toggle-collaboration',
+      label: 'Toggle Collaboration',
+      category: 'View',
+      icon: <Users className="w-4 h-4" />,
+      action: actions.toggleCollaboration ?? noop,
+    },
+    {
+      id: 'view:toggle-minimap',
+      label: 'Toggle Minimap',
+      category: 'View',
+      icon: <Map className="w-4 h-4" />,
+      action: actions.toggleMinimap ?? noop,
     },
     {
       id: 'ai:inline-assistant',

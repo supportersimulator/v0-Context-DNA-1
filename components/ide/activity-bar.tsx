@@ -20,6 +20,9 @@ import {
   AlertCircle,
   BookOpen,
   Clock,
+  Puzzle,
+  Users,
+  Map,
 } from 'lucide-react';
 import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
 
@@ -143,6 +146,26 @@ const TOP_ICONS: ActivityIconDef[] = [
     id: 'terminal',
     icon: Terminal,
     label: 'Terminal',
+  },
+  {
+    id: 'debug',
+    icon: Bug,
+    label: 'Debug',
+  },
+  {
+    id: 'extensions',
+    icon: Puzzle,
+    label: 'Extensions',
+  },
+  {
+    id: 'collaboration',
+    icon: Users,
+    label: 'Collaboration',
+  },
+  {
+    id: 'minimap',
+    icon: Map,
+    label: 'Minimap',
   },
 ];
 

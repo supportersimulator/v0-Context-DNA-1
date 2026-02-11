@@ -34,6 +34,10 @@ import { FindReplacePanel } from '@/components/ide/panels/find-replace-panel';
 import { ProblemsPanel } from '@/components/ide/panels/problems-panel';
 import { MemoryExplorerPanel } from '@/components/ide/panels/memory-explorer-panel';
 import { SessionTimelinePanel } from '@/components/ide/panels/session-timeline-panel';
+import { DebugPanel } from '@/components/ide/panels/debug-panel';
+import { ExtensionsPanel } from '@/components/ide/panels/extensions-panel';
+import { CollaborationPanel } from '@/components/ide/panels/collaboration-panel';
+import { MinimapPanel } from '@/components/ide/panels/minimap-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -247,6 +251,34 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 100,
+  },
+  debug: {
+    label: 'Debug',
+    description: 'Breakpoints, call stack, and variables',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 150,
+  },
+  extensions: {
+    label: 'Extensions',
+    description: 'Plugin marketplace and management',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  collaboration: {
+    label: 'Collaboration',
+    description: 'Connected users, cursors, and team chat',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 150,
+  },
+  minimap: {
+    label: 'Minimap',
+    description: 'Bird\'s eye codebase architecture graph',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 200,
   },
 };
 
@@ -516,6 +548,38 @@ function SessionTimelinePanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function DebugPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="debug">
+      <DebugPanel />
+    </PanelWrapper>
+  );
+}
+
+function ExtensionsPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="extensions">
+      <ExtensionsPanel />
+    </PanelWrapper>
+  );
+}
+
+function CollaborationPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="collaboration">
+      <CollaborationPanel />
+    </PanelWrapper>
+  );
+}
+
+function MinimapPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="minimap">
+      <MinimapPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -552,6 +616,10 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   problems: ProblemsPanelView,
   memory: MemoryExplorerPanelView,
   timeline: SessionTimelinePanelView,
+  debug: DebugPanelView,
+  extensions: ExtensionsPanelView,
+  collaboration: CollaborationPanelView,
+  minimap: MinimapPanelView,
 };
 
 /**

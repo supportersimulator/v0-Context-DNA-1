@@ -20,6 +20,7 @@ import { initThemeEngine } from '@/lib/ide/theme-engine';
 import { useLayoutPersistence } from '@/lib/ide/panel-lifecycle';
 import { useDiagnostics } from '@/lib/hooks/use-diagnostics';
 import { useEighthIntelligenceStatus } from '@/lib/hooks/use-eighth-intelligence';
+import { useRealtimeBadges } from '@/lib/hooks/use-realtime-badges';
 import { InlineAssistant } from './inline-assistant';
 import { useActiveFile } from '@/lib/ide/editor-store';
 
@@ -127,8 +128,12 @@ export function DockviewShell() {
   const diagnostics = useDiagnostics();
   const eighthIntel = useEighthIntelligenceStatus();
 
-  // ------- Activity Bar badges (wired to live diagnostics + Synaptic status) -------
+  // ------- Activity Bar badges (real-time via WebSocket + HTTP fallback) -------
+  const realtimeBadges = useRealtimeBadges();
+
+  // Merge: real-time badges take priority, fall back to local diagnostics/8th intel
   const activityBadges = useMemo<Record<string, ActivityBadge>>(() => {
+    // Start with local diagnostics as baseline
     const badges: Record<string, ActivityBadge> = {};
     if (diagnostics.errors > 0) {
       badges['health'] = { count: diagnostics.errors, variant: 'error' };
@@ -138,8 +143,9 @@ export function DockviewShell() {
     if (eighthIntel.active) {
       badges['synaptic'] = { count: 0, dot: true, variant: 'success' };
     }
-    return badges;
-  }, [diagnostics.errors, diagnostics.warnings, eighthIntel.active]);
+    // Overlay real-time badges (WebSocket data overrides local)
+    return { ...badges, ...realtimeBadges };
+  }, [diagnostics.errors, diagnostics.warnings, eighthIntel.active, realtimeBadges]);
 
   // ------- Command palette -------
   const { isOpen: cmdPaletteOpen, close: closeCmdPalette } = useCommandPalette();
@@ -209,6 +215,10 @@ export function DockviewShell() {
         toggleFindReplace: () => togglePanel('find-replace'),
         toggleMemory: () => togglePanel('memory'),
         toggleTimeline: () => togglePanel('timeline'),
+        toggleDebug: () => togglePanel('debug'),
+        toggleExtensions: () => togglePanel('extensions'),
+        toggleCollaboration: () => togglePanel('collaboration'),
+        toggleMinimap: () => togglePanel('minimap'),
         toggleInlineAssistant: () => setAssistantOpen((v) => !v),
       }),
     [togglePanel],
