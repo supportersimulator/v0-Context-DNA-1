@@ -9,6 +9,8 @@ import {
   Bell,
   Wifi,
   WifiOff,
+  AlertTriangle,
+  XCircle,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ interface StatusBarData {
   learningCount: number;
   swarmStatus: { active: boolean; agentCount: number };
   notifications: number;
+  diagnostics: { errors: number; warnings: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -51,6 +54,7 @@ function useStatusBarData(): StatusBarData {
     learningCount: 313,
     swarmStatus: { active: false, agentCount: 0 },
     notifications: 0,
+    diagnostics: { errors: 0, warnings: 0 },
   });
 
   const pollHealth = useCallback(async () => {
@@ -182,7 +186,7 @@ function Separator() {
 // ---------------------------------------------------------------------------
 
 export function StatusBar() {
-  const { connected, modelName, learningCount, swarmStatus, notifications } =
+  const { connected, modelName, learningCount, swarmStatus, notifications, diagnostics } =
     useStatusBarData();
 
   const handleBranchClick = useCallback(() => {
@@ -243,6 +247,28 @@ export function StatusBar() {
           tooltip={`Active LLM model: ${modelName}`}
           variant={connected ? 'success' : 'default'}
         />
+
+        {/* Diagnostic indicators (errors + warnings) */}
+        {(diagnostics.errors > 0 || diagnostics.warnings > 0) && (
+          <>
+            <Separator />
+            {diagnostics.errors > 0 && (
+              <StatusBarItem
+                icon={<XCircle className="w-3 h-3" />}
+                label={String(diagnostics.errors)}
+                tooltip={`${diagnostics.errors} error${diagnostics.errors !== 1 ? 's' : ''}`}
+                variant="error"
+              />
+            )}
+            {diagnostics.warnings > 0 && (
+              <StatusBarItem
+                icon={<AlertTriangle className="w-3 h-3" />}
+                label={String(diagnostics.warnings)}
+                tooltip={`${diagnostics.warnings} warning${diagnostics.warnings !== 1 ? 's' : ''}`}
+              />
+            )}
+          </>
+        )}
       </div>
 
       {/* ===== Right section ===== */}

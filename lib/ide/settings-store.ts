@@ -17,6 +17,7 @@ export interface IDESettings {
   'appearance.fontFamily': string;
   'appearance.accentColor': string;
   'appearance.compactMode': boolean;
+  'appearance.colorblindMode': boolean;
 
   // Editor behavior
   'editor.tabSize': number;
@@ -61,6 +62,7 @@ export const SETTING_DEFAULTS: Readonly<IDESettings> = {
   'appearance.fontFamily': 'JetBrains Mono, monospace',
   'appearance.accentColor': '#22c55e',
   'appearance.compactMode': false,
+  'appearance.colorblindMode': false,
 
   'editor.tabSize': 2,
   'editor.wordWrap': false,
@@ -157,6 +159,13 @@ export const SETTING_METADATA: SettingMeta[] = [
     key: 'appearance.compactMode',
     label: 'Compact Mode',
     description: 'Reduce padding and spacing for denser layouts',
+    category: 'Appearance',
+    type: 'boolean',
+  },
+  {
+    key: 'appearance.colorblindMode',
+    label: 'Colorblind Mode',
+    description: 'Use blue/yellow palette instead of green/red for better deuteranopia accessibility',
     category: 'Appearance',
     type: 'boolean',
   },

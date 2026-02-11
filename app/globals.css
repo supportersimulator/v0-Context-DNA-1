@@ -120,6 +120,16 @@
   --ide-line-height-normal: 1.5;
   --ide-line-height-relaxed: 1.6;
 
+  /* ── Git / File Decoration Colors ─────────────────────────────────────── */
+  --ide-color-git-added: #2ea043;
+  --ide-color-git-modified: #0078d4;
+  --ide-color-git-deleted: #f85149;
+  --ide-color-git-renamed: #73c991;
+  --ide-color-git-untracked: #73c991;
+  --ide-color-git-ignored: #6b6b75;
+  --ide-color-git-conflicting: #e3b341;
+  --ide-color-git-submodule: #8b5cf6;
+
   /* Sidebar (shadcn sidebar component) */
   --sidebar: #0a0a0f;
   --sidebar-foreground: #e5e5e5;

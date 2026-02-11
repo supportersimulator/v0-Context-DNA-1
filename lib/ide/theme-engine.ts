@@ -46,6 +46,16 @@ export interface ThemeColors {
   statusBarBg: string;
   activityBarBg: string;
   sidebarBg: string;
+
+  // Git / file decoration
+  gitAdded: string;
+  gitModified: string;
+  gitDeleted: string;
+  gitRenamed: string;
+  gitUntracked: string;
+  gitIgnored: string;
+  gitConflicting: string;
+  gitSubmodule: string;
 }
 
 export interface Theme {
@@ -96,6 +106,15 @@ export const contextDNADark: Theme = {
     statusBarBg: '#0a0a0f',
     activityBarBg: '#0a0a0f',
     sidebarBg: '#0a0a0f',
+
+    gitAdded: '#2ea043',
+    gitModified: '#0078d4',
+    gitDeleted: '#f85149',
+    gitRenamed: '#73c991',
+    gitUntracked: '#73c991',
+    gitIgnored: '#6b6b75',
+    gitConflicting: '#e3b341',
+    gitSubmodule: '#8b5cf6',
   },
 };
 
@@ -135,6 +154,15 @@ export const contextDNALight: Theme = {
     statusBarBg: '#16a34a',
     activityBarBg: '#f8f8fa',
     sidebarBg: '#f8f8fa',
+
+    gitAdded: '#1a7f37',
+    gitModified: '#0550ae',
+    gitDeleted: '#cf222e',
+    gitRenamed: '#116329',
+    gitUntracked: '#116329',
+    gitIgnored: '#8b8b9a',
+    gitConflicting: '#9a6700',
+    gitSubmodule: '#6639ba',
   },
 };
 
@@ -174,6 +202,15 @@ export const midnight: Theme = {
     statusBarBg: '#0b0d14',
     activityBarBg: '#0b0d14',
     sidebarBg: '#0b0d14',
+
+    gitAdded: '#3fb950',
+    gitModified: '#58a6ff',
+    gitDeleted: '#f85149',
+    gitRenamed: '#7ee787',
+    gitUntracked: '#7ee787',
+    gitIgnored: '#5a6380',
+    gitConflicting: '#d29922',
+    gitSubmodule: '#a78bfa',
   },
 };
 
@@ -289,6 +326,16 @@ export function applyTheme(theme: Theme): void {
   root.style.setProperty('--dv-drag-over-background-color', c.accentMuted);
   root.style.setProperty('--dv-drag-over-border-color', c.accent);
 
+  // Git / file decoration colors
+  root.style.setProperty('--ide-color-git-added', c.gitAdded);
+  root.style.setProperty('--ide-color-git-modified', c.gitModified);
+  root.style.setProperty('--ide-color-git-deleted', c.gitDeleted);
+  root.style.setProperty('--ide-color-git-renamed', c.gitRenamed);
+  root.style.setProperty('--ide-color-git-untracked', c.gitUntracked);
+  root.style.setProperty('--ide-color-git-ignored', c.gitIgnored);
+  root.style.setProperty('--ide-color-git-conflicting', c.gitConflicting);
+  root.style.setProperty('--ide-color-git-submodule', c.gitSubmodule);
+
   // Accent color override — allow user-configured accent
   const store = getSettingsStore();
   const userAccent = store.get('appearance.accentColor');
@@ -299,6 +346,17 @@ export function applyTheme(theme: Theme): void {
     root.style.setProperty('--sidebar-ring', userAccent);
     root.style.setProperty('--dv-tabs-container-scrollbar-color', userAccent);
     root.style.setProperty('--dv-drag-over-border-color', userAccent);
+  }
+
+  // Colorblind mode — swap green/red for blue/yellow (deuteranopia safe)
+  if (store.get('appearance.colorblindMode')) {
+    root.style.setProperty('--ide-color-git-added', '#2563eb');     // blue
+    root.style.setProperty('--ide-color-git-deleted', '#eab308');   // yellow
+    root.style.setProperty('--ide-color-git-modified', '#60a5fa');  // light blue
+    root.style.setProperty('--ide-color-git-untracked', '#60a5fa');
+    root.style.setProperty('--ide-color-git-renamed', '#93c5fd');
+    root.style.setProperty('--success', '#2563eb');
+    root.style.setProperty('--destructive', '#eab308');
   }
 
   // Emit theme:changed event
@@ -351,7 +409,7 @@ export function initThemeEngine(): () => void {
   // React to setting changes
   const store = getSettingsStore();
   const unsubSettings = store.subscribe((key) => {
-    if (key === 'appearance.theme' || key === 'appearance.accentColor') {
+    if (key === 'appearance.theme' || key === 'appearance.accentColor' || key === 'appearance.colorblindMode') {
       applyTheme(resolveThemeFromSettings());
     }
   });

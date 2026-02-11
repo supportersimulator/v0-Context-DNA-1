@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, Plus, X } from 'lucide-react';
+import { Terminal as TerminalIcon } from 'lucide-react';
+import { PanelTabBar, type PanelTab } from '../panel-tabs';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 
@@ -444,36 +445,20 @@ export function TerminalPanel() {
   return (
     <div className="flex flex-col h-full bg-[#0a0a0f]">
       {/* Tab bar */}
-      <div className="flex items-center gap-0.5 px-2 py-1 border-b border-[#2a2a35] flex-shrink-0 overflow-x-auto">
-        {sessions.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setActiveId(s.id)}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors ${
-              s.id === activeId
-                ? 'bg-[#22c55e]/20 text-[#22c55e]'
-                : 'text-[#6b6b75] hover:text-[#e5e5e5] hover:bg-[#1a1a24]'
-            }`}
-          >
-            <TerminalIcon className="w-3 h-3" />
-            <span>{s.label}</span>
-            <X
-              className="w-3 h-3 hover:text-red-400"
-              onClick={(e) => {
-                e.stopPropagation();
-                killSession(s.id);
-              }}
-            />
-          </button>
-        ))}
-        <button
-          onClick={createSession}
-          className="flex items-center p-0.5 text-[#6b6b75] hover:text-[#22c55e] transition-colors"
-          title="New terminal"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      <PanelTabBar
+        tabs={sessions.map((s): PanelTab => ({
+          id: s.id,
+          label: s.label,
+          icon: <TerminalIcon className="w-3 h-3" />,
+          closable: true,
+        }))}
+        activeId={activeId ?? ''}
+        onSelect={setActiveId}
+        onClose={killSession}
+        onAdd={createSession}
+        variant="pills"
+        size="xs"
+      />
 
       {/* xterm container */}
       <div

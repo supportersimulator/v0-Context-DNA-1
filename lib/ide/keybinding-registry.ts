@@ -578,6 +578,26 @@ export const DEFAULT_BINDINGS: KeyBindingDef[] = [
     when: '!inputFocus',
   },
 
+  // -- Zoom -------------------------------------------------------------------
+  {
+    id: 'view.zoomIn',
+    key: 'cmd+=',
+    command: 'Zoom In',
+    category: 'View',
+  },
+  {
+    id: 'view.zoomOut',
+    key: 'cmd+-',
+    command: 'Zoom Out',
+    category: 'View',
+  },
+  {
+    id: 'view.zoomReset',
+    key: 'cmd+0',
+    command: 'Reset Zoom',
+    category: 'View',
+  },
+
   // -- Legacy -----------------------------------------------------------------
   {
     id: 'view.toggleFocusMode',

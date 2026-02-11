@@ -13,6 +13,7 @@ import {
   Settings,
   Bell,
 } from 'lucide-react';
+import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
 
 // ---------------------------------------------------------------------------
 // Activity Bar — VS Code-style narrow icon strip
@@ -21,6 +22,12 @@ import {
 // Each icon toggles a dockview panel or the explorer sidebar.
 // Active state: green left-border accent + white icon.
 // ---------------------------------------------------------------------------
+
+export interface ActivityBadge {
+  count: number;
+  variant?: BadgeVariant;
+  dot?: boolean;
+}
 
 export interface ActivityBarProps {
   /** Toggle the ExplorerShell file sidebar */
@@ -31,6 +38,8 @@ export interface ActivityBarProps {
   onTogglePanel: (panelId: string) => void;
   /** Panel IDs currently open in dockview */
   activePanelIds: string[];
+  /** Badge counts keyed by icon ID */
+  badges?: Record<string, ActivityBadge>;
   /** Which side to render on (default: 'left') */
   side?: 'left' | 'right';
 }
@@ -143,11 +152,13 @@ function ActivityIconButton({
   isActive,
   side,
   onClick,
+  badge,
 }: {
   def: ActivityIconDef;
   isActive: boolean;
   side: 'left' | 'right';
   onClick: () => void;
+  badge?: ActivityBadge;
 }) {
   const [hovered, setHovered] = useState(false);
   const Icon = def.icon;
@@ -179,7 +190,16 @@ function ActivityIconButton({
         role="button"
         tabIndex={0}
       >
-        <Icon className="w-[22px] h-[22px]" />
+        <div className="relative">
+          <Icon className="w-[22px] h-[22px]" />
+          {badge && (
+            <ActivityBarBadge
+              count={badge.count}
+              variant={badge.variant}
+              dot={badge.dot}
+            />
+          )}
+        </div>
       </button>
       <ActivityTooltip label={def.label} side={side} visible={hovered} />
     </div>
@@ -195,6 +215,7 @@ export function ActivityBar({
   explorerVisible,
   onTogglePanel,
   activePanelIds,
+  badges = {},
   side = 'left',
 }: ActivityBarProps) {
   const handleClick = useCallback(
@@ -243,6 +264,7 @@ export function ActivityBar({
             isActive={isActive(def)}
             side={side}
             onClick={() => handleClick(def)}
+            badge={badges[def.id]}
           />
         ))}
       </div>
@@ -262,6 +284,7 @@ export function ActivityBar({
             isActive={isActive(def)}
             side={side}
             onClick={() => handleClick(def)}
+            badge={badges[def.id]}
           />
         ))}
       </div>

@@ -10,7 +10,7 @@ import { RightHeaderActions } from './panel-header';
 import { WorkspaceSlots, type WorkspaceConfig } from './workspace-slots';
 import { MobileLayout } from './mobile-layout';
 import { ExplorerShell } from './explorer-shell';
-import { ActivityBar } from './activity-bar';
+import { ActivityBar, type ActivityBadge } from './activity-bar';
 import { StatusBar } from './status-bar';
 import { CommandPalette, useCommandPalette, createDefaultCommands } from './command-palette';
 import { ToastContainer } from './notification-center';
@@ -91,6 +91,16 @@ export function DockviewShell() {
 
   useLayoutPersistence(dockviewApiRef);
 
+  // Restore saved UI scale
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('contextdna_ide_ui_scale');
+      if (saved) {
+        document.documentElement.style.setProperty('--ide-ui-scale', saved);
+      }
+    } catch {}
+  }, []);
+
   // Keep ref in sync with dockview API
   useEffect(() => {
     dockviewApiRef.current = dockviewApi;
@@ -108,6 +118,14 @@ export function DockviewShell() {
 
   // ------- Active panel tracking for Activity Bar -------
   const [activePanelIds, setActivePanelIds] = useState<string[]>(['dashboard-shell']);
+
+  // ------- Activity Bar badges (placeholder counts — will connect to real data) -------
+  const activityBadges = useMemo<Record<string, ActivityBadge>>(() => {
+    const badges: Record<string, ActivityBadge> = {};
+    // Notifications badge on the bell icon
+    // These will be wired to real backend data in a future phase
+    return badges;
+  }, []);
 
   // ------- Command palette -------
   const { isOpen: cmdPaletteOpen, close: closeCmdPalette } = useCommandPalette();
@@ -174,6 +192,24 @@ export function DockviewShell() {
     'view.commandPalette': () => {}, // handled by command-palette's own useEffect
     'workspace.save': () => {
       if (dockviewApi) saveLayout(dockviewApi.toJSON());
+    },
+    'view.zoomIn': () => {
+      const root = document.documentElement;
+      const current = parseFloat(getComputedStyle(root).getPropertyValue('--ide-ui-scale')) || 1;
+      const next = Math.min(1.5, +(current + 0.1).toFixed(1));
+      root.style.setProperty('--ide-ui-scale', String(next));
+      try { localStorage.setItem('contextdna_ide_ui_scale', String(next)); } catch {}
+    },
+    'view.zoomOut': () => {
+      const root = document.documentElement;
+      const current = parseFloat(getComputedStyle(root).getPropertyValue('--ide-ui-scale')) || 1;
+      const next = Math.max(0.8, +(current - 0.1).toFixed(1));
+      root.style.setProperty('--ide-ui-scale', String(next));
+      try { localStorage.setItem('contextdna_ide_ui_scale', String(next)); } catch {}
+    },
+    'view.zoomReset': () => {
+      document.documentElement.style.setProperty('--ide-ui-scale', '1');
+      try { localStorage.setItem('contextdna_ide_ui_scale', '1'); } catch {}
     },
   });
 
@@ -284,6 +320,7 @@ export function DockviewShell() {
               explorerVisible={explorerVisible}
               onTogglePanel={togglePanel}
               activePanelIds={activePanelIds}
+              badges={activityBadges}
             />
           )}
 
