@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DockviewReact } from 'dockview-react';
 import type { DockviewReadyEvent, DockviewApi, SerializedDockview } from 'dockview';
 import { useResponsive } from '@/lib/contexts/responsive-context';
@@ -14,6 +14,10 @@ import { ActivityBar } from './activity-bar';
 import { StatusBar } from './status-bar';
 import { CommandPalette, useCommandPalette, createDefaultCommands } from './command-palette';
 import { ToastContainer } from './notification-center';
+import { OfflineIndicator } from './offline-indicator';
+import { useKeybindingInit, useKeybindings, useKeyContext } from '@/lib/ide/keybinding-registry';
+import { initThemeEngine } from '@/lib/ide/theme-engine';
+import { useLayoutPersistence } from '@/lib/ide/panel-lifecycle';
 
 // ---------------------------------------------------------------------------
 // Layout persistence (single layout — DashboardShell handles page switching)
@@ -73,8 +77,24 @@ function applyDefaultLayout(api: DockviewApi) {
 // ---------------------------------------------------------------------------
 export function DockviewShell() {
   const [dockviewApi, setDockviewApi] = useState<DockviewApi | null>(null);
+  const dockviewApiRef = useRef<{ toJSON(): unknown } | null>(null);
   const { state } = useResponsive();
   const isMobileView = state.isMobile || state.deviceMode === 'electron-mobile';
+
+  // ------- Infrastructure: keybindings, theme, layout persistence -------
+  useKeybindingInit();
+
+  useEffect(() => {
+    const cleanup = initThemeEngine();
+    return cleanup;
+  }, []);
+
+  useLayoutPersistence(dockviewApiRef);
+
+  // Keep ref in sync with dockview API
+  useEffect(() => {
+    dockviewApiRef.current = dockviewApi;
+  }, [dockviewApi]);
 
   // ------- Explorer visibility (lifted for Activity Bar control) -------
   const [explorerVisible, setExplorerVisible] = useState(() => {
@@ -146,6 +166,20 @@ export function DockviewShell() {
       }),
     [togglePanel],
   );
+
+  // ------- Keybinding handlers (wired to keybinding-registry) -------
+  useKeybindings({
+    'view.toggleExplorer': () => setExplorerVisible((v: boolean) => !v),
+    'view.toggleTerminal': () => togglePanel('terminal'),
+    'view.commandPalette': () => {}, // handled by command-palette's own useEffect
+    'workspace.save': () => {
+      if (dockviewApi) saveLayout(dockviewApi.toJSON());
+    },
+  });
+
+  // ------- Keybinding context values -------
+  useKeyContext('explorerVisible', explorerVisible);
+  useKeyContext('commandPaletteVisible', cmdPaletteOpen);
 
   // ------- onReady handler -------
   const handleReady = useCallback((event: DockviewReadyEvent) => {
@@ -232,6 +266,11 @@ export function DockviewShell() {
           </div>
         </div>
       )}
+
+      {/* ================================================================ */}
+      {/* Offline / degraded banner — below title bar, above dockview     */}
+      {/* ================================================================ */}
+      <OfflineIndicator />
 
       {/* ================================================================ */}
       {/* Main IDE area: Activity Bar + Explorer + Dockview + Status Bar   */}

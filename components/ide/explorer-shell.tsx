@@ -222,7 +222,7 @@ export function ExplorerShell({ children, visible: controlledVisible, onVisibleC
   // ------ Render: Explorer visible ------
   const explorerPanel = (
     <div
-      className="flex flex-col h-full bg-[#0a0a0f] flex-shrink-0 overflow-hidden"
+      className="explorer-sidebar flex flex-col h-full bg-[#0a0a0f] flex-shrink-0 overflow-hidden"
       style={{ width: prefs.width }}
     >
       {/* Explorer header with controls */}
@@ -285,7 +285,7 @@ export function ExplorerShell({ children, visible: controlledVisible, onVisibleC
   return (
     <div
       ref={containerRef}
-      className="flex flex-row h-full w-full overflow-hidden"
+      className={`flex flex-row h-full w-full overflow-hidden${isDragging ? ' panel-resize-active' : ''}`}
     >
       {prefs.side === 'left' ? (
         <>

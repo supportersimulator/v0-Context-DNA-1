@@ -1,0 +1,202 @@
+/* === Theme Variables === */
+
+:root {
+  --ide-bg: #0a0a12;
+  --ide-panel-bg: #111118;
+  --ide-border: #2a2a35;
+  --ide-text: #e5e5e5;
+  --ide-text-muted: #8b8b95;
+  --ide-text-dim: #6b6b75;
+  --ide-accent: #3b82f6;
+  --ide-success: #22c55e;
+  --ide-warning: #f59e0b;
+  --ide-error: #ef4444;
+  --ide-hover: #1a1a24;
+}
+
+/* === Dockview Panel Containment === */
+
+.dv-groupview {
+  contain: layout style;
+}
+
+.dv-content-container {
+  contain: strict;
+}
+
+.dv-groupview > .dv-content-container,
+[data-dv-panel],
+.dv-panel-container {
+  contain: strict;
+  overflow: hidden;
+}
+
+[data-dv-panel].allow-overflow,
+.dv-panel-container.allow-overflow {
+  contain: layout style;
+  overflow: visible;
+}
+
+.dv-tab {
+  contain: layout style;
+}
+
+/* === GPU-Accelerated Transitions === */
+
+.explorer-sidebar,
+[role="toolbar"][aria-label="Activity Bar"] {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.ide-panel-enter {
+  opacity: 0;
+  transform: translateX(-12px);
+}
+
+.ide-panel-enter-active {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.ide-panel-exit {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.ide-panel-exit-active {
+  opacity: 0;
+  transform: translateX(-12px);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.panel-resize-active {
+  will-change: transform;
+}
+
+.panel-resize-active * {
+  pointer-events: none;
+}
+
+.dv-sash {
+  will-change: auto;
+}
+
+.dv-sash:active,
+.dv-sash.active {
+  will-change: transform;
+}
+
+/* === Scrollbar Theming === */
+
+.dv-content-container,
+.explorer-tree,
+[data-dv-panel],
+.dv-panel-container {
+  scrollbar-width: thin;
+  scrollbar-color: #4a4a55 #2a2a35;
+}
+
+.dv-content-container::-webkit-scrollbar,
+.explorer-tree::-webkit-scrollbar,
+[data-dv-panel]::-webkit-scrollbar,
+.dv-panel-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dv-content-container::-webkit-scrollbar-track,
+.explorer-tree::-webkit-scrollbar-track,
+[data-dv-panel]::-webkit-scrollbar-track,
+.dv-panel-container::-webkit-scrollbar-track {
+  background: #2a2a35;
+}
+
+.dv-content-container::-webkit-scrollbar-thumb,
+.explorer-tree::-webkit-scrollbar-thumb,
+[data-dv-panel]::-webkit-scrollbar-thumb,
+.dv-panel-container::-webkit-scrollbar-thumb {
+  background: #4a4a55;
+  border-radius: 4px;
+}
+
+.dv-content-container::-webkit-scrollbar-thumb:hover,
+.explorer-tree::-webkit-scrollbar-thumb:hover,
+[data-dv-panel]::-webkit-scrollbar-thumb:hover,
+.dv-panel-container::-webkit-scrollbar-thumb:hover {
+  background: #6b6b75;
+}
+
+/* === Focus Management === */
+
+.dv-groupview:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.3);
+}
+
+.dv-content-container button:focus-visible,
+.dv-content-container a:focus-visible,
+.dv-content-container input:focus-visible,
+.dv-content-container select:focus-visible,
+.dv-content-container textarea:focus-visible,
+.dv-content-container [tabindex]:focus-visible {
+  outline: 2px solid var(--ide-accent);
+  outline-offset: -2px;
+  border-radius: 2px;
+}
+
+/* === Resize Handle Styling === */
+
+.dv-resize-container > .dv-sash {
+  background: transparent;
+  transition: background 150ms ease;
+}
+
+.dv-resize-container > .dv-sash:hover {
+  background: #3b82f6;
+}
+
+.dv-resize-container > .dv-sash.horizontal {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.dv-resize-container > .dv-sash.vertical {
+  width: 4px;
+  cursor: col-resize;
+}
+
+/* === Print Suppression === */
+
+@media print {
+  .ide-shell {
+    display: none;
+  }
+}
+
+/* === Reduced Motion === */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .ide-panel-enter-active,
+  .ide-panel-exit-active {
+    transition: none !important;
+  }
+
+  .explorer-sidebar,
+  [role="toolbar"][aria-label="Activity Bar"] {
+    will-change: auto !important;
+  }
+
+  .panel-resize-active {
+    will-change: auto !important;
+  }
+}

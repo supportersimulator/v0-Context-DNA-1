@@ -202,7 +202,7 @@ export function StatusBar() {
     : 'Idle';
 
   return (
-    <div className="hidden sm:flex items-center justify-between w-full h-[22px] bg-[#0a0a0f] border-t border-[#2a2a35] flex-shrink-0 select-none z-50">
+    <div className="ide-status-bar hidden sm:flex items-center justify-between w-full h-[22px] bg-[#0a0a0f] border-t border-[#2a2a35] flex-shrink-0 select-none z-50">
       {/* ===== Left section ===== */}
       <div className="flex items-center h-full overflow-hidden">
         {/* Branch indicator */}
