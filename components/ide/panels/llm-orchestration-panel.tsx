@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Cpu,
   ChevronDown,
@@ -16,6 +16,10 @@ import {
   CheckCircle2,
   RefreshCw,
   Thermometer,
+  Power,
+  Eye,
+  EyeOff,
+  Settings,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -54,12 +58,31 @@ interface InferenceMetrics {
   thinkingEnabled: boolean;
 }
 
+interface HealthIndicator {
+  id: string;
+  label: string;
+  enabled: boolean;
+  status: 'ok' | 'warn' | 'fail';
+}
+
+interface WatchdogEntry {
+  id: string;
+  name: string;
+  enabled: boolean;
+  intervalSec: number;
+  strikes: number;
+  maxStrikes: number;
+  lastCheck: number;
+}
+
 interface WatchdogStatus {
   intervalSec: number;
   strikes: number;
   maxStrikes: number;
   lastCheck: number;
   rssReady: boolean;
+  watchdogs: WatchdogEntry[];
+  indicators: HealthIndicator[];
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +105,24 @@ function getMockData() {
       { id: 'q4', priority: 'P4', label: 'Meta-analysis', source: 'scheduler', status: 'queued', timestamp: Date.now() - 8000 },
     ] as QueueItem[],
     metrics: { tokensPerSec: 42.5, avgLatencyMs: 340, cacheHitRate: 0.73, totalRequests: 1284, thinkingEnabled: true } as InferenceMetrics,
-    watchdog: { intervalSec: 60, strikes: 0, maxStrikes: 3, lastCheck: Date.now() - 15000, rssReady: true } as WatchdogStatus,
+    watchdog: {
+      intervalSec: 60, strikes: 0, maxStrikes: 3, lastCheck: Date.now() - 15000, rssReady: true,
+      watchdogs: [
+        { id: 'vllm-mlx', name: 'vllm-mlx Process', enabled: true, intervalSec: 60, strikes: 0, maxStrikes: 3, lastCheck: Date.now() - 15000 },
+        { id: 'rss-memory', name: 'RSS Memory', enabled: true, intervalSec: 60, strikes: 0, maxStrikes: 3, lastCheck: Date.now() - 15000 },
+        { id: 'inference-health', name: 'Inference Health', enabled: true, intervalSec: 30, strikes: 0, maxStrikes: 5, lastCheck: Date.now() - 10000 },
+      ],
+      indicators: [
+        { id: 'rss-check', label: 'RSS >2GB readiness', enabled: true, status: 'ok' },
+        { id: 'port-check', label: 'Port 5044 reachable', enabled: true, status: 'ok' },
+        { id: 'response-time', label: 'Response time <5s', enabled: true, status: 'ok' },
+        { id: 'process-alive', label: 'vllm-mlx process alive', enabled: true, status: 'ok' },
+        { id: 'gpu-temp', label: 'GPU temperature', enabled: false, status: 'ok' },
+        { id: 'queue-depth', label: 'Queue depth <50', enabled: true, status: 'ok' },
+        { id: 'error-rate', label: 'Error rate <5%', enabled: false, status: 'ok' },
+        { id: 'token-rate', label: 'Token throughput', enabled: true, status: 'ok' },
+      ],
+    } as WatchdogStatus,
   };
 }
 
@@ -132,6 +172,7 @@ function PriorityBadge({ priority }: { priority: QueueItem['priority'] }) {
 // ---------------------------------------------------------------------------
 export function LLMOrchestrationPanel() {
   const [data, setData] = useState(getMockData);
+  const [indicatorDropdownOpen, setIndicatorDropdownOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -155,6 +196,46 @@ export function LLMOrchestrationPanel() {
     fetchData();
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
+  }, []);
+
+  const toggleWatchdog = useCallback(async (watchdogId: string) => {
+    setData((prev) => ({
+      ...prev,
+      watchdog: {
+        ...prev.watchdog,
+        watchdogs: prev.watchdog.watchdogs.map((w) =>
+          w.id === watchdogId ? { ...w, enabled: !w.enabled } : w
+        ),
+      },
+    }));
+    try {
+      await fetch('http://127.0.0.1:8029/api/llm/watchdog/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watchdogId }),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleIndicator = useCallback(async (indicatorId: string) => {
+    setData((prev) => ({
+      ...prev,
+      watchdog: {
+        ...prev.watchdog,
+        indicators: prev.watchdog.indicators.map((ind) =>
+          ind.id === indicatorId ? { ...ind, enabled: !ind.enabled } : ind
+        ),
+      },
+    }));
+    try {
+      await fetch('http://127.0.0.1:8029/api/llm/watchdog/indicator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ indicatorId }),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch { /* ignore */ }
   }, []);
 
   const { server, profiles, queue, metrics, watchdog } = data;
@@ -257,24 +338,90 @@ export function LLMOrchestrationPanel() {
           </div>
         </Section>
 
-        {/* Watchdog */}
-        <Section title="Watchdog" defaultOpen={false}>
-          <div className="px-3 py-2 space-y-1.5 text-[10px]">
-            <div className="flex items-center gap-2">
-              <Shield className="w-3 h-3 text-[#22c55e]" />
-              <span className="text-[#6b6b75]">Check interval: {watchdog.intervalSec}s</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {watchdog.strikes > 0
-                ? <AlertTriangle className="w-3 h-3 text-[#e5c07b]" />
-                : <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />
-              }
-              <span className="text-[#6b6b75]">Strikes: {watchdog.strikes}/{watchdog.maxStrikes}</span>
-            </div>
-            <div className="flex items-center gap-2">
+        {/* Watchdog Controls */}
+        <Section title="Watchdogs" count={watchdog.watchdogs.filter((w) => w.enabled).length}>
+          <div className="px-3 py-2 space-y-1.5">
+            {watchdog.watchdogs.map((w) => (
+              <div key={w.id} className="flex items-center gap-2 py-1 text-[10px] hover:bg-[#1a1a24]/50 px-1 rounded">
+                <button
+                  onClick={() => toggleWatchdog(w.id)}
+                  className={`p-0.5 rounded transition-colors ${
+                    w.enabled
+                      ? 'text-[#22c55e] hover:bg-[#22c55e]/15'
+                      : 'text-[#6b6b75] hover:bg-[#ef4444]/15'
+                  }`}
+                  title={w.enabled ? 'Disable watchdog' : 'Enable watchdog'}
+                >
+                  <Power className="w-3 h-3" />
+                </button>
+                <Shield className={`w-3 h-3 flex-shrink-0 ${w.enabled ? 'text-[#22c55e]' : 'text-[#6b6b75]'}`} />
+                <span className={`flex-1 truncate ${w.enabled ? 'text-[#e5e5e5]' : 'text-[#6b6b75] line-through'}`}>
+                  {w.name}
+                </span>
+                <span className="text-[#6b6b75]">{w.intervalSec}s</span>
+                {w.enabled && (
+                  <span className={`text-[9px] px-1 rounded ${
+                    w.strikes > 0
+                      ? 'bg-[#e5c07b]/15 text-[#e5c07b]'
+                      : 'bg-[#22c55e]/15 text-[#22c55e]'
+                  }`}>
+                    {w.strikes}/{w.maxStrikes}
+                  </span>
+                )}
+              </div>
+            ))}
+
+            {/* Summary row */}
+            <div className="flex items-center gap-2 pt-1 text-[10px] text-[#6b6b75]">
               <Gauge className="w-3 h-3 text-[#3b82f6]" />
-              <span className="text-[#6b6b75]">RSS ready: {watchdog.rssReady ? 'Yes (>2GB)' : 'No'}</span>
+              <span>RSS ready: {watchdog.rssReady ? 'Yes (>2GB)' : 'No'}</span>
+              <span className="ml-auto">Last: {Math.floor((Date.now() - watchdog.lastCheck) / 1000)}s ago</span>
             </div>
+          </div>
+        </Section>
+
+        {/* Health Indicators */}
+        <Section title="Health Indicators" count={watchdog.indicators.filter((i) => i.enabled).length}>
+          <div className="px-3 py-2 space-y-1">
+            <button
+              onClick={() => setIndicatorDropdownOpen((v) => !v)}
+              className="flex items-center gap-1.5 w-full text-[10px] px-2 py-1.5 rounded bg-[#1a1a24] border border-[#2a2a35] text-[#e5e5e5] hover:border-[#3b82f6]/50 transition-colors"
+            >
+              <Settings className="w-3 h-3 text-[#6b6b75]" />
+              <span className="flex-1 text-left">
+                {watchdog.indicators.filter((i) => i.enabled).length} of {watchdog.indicators.length} active
+              </span>
+              <ChevronDown className={`w-3 h-3 text-[#6b6b75] transition-transform ${indicatorDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {indicatorDropdownOpen && (
+              <div className="border border-[#2a2a35] rounded bg-[#1a1a24] overflow-hidden">
+                {watchdog.indicators.map((ind) => (
+                  <button
+                    key={ind.id}
+                    onClick={() => toggleIndicator(ind.id)}
+                    className="flex items-center gap-2 w-full text-left px-2 py-1.5 text-[10px] hover:bg-[#2a2a35]/50 transition-colors"
+                  >
+                    {ind.enabled
+                      ? <Eye className="w-3 h-3 text-[#22c55e] flex-shrink-0" />
+                      : <EyeOff className="w-3 h-3 text-[#6b6b75] flex-shrink-0" />
+                    }
+                    <span className={ind.enabled ? 'text-[#e5e5e5] flex-1' : 'text-[#6b6b75] flex-1'}>
+                      {ind.label}
+                    </span>
+                    {ind.enabled && (
+                      <span className={`text-[8px] px-1 rounded ${
+                        ind.status === 'ok' ? 'bg-[#22c55e]/15 text-[#22c55e]'
+                          : ind.status === 'warn' ? 'bg-[#e5c07b]/15 text-[#e5c07b]'
+                          : 'bg-[#ef4444]/15 text-[#ef4444]'
+                      }`}>
+                        {ind.status.toUpperCase()}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </Section>
       </div>

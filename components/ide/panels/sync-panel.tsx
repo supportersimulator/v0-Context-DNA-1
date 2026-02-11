@@ -15,6 +15,12 @@ import {
   CheckCircle2,
   XCircle,
   Play,
+  BookOpen,
+  Download,
+  Hash,
+  Layers,
+  Loader2,
+  Zap,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +46,17 @@ interface SyncEvent {
   message?: string;
 }
 
+interface HistorianStatus {
+  sessionId: string;
+  lastCollection: number;
+  totalInsights: number;
+  totalMessages: number;
+  totalCodeArtifacts: number;
+  fastCycleInterval: string;
+  fullCycleInterval: string;
+  collecting: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Mock data
 // ---------------------------------------------------------------------------
@@ -53,6 +70,19 @@ function getMockTargets(): SyncTarget[] {
     { name: 'acontext (PG:15432)', type: 'postgres', rows: 892, lastSync: Date.now() - 150000, status: 'synced', lagMs: 0 },
     { name: 'Redis (6379)', type: 'redis', rows: 47, lastSync: Date.now() - 30000, status: 'synced', lagMs: 0 },
   ];
+}
+
+function getMockHistorian(): HistorianStatus {
+  return {
+    sessionId: '6f134073',
+    lastCollection: Date.now() - 120000,
+    totalInsights: 88,
+    totalMessages: 412,
+    totalCodeArtifacts: 34,
+    fastCycleInterval: '2min',
+    fullCycleInterval: '15min',
+    collecting: false,
+  };
 }
 
 function getMockEvents(): SyncEvent[] {
@@ -121,6 +151,7 @@ function Section({ title, count, defaultOpen = true, children }: {
 export function SyncPanel() {
   const [targets, setTargets] = useState<SyncTarget[]>(getMockTargets);
   const [events, setEvents] = useState<SyncEvent[]>(getMockEvents);
+  const [historian, setHistorian] = useState<HistorianStatus>(getMockHistorian);
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
@@ -133,6 +164,7 @@ export function SyncPanel() {
           const data = await res.json();
           if (data.targets) setTargets(data.targets);
           if (data.events) setEvents(data.events);
+          if (data.historian) setHistorian(data.historian);
         }
       } catch { /* keep mock */ }
     };
@@ -150,6 +182,21 @@ export function SyncPanel() {
       });
     } catch { /* ignore */ }
     setTimeout(() => setSyncing(false), 3000);
+  }, []);
+
+  const triggerHistorian = useCallback(async () => {
+    setHistorian((prev) => ({ ...prev, collecting: true }));
+    try {
+      const res = await fetch('http://127.0.0.1:8029/api/historian/collect', {
+        method: 'POST',
+        signal: AbortSignal.timeout(30000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.historian) setHistorian(data.historian);
+      }
+    } catch { /* ignore */ }
+    setHistorian((prev) => ({ ...prev, collecting: false }));
   }, []);
 
   const syncedCount = targets.filter((t) => t.status === 'synced').length;
@@ -214,6 +261,60 @@ export function SyncPanel() {
                 <span className="text-[#6b6b75] w-12 text-right">{timeAgo(t.lastSync)}</span>
               </div>
             ))}
+          </div>
+        </Section>
+
+        {/* Session Historian */}
+        <Section title="Session Historian">
+          <div className="px-3 py-2 space-y-2">
+            {/* Session ID + Last Collection */}
+            <div className="flex items-center gap-2 text-[10px]">
+              <Hash className="w-3 h-3 text-[#c678dd]" />
+              <span className="text-[#6b6b75]">Session:</span>
+              <span className="font-mono text-[#c678dd]">{historian.sessionId}</span>
+              <span className="text-[#6b6b75] ml-auto">Last: {timeAgo(historian.lastCollection)}</span>
+            </div>
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="text-center p-1.5 rounded bg-[#1a1a24]">
+                <div className="text-sm font-mono text-[#22c55e]">{historian.totalInsights}</div>
+                <div className="text-[9px] text-[#6b6b75]">insights</div>
+              </div>
+              <div className="text-center p-1.5 rounded bg-[#1a1a24]">
+                <div className="text-sm font-mono text-[#3b82f6]">{historian.totalMessages}</div>
+                <div className="text-[9px] text-[#6b6b75]">messages</div>
+              </div>
+              <div className="text-center p-1.5 rounded bg-[#1a1a24]">
+                <div className="text-sm font-mono text-[#e5c07b]">{historian.totalCodeArtifacts}</div>
+                <div className="text-[9px] text-[#6b6b75]">artifacts</div>
+              </div>
+            </div>
+
+            {/* Cycle intervals */}
+            <div className="flex items-center gap-3 text-[10px] text-[#6b6b75]">
+              <div className="flex items-center gap-1">
+                <Zap className="w-2.5 h-2.5 text-[#22c55e]" />
+                <span>Fast: {historian.fastCycleInterval}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Layers className="w-2.5 h-2.5 text-[#3b82f6]" />
+                <span>Full: {historian.fullCycleInterval}</span>
+              </div>
+            </div>
+
+            {/* Collect Gold button */}
+            <button
+              onClick={triggerHistorian}
+              disabled={historian.collecting}
+              className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded text-[10px] font-medium bg-[#e5c07b]/15 text-[#e5c07b] hover:bg-[#e5c07b]/25 disabled:opacity-40 transition-colors"
+            >
+              {historian.collecting ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /> Collecting Gold...</>
+              ) : (
+                <><Download className="w-3 h-3" /> Collect Session Gold</>
+              )}
+            </button>
           </div>
         </Section>
 
