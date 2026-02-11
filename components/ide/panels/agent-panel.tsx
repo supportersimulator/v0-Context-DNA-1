@@ -5,7 +5,6 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
-  Send,
   Play,
   Square,
   CheckCircle2,
@@ -14,16 +13,17 @@ import {
   Loader2,
   Syringe,
   Users,
-  Clock,
-  Terminal,
   Shield,
-  AlertTriangle,
+  RotateCcw,
+  Key,
+  Zap,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
+type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'crashed' | 'stopped';
+type AgentMode = 'subscription' | 'api';
 
 interface AgentSession {
   id: string;
@@ -33,6 +33,10 @@ interface AgentSession {
   startedAt: number;
   tokens: number;
   injectionActive: boolean;
+  mode?: AgentMode;
+  cost_usd?: number;
+  claude_session_id?: string | null;
+  num_turns?: number;
 }
 
 interface ToolApproval {
@@ -51,30 +55,10 @@ interface AgentOutput {
 }
 
 // ---------------------------------------------------------------------------
-// Mock data
+// Constants
 // ---------------------------------------------------------------------------
-function getMockSessions(): AgentSession[] {
-  return [
-    { id: 'a-001', task: 'Write context-bus-panel.tsx', model: 'opus', status: 'completed', startedAt: Date.now() - 300000, tokens: 4200, injectionActive: true },
-    { id: 'a-002', task: 'Wire panels into panel-factory', model: 'sonnet', status: 'running', startedAt: Date.now() - 60000, tokens: 1800, injectionActive: true },
-    { id: 'a-003', task: 'Run build check', model: 'haiku', status: 'idle', startedAt: 0, tokens: 0, injectionActive: false },
-  ];
-}
-
-function getMockApprovals(): ToolApproval[] {
-  return [
-    { id: 'ta-1', tool: 'Write', args: 'panel-factory.tsx', agentId: 'a-002', timestamp: Date.now() - 5000 },
-  ];
-}
-
-function getMockOutput(): AgentOutput[] {
-  return [
-    { agentId: 'a-002', type: 'text', content: 'Reading panel-factory.tsx to understand registration pattern...', timestamp: Date.now() - 30000 },
-    { agentId: 'a-002', type: 'tool_call', content: 'Read: admin.contextdna.io/components/ide/panel-factory.tsx', timestamp: Date.now() - 25000 },
-    { agentId: 'a-002', type: 'tool_result', content: '635 lines read successfully', timestamp: Date.now() - 24000 },
-    { agentId: 'a-002', type: 'text', content: 'Adding 7 new panel imports and registrations...', timestamp: Date.now() - 10000 },
-  ];
-}
+const AGENT_API = 'http://127.0.0.1:8029';
+const AGENT_WS = 'ws://127.0.0.1:8029/ws/agents';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -85,6 +69,7 @@ function statusIcon(status: AgentStatus) {
     case 'running': return <Loader2 className="w-3 h-3 text-[#3b82f6] animate-spin" />;
     case 'completed': return <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />;
     case 'failed': return <XCircle className="w-3 h-3 text-[#ef4444]" />;
+    case 'crashed': return <XCircle className="w-3 h-3 text-[#ef4444] animate-pulse" />;
     case 'stopped': return <Square className="w-3 h-3 text-[#e5c07b]" />;
   }
 }
@@ -94,6 +79,11 @@ function timeAgo(ms: number): string {
   const sec = Math.floor((Date.now() - ms) / 1000);
   if (sec < 60) return `${sec}s ago`;
   return `${Math.floor(sec / 60)}m ago`;
+}
+
+function formatCost(cost?: number): string {
+  if (cost == null || cost === 0) return '';
+  return `$${cost.toFixed(4)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,29 +114,36 @@ function Section({ title, count, defaultOpen = true, children }: {
 // AgentPanel — main export
 // ---------------------------------------------------------------------------
 export function AgentPanel() {
-  const [sessions, setSessions] = useState<AgentSession[]>(getMockSessions);
-  const [approvals, setApprovals] = useState<ToolApproval[]>(getMockApprovals);
-  const [output, setOutput] = useState<AgentOutput[]>(getMockOutput);
+  const [sessions, setSessions] = useState<AgentSession[]>([]);
+  const [approvals, setApprovals] = useState<ToolApproval[]>([]);
+  const [output, setOutput] = useState<AgentOutput[]>([]);
   const [taskInput, setTaskInput] = useState('');
   const [model, setModel] = useState<'opus' | 'sonnet' | 'haiku'>('sonnet');
+  const [mode, setMode] = useState<AgentMode>('subscription');
+  const [sessionPersistence, setSessionPersistence] = useState(true);
+  const [connected, setConnected] = useState(false);
   const outputEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [output]);
 
+  // Poll for session status
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/agents/status', {
+        const res = await fetch(`${AGENT_API}/api/agents/status`, {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
           const data = await res.json();
           if (data.sessions) setSessions(data.sessions);
           if (data.approvals) setApprovals(data.approvals);
+          setConnected(true);
         }
-      } catch { /* keep mock */ }
+      } catch {
+        setConnected(false);
+      }
     };
     fetchData();
     const interval = setInterval(fetchData, 5000);
@@ -156,44 +153,108 @@ export function AgentPanel() {
   // WebSocket for live output
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const ws = new WebSocket('ws://127.0.0.1:8029/ws/agents');
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'output') {
-            setOutput((prev) => [...prev.slice(-100), msg.data]);
-          }
-          if (msg.type === 'approval') {
-            setApprovals((prev) => [...prev, msg.data]);
-          }
-        } catch { /* ignore */ }
-      };
-      ws.onerror = () => ws.close();
-      return () => { ws.onclose = null; ws.close(); };
-    } catch { /* no WS */ }
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(AGENT_WS);
+        ws.onopen = () => setConnected(true);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'output') {
+              setOutput((prev) => [...prev.slice(-200), msg.data]);
+            }
+            if (msg.type === 'session_update') {
+              setSessions((prev) => {
+                const idx = prev.findIndex((s) => s.id === msg.data.id);
+                if (idx >= 0) {
+                  const updated = [...prev];
+                  updated[idx] = msg.data;
+                  return updated;
+                }
+                return [...prev, msg.data];
+              });
+            }
+            if (msg.type === 'approval') {
+              setApprovals((prev) => [...prev, msg.data]);
+            }
+          } catch { /* ignore */ }
+        };
+        ws.onclose = () => {
+          setConnected(false);
+          reconnectTimer = setTimeout(connect, 5000);
+        };
+        ws.onerror = () => ws?.close();
+      } catch { /* no WS */ }
+    };
+
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) { ws.onclose = null; ws.close(); }
+    };
   }, []);
 
+  // Spawn a new task
   const submitTask = useCallback(async () => {
     if (!taskInput.trim()) return;
     try {
-      await fetch('http://127.0.0.1:8029/api/agents/spawn', {
+      const res = await fetch(`${AGENT_API}/api/agents/spawn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task: taskInput.trim(), model }),
+        body: JSON.stringify({
+          task: taskInput.trim(),
+          model,
+          mode,
+          inject_context: true,
+          session_persistence: sessionPersistence,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOutput((prev) => [...prev, {
+          agentId: data.session_id,
+          type: 'text',
+          content: `Spawned ${mode} session ${data.session_id} (${model})`,
+          timestamp: Date.now(),
+        }]);
+      }
+    } catch { /* ignore */ }
+    setTaskInput('');
+  }, [taskInput, model, mode]);
+
+  // Resume a crashed session
+  const resumeSession = useCallback(async (session: AgentSession) => {
+    if (!session.claude_session_id) return;
+    try {
+      await fetch(`${AGENT_API}/api/agents/resume/${session.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claude_session_id: session.claude_session_id }),
+        signal: AbortSignal.timeout(10000),
+      });
+    } catch { /* ignore */ }
+  }, []);
+
+  // Stop a session
+  const stopSession = useCallback(async (sessionId: string) => {
+    try {
+      await fetch(`${AGENT_API}/api/agents/stop/${sessionId}`, {
+        method: 'POST',
         signal: AbortSignal.timeout(5000),
       });
     } catch { /* ignore */ }
-    setTaskInput('');
-  }, [taskInput, model]);
+  }, []);
 
+  // Approve/Deny tool
   const approveAction = useCallback(async (approvalId: string, approved: boolean) => {
     setApprovals((prev) => prev.filter((a) => a.id !== approvalId));
     try {
-      await fetch(`http://127.0.0.1:8029/api/agents/approve/${approvalId}`, {
+      await fetch(`${AGENT_API}/api/agents/approve/${approvalId}?approved=${approved}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved }),
         signal: AbortSignal.timeout(3000),
       });
     } catch { /* ignore */ }
@@ -212,6 +273,9 @@ export function AgentPanel() {
             {runningCount} running
           </span>
         )}
+        <span className="ml-auto">
+          <span className={`w-1.5 h-1.5 rounded-full inline-block ${connected ? 'bg-[#22c55e]' : 'bg-[#ef4444]'}`} />
+        </span>
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -224,16 +288,32 @@ export function AgentPanel() {
               placeholder="Describe the task..."
               className="w-full h-16 px-2 py-1.5 text-xs bg-[#1a1a24] border border-[#2a2a35] rounded text-[#e5e5e5] placeholder-[#6b6b75] focus:outline-none focus:border-[#3b82f6]/50 resize-none"
               spellCheck={false}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submitTask();
+                }
+              }}
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Mode selector */}
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as AgentMode)}
+                className="text-[10px] px-2 py-1 bg-[#1a1a24] border border-[#2a2a35] rounded text-[#e5e5e5] focus:outline-none"
+              >
+                <option value="subscription">Subscription (Pro/Max)</option>
+                <option value="api">API Key</option>
+              </select>
+              {/* Model selector */}
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value as 'opus' | 'sonnet' | 'haiku')}
                 className="text-[10px] px-2 py-1 bg-[#1a1a24] border border-[#2a2a35] rounded text-[#e5e5e5] focus:outline-none"
               >
-                <option value="opus">Opus (complex)</option>
-                <option value="sonnet">Sonnet (balanced)</option>
-                <option value="haiku">Haiku (fast)</option>
+                <option value="opus">Opus</option>
+                <option value="sonnet">Sonnet</option>
+                <option value="haiku">Haiku</option>
               </select>
               <button
                 onClick={submitTask}
@@ -246,7 +326,40 @@ export function AgentPanel() {
                 onClick={() => {/* spawn swarm */}}
                 className="flex items-center gap-1 px-2 py-1 text-[10px] rounded bg-[#c678dd]/20 text-[#c678dd] hover:bg-[#c678dd]/30"
               >
-                <Users className="w-3 h-3" /> Swarm (10)
+                <Users className="w-3 h-3" /> Swarm
+              </button>
+            </div>
+            {/* Mode indicator + persistence toggle */}
+            <div className="flex items-center gap-1.5 text-[9px] text-[#6b6b75]">
+              {mode === 'subscription' ? (
+                <>
+                  <Zap className="w-3 h-3 text-[#22c55e]" />
+                  <span>Using Claude subscription (no API cost)</span>
+                </>
+              ) : (
+                <>
+                  <Key className="w-3 h-3 text-[#e5c07b]" />
+                  <span>Using API key (pay-per-token)</span>
+                </>
+              )}
+              <span className="mx-1 text-[#2a2a35]">|</span>
+              <button
+                onClick={() => setSessionPersistence((v) => !v)}
+                className="relative group/tip flex items-center gap-1 hover:text-[#e5e5e5] transition-colors"
+                title={sessionPersistence
+                  ? 'Session persistence ON — sessions survive crashes and can be resumed'
+                  : 'Session persistence OFF — sessions are ephemeral (no disk writes)'}
+              >
+                <span className={`w-5 h-2.5 rounded-full transition-colors inline-flex items-center ${sessionPersistence ? 'bg-[#22c55e]/30' : 'bg-[#6b6b75]/30'}`}>
+                  <span className={`w-2 h-2 rounded-full transition-all ${sessionPersistence ? 'bg-[#22c55e] translate-x-2.5' : 'bg-[#6b6b75] translate-x-0.5'}`} />
+                </span>
+                <span>persist</span>
+                {/* Hover tooltip */}
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded bg-[#1a1a24] border border-[#2a2a35] text-[8px] text-[#e5e5e5] whitespace-nowrap opacity-0 group-hover/tip:opacity-100 pointer-events-none transition-opacity z-50">
+                  {sessionPersistence
+                    ? 'ON: Sessions saved to disk — crash resume enabled'
+                    : 'OFF: Ephemeral sessions — no disk writes, no resume'}
+                </span>
               </button>
             </div>
           </div>
@@ -284,23 +397,66 @@ export function AgentPanel() {
         {/* Sessions */}
         <Section title="Sessions" count={sessions.length}>
           <div className="px-3 py-1 space-y-0.5">
+            {sessions.length === 0 && (
+              <div className="text-[10px] text-[#6b6b75] py-2 text-center">
+                No sessions yet. Spawn a task above.
+              </div>
+            )}
             {sessions.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 py-1 text-[10px] hover:bg-[#1a1a24]/50 px-1 rounded">
+              <div key={s.id} className="flex items-center gap-2 py-1 text-[10px] hover:bg-[#1a1a24]/50 px-1 rounded group">
                 {statusIcon(s.status)}
                 <span className="text-[#e5e5e5] truncate flex-1">{s.task}</span>
                 <span className="text-[9px] px-1 rounded bg-[#1a1a24] text-[#6b6b75]">{s.model}</span>
+                {s.mode === 'subscription' && (
+                  <Zap className="w-3 h-3 text-[#22c55e]" title="Subscription" />
+                )}
+                {s.mode === 'api' && (
+                  <Key className="w-3 h-3 text-[#e5c07b]" title="API Key" />
+                )}
                 {s.injectionActive && (
-                  <Syringe className="w-3 h-3 text-[#22c55e]" />
+                  <Syringe className="w-3 h-3 text-[#22c55e]" title="Context DNA injected" />
+                )}
+                {/* Cost display for API mode */}
+                {s.cost_usd != null && s.cost_usd > 0 && (
+                  <span className="text-[9px] text-[#e5c07b]">{formatCost(s.cost_usd)}</span>
+                )}
+                {s.tokens > 0 && (
+                  <span className="text-[9px] text-[#6b6b75]">{(s.tokens / 1000).toFixed(1)}k</span>
                 )}
                 <span className="text-[#6b6b75]">{timeAgo(s.startedAt)}</span>
+                {/* Action buttons */}
+                {s.status === 'running' && (
+                  <button
+                    onClick={() => stopSession(s.id)}
+                    className="opacity-0 group-hover:opacity-100 text-[9px] px-1 py-0.5 rounded bg-[#ef4444]/15 text-[#ef4444] hover:bg-[#ef4444]/25"
+                    title="Stop"
+                  >
+                    <Square className="w-2.5 h-2.5" />
+                  </button>
+                )}
+                {(s.status === 'crashed' || s.status === 'failed') && s.claude_session_id && (
+                  <button
+                    onClick={() => resumeSession(s)}
+                    className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-[#3b82f6]/15 text-[#3b82f6] hover:bg-[#3b82f6]/25 animate-pulse"
+                    title="Resume session"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                    Resume
+                  </button>
+                )}
               </div>
             ))}
           </div>
         </Section>
 
         {/* Live Output */}
-        <Section title="Output" defaultOpen={false}>
-          <div className="px-3 py-1 max-h-[200px] overflow-y-auto">
+        <Section title="Output" defaultOpen={output.length > 0}>
+          <div className="px-3 py-1 max-h-[300px] overflow-y-auto">
+            {output.length === 0 && (
+              <div className="text-[10px] text-[#6b6b75] py-2 text-center">
+                Output will appear here when agents run.
+              </div>
+            )}
             {output.map((o, i) => (
               <div key={i} className="text-[10px] py-0.5 font-mono">
                 {o.type === 'text' && <span className="text-[#e5e5e5]">{o.content}</span>}
@@ -317,7 +473,8 @@ export function AgentPanel() {
       {/* Footer */}
       <div className="px-3 py-1.5 border-t border-[#2a2a35] flex-shrink-0 flex items-center gap-2 text-[9px] text-[#6b6b75]">
         <Bot className="w-3 h-3" />
-        <span>Claude Code-style agent integration with Context DNA injection</span>
+        <span>Claude Code integration with Context DNA injection</span>
+        <span className="ml-auto">{sessions.length > 0 ? `${sessions.length} sessions` : ''}</span>
       </div>
     </div>
   );
