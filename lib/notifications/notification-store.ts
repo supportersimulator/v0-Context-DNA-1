@@ -11,6 +11,7 @@ export type NotificationType = 'info' | 'success' | 'warning' | 'error';
 export type NotificationSource =
   | 'swarm'
   | 'harmonizer'
+  | 'evidence'
   | 'health'
   | 'git'
   | 'system';
@@ -117,6 +118,33 @@ export class NotificationStore {
 
   error(title: string, message: string, opts?: { source?: NotificationSource; action?: NotificationAction }): Notification {
     return this.add('error', title, message, opts);
+  }
+
+  // --- domain event helpers ------------------------------------------------
+
+  /** swarm:completed — A swarm run finished */
+  swarmCompleted(message?: string, action?: NotificationAction): Notification {
+    return this.add('success', 'Swarm run completed', message ?? 'All agents finished execution.', {
+      source: 'swarm',
+      action,
+    });
+  }
+
+  /** evidence:promoted — A claim was promoted to wisdom */
+  evidencePromoted(message?: string, action?: NotificationAction): Notification {
+    return this.add('info', 'Claim promoted to wisdom', message ?? 'Evidence threshold met — claim is now trusted wisdom.', {
+      source: 'evidence',
+      action,
+    });
+  }
+
+  /** harmonizer:verdict — Code check verdict */
+  harmonizerVerdict(verdict: 'ACCEPT' | 'REVIEW' | 'REJECT', message?: string, action?: NotificationAction): Notification {
+    const type: NotificationType = verdict === 'ACCEPT' ? 'success' : verdict === 'REVIEW' ? 'warning' : 'error';
+    return this.add(type, `Code check: ${verdict}`, message ?? `Harmonizer returned ${verdict} for the latest change.`, {
+      source: 'harmonizer',
+      action,
+    });
   }
 
   // --- read state ----------------------------------------------------------

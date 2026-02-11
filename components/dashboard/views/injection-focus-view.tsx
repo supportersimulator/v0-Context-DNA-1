@@ -5,7 +5,7 @@ import { fetchInjectionHistory, subscribeToInjections } from '@/lib/api';
 import type { InjectionData, RiskLevel, SilverPlatter } from '@/lib/types';
 import { RISK_LEVEL_CONFIG } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon, Wifi, WifiOff, LayoutDashboard, Syringe } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Clock, Zap, Target, Shield, Brain, AlertTriangle, FileText, Copy, Check, Volume2, VolumeX, CalendarIcon, Wifi, WifiOff, LayoutDashboard, Syringe, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Calendar } from '@/components/ui/calendar';
@@ -21,6 +21,153 @@ interface InjectionFocusViewProps {
   onClose?: () => void;
   /** When true, renders only injection content without SplitPanelLayout (for dockview panel mode) */
   standalone?: boolean;
+}
+
+// ── 9-Section Architecture Configuration ────────────────────────────────────
+
+const SECTION_CONFIG: Record<number, { name: string; description: string; colorClass: string; bgActive: string; borderActive: string; barColor: string }> = {
+  0: { name: 'SAFETY', description: 'Critical risk classification', colorClass: 'text-red-400', bgActive: 'bg-red-500/15', borderActive: 'border-red-500/40', barColor: 'bg-red-500' },
+  1: { name: 'FOUNDATION', description: 'File context + SOPs', colorClass: 'text-blue-400', bgActive: 'bg-blue-500/15', borderActive: 'border-blue-500/40', barColor: 'bg-blue-500' },
+  2: { name: 'WISDOM', description: 'Professor wisdom distillation', colorClass: 'text-purple-400', bgActive: 'bg-purple-500/15', borderActive: 'border-purple-500/40', barColor: 'bg-purple-500' },
+  3: { name: 'AWARENESS', description: 'Recent changes + ripple effects', colorClass: 'text-amber-400', bgActive: 'bg-amber-500/15', borderActive: 'border-amber-500/40', barColor: 'bg-amber-500' },
+  4: { name: 'DEEP_CONTEXT', description: 'Blueprint + brain state', colorClass: 'text-cyan-400', bgActive: 'bg-cyan-500/15', borderActive: 'border-cyan-500/40', barColor: 'bg-cyan-500' },
+  5: { name: 'PROTOCOL', description: 'Success capture + first-try', colorClass: 'text-green-400', bgActive: 'bg-green-500/15', borderActive: 'border-green-500/40', barColor: 'bg-green-500' },
+  6: { name: 'HOLISTIC', description: 'Synaptic \u2192 Atlas guidance', colorClass: 'text-indigo-400', bgActive: 'bg-indigo-500/15', borderActive: 'border-indigo-500/40', barColor: 'bg-indigo-500' },
+  7: { name: 'FULL_LIBRARY', description: 'Tier 3 escalation textbook', colorClass: 'text-orange-400', bgActive: 'bg-orange-500/15', borderActive: 'border-orange-500/40', barColor: 'bg-orange-500' },
+  8: { name: '8TH_INTELLIGENCE', description: 'Synaptic \u2192 Aaron voice', colorClass: 'text-pink-400', bgActive: 'bg-pink-500/15', borderActive: 'border-pink-500/40', barColor: 'bg-pink-500' },
+};
+
+/** Maps a section name string (from sections_included) to its section number */
+function sectionNameToNumber(name: string): number | null {
+  const upper = name.toUpperCase().replace(/[\s-]/g, '_');
+  for (const [num, cfg] of Object.entries(SECTION_CONFIG)) {
+    if (upper.includes(cfg.name) || cfg.name.includes(upper)) return Number(num);
+  }
+  // Try numeric prefix: "0_SAFETY" or "section_0"
+  const numMatch = name.match(/(\d)/);
+  if (numMatch) {
+    const n = Number(numMatch[1]);
+    if (n >= 0 && n <= 8) return n;
+  }
+  return null;
+}
+
+/** Horizontal stacked bar showing proportional timing per active section */
+function SectionTimingBar({ sectionsIncluded, totalTimeMs }: { sectionsIncluded: string[]; totalTimeMs: number }) {
+  const activeSections = sectionsIncluded
+    .map(sectionNameToNumber)
+    .filter((n): n is number => n !== null);
+
+  if (activeSections.length === 0 || totalTimeMs <= 0) return null;
+
+  const perSection = totalTimeMs / activeSections.length;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-wider text-[#6b6b75] font-medium">Section Timing Waterfall</span>
+        <span className="text-[10px] text-[#6b6b75] font-mono">{totalTimeMs}ms total</span>
+      </div>
+      <div className="flex h-3 rounded-sm overflow-hidden gap-px bg-[#12121a]">
+        {activeSections.sort((a, b) => a - b).map((num) => {
+          const cfg = SECTION_CONFIG[num];
+          const widthPercent = (perSection / totalTimeMs) * 100;
+          return (
+            <div
+              key={num}
+              className={cn(cfg.barColor, 'opacity-70 hover:opacity-100 transition-opacity relative group')}
+              style={{ width: `${widthPercent}%`, minWidth: '8px' }}
+              title={`S${num} ${cfg.name}: ~${Math.round(perSection)}ms`}
+            >
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 bg-[#1e1e2a] border border-[#2a2a35] rounded text-[9px] text-[#e5e5e5] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                S{num} {cfg.name} ~{Math.round(perSection)}ms
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** 3x3 grid showing all 9 webhook sections, highlighting active ones */
+function SectionBreakdown({ sectionsIncluded, totalTimeMs, abVariant }: { sectionsIncluded: string[]; totalTimeMs: number; abVariant: string }) {
+  const activeSet = new Set<number>();
+  sectionsIncluded.forEach((name) => {
+    const num = sectionNameToNumber(name);
+    if (num !== null) activeSet.add(num);
+  });
+
+  return (
+    <div className="glass rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-primary" />
+          <h3 className="font-semibold uppercase tracking-wider text-sm text-[#e5e5e5]">
+            9-Section Architecture
+          </h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-[#6b6b75]">Variant</span>
+          <span className={cn(
+            'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider',
+            abVariant === 'A' ? 'bg-blue-500/20 text-blue-400' :
+            abVariant === 'B' ? 'bg-purple-500/20 text-purple-400' :
+            abVariant === 'C' ? 'bg-cyan-500/20 text-cyan-400' :
+            'bg-[#2a2a35] text-[#6b6b75]'
+          )}>
+            {abVariant || '?'}
+          </span>
+          <span className="text-[10px] text-[#6b6b75] font-mono ml-1">
+            {activeSet.size}/9 active
+          </span>
+        </div>
+      </div>
+
+      {/* 3x3 Grid */}
+      <div className="grid grid-cols-3 gap-1.5">
+        {Array.from({ length: 9 }, (_, i) => {
+          const cfg = SECTION_CONFIG[i];
+          const isActive = activeSet.has(i);
+          return (
+            <div
+              key={i}
+              className={cn(
+                'rounded-md px-2.5 py-2 border transition-all duration-200',
+                isActive
+                  ? cn(cfg.bgActive, cfg.borderActive)
+                  : 'bg-[#12121a] border-[#2a2a35] opacity-40'
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={cn(
+                  'text-[10px] font-mono font-bold',
+                  isActive ? cfg.colorClass : 'text-[#6b6b75]'
+                )}>
+                  {i}
+                </span>
+                <span className={cn(
+                  'text-[10px] font-semibold uppercase tracking-wide truncate',
+                  isActive ? cfg.colorClass : 'text-[#6b6b75]'
+                )}>
+                  {cfg.name}
+                </span>
+              </div>
+              <div className={cn(
+                'text-[9px] mt-0.5 leading-tight truncate',
+                isActive ? 'text-[#e5e5e5]/70' : 'text-[#6b6b75]/50'
+              )}>
+                {cfg.description}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Timing Waterfall */}
+      <SectionTimingBar sectionsIncluded={sectionsIncluded} totalTimeMs={totalTimeMs} />
+    </div>
+  );
 }
 
 export function InjectionFocusView({ onClose, standalone }: InjectionFocusViewProps) {
@@ -446,6 +593,13 @@ export function InjectionFocusView({ onClose, standalone }: InjectionFocusViewPr
             value={analysis.ab_variant}
           />
         </div>
+
+        {/* 9-Section Architecture Breakdown */}
+        <SectionBreakdown
+          sectionsIncluded={analysis.sections_included}
+          totalTimeMs={analysis.generation_time_ms}
+          abVariant={analysis.ab_variant}
+        />
 
         {/* Detected Domains */}
         <div className="flex flex-wrap gap-2">

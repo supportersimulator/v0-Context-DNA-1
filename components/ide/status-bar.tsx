@@ -12,12 +12,15 @@ import {
   AlertTriangle,
   XCircle,
 } from 'lucide-react';
+import { useMode } from '@/lib/hooks/use-mode';
+import { useDiagnostics } from '@/lib/hooks/use-diagnostics';
+import { useSwarmStatus } from '@/lib/hooks/use-swarm';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const HEALTH_POLL_INTERVAL = 30_000; // 30 seconds
+const POLL_INTERVAL = 30_000; // 30 seconds
 const API_BASE =
   process.env.NEXT_PUBLIC_MEMORY_API || 'http://127.0.0.1:3456';
 
@@ -34,28 +37,13 @@ interface StatusBarItemProps {
   variant?: 'default' | 'success' | 'error';
 }
 
-interface StatusBarData {
-  connected: boolean;
-  modelName: string;
-  learningCount: number;
-  swarmStatus: { active: boolean; agentCount: number };
-  notifications: number;
-  diagnostics: { errors: number; warnings: number };
-}
-
 // ---------------------------------------------------------------------------
-// useStatusBarData — polls backend health every 30s
+// useStatusBarPolling — lightweight poll for learningCount + modelName only
 // ---------------------------------------------------------------------------
 
-function useStatusBarData(): StatusBarData {
-  const [data, setData] = useState<StatusBarData>({
-    connected: false,
-    modelName: 'Qwen3-14B',
-    learningCount: 313,
-    swarmStatus: { active: false, agentCount: 0 },
-    notifications: 0,
-    diagnostics: { errors: 0, warnings: 0 },
-  });
+function useStatusBarPolling() {
+  const [learningCount, setLearningCount] = useState(313);
+  const [modelName, setModelName] = useState('Qwen3-14B');
 
   const pollHealth = useCallback(async () => {
     try {
@@ -68,26 +56,17 @@ function useStatusBarData(): StatusBarData {
       clearTimeout(timeout);
 
       if (res.ok) {
-        const healthData = await res.json();
-        setData((prev) => ({
-          ...prev,
-          connected: true,
-          modelName: healthData.model_name || healthData.modelName || prev.modelName,
-          learningCount:
-            healthData.learning_count ??
-            healthData.learningCount ??
-            healthData.total ??
-            prev.learningCount,
-        }));
-      } else {
-        setData((prev) => ({ ...prev, connected: false }));
+        const d = await res.json();
+        const name = d.model_name || d.modelName;
+        if (name) setModelName(name);
+        const count = d.learning_count ?? d.learningCount ?? d.total;
+        if (typeof count === 'number') setLearningCount(count);
       }
     } catch {
-      setData((prev) => ({ ...prev, connected: false }));
+      // Health fetch failed — keep existing values
     }
   }, []);
 
-  // Also try to fetch stats for learning count (separate endpoint)
   const pollStats = useCallback(async () => {
     try {
       const controller = new AbortController();
@@ -100,9 +79,7 @@ function useStatusBarData(): StatusBarData {
 
       if (res.ok) {
         const stats = await res.json();
-        if (typeof stats.total === 'number') {
-          setData((prev) => ({ ...prev, learningCount: stats.total }));
-        }
+        if (typeof stats.total === 'number') setLearningCount(stats.total);
       }
     } catch {
       // Stats fetch failed — keep existing count
@@ -110,13 +87,11 @@ function useStatusBarData(): StatusBarData {
   }, []);
 
   useEffect(() => {
-    // Initial fetch
     pollHealth();
     pollStats();
 
-    // Set up polling intervals
-    const healthTimer = setInterval(pollHealth, HEALTH_POLL_INTERVAL);
-    const statsTimer = setInterval(pollStats, HEALTH_POLL_INTERVAL);
+    const healthTimer = setInterval(pollHealth, POLL_INTERVAL);
+    const statsTimer = setInterval(pollStats, POLL_INTERVAL);
 
     return () => {
       clearInterval(healthTimer);
@@ -124,7 +99,7 @@ function useStatusBarData(): StatusBarData {
     };
   }, [pollHealth, pollStats]);
 
-  return data;
+  return { learningCount, modelName };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,8 +161,16 @@ function Separator() {
 // ---------------------------------------------------------------------------
 
 export function StatusBar() {
-  const { connected, modelName, learningCount, swarmStatus, notifications, diagnostics } =
-    useStatusBarData();
+  // Phase 9 hooks
+  const { mode, isHeavy, services } = useMode();
+  const diagnostics = useDiagnostics();
+  const { run: swarmRun, status: swarmStatus } = useSwarmStatus(null);
+
+  // Lightweight polling for learning count + model name
+  const { learningCount, modelName } = useStatusBarPolling();
+
+  // Derive connection status from services (API reachable = connected)
+  const connected = services.context_dna_api;
 
   const handleBranchClick = useCallback(() => {
     // Future: open git panel
@@ -201,8 +184,11 @@ export function StatusBar() {
     // Future: open notifications panel
   }, []);
 
-  const swarmLabel = swarmStatus.active
-    ? `Running (${swarmStatus.agentCount} agent${swarmStatus.agentCount !== 1 ? 's' : ''})`
+  // Swarm label from real hook data
+  const swarmActive = swarmStatus === 'running' || swarmStatus === 'collecting' || swarmStatus === 'harmonizing' || swarmStatus === 'integrating';
+  const swarmAgentCount = swarmRun ? Object.keys(swarmRun.agent_results ?? {}).length : 0;
+  const swarmLabel = swarmActive
+    ? `Running (${swarmAgentCount} agent${swarmAgentCount !== 1 ? 's' : ''})`
     : 'Idle';
 
   return (
@@ -219,7 +205,7 @@ export function StatusBar() {
 
         <Separator />
 
-        {/* Connection status */}
+        {/* Connection status + mode pill */}
         <StatusBarItem
           icon={
             connected ? (
@@ -236,6 +222,11 @@ export function StatusBar() {
           }
           variant={connected ? 'success' : 'error'}
         />
+        <span className={`ml-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+          isHeavy ? 'bg-[#22c55e]/20 text-[#22c55e]' : 'bg-[#6b6b75]/20 text-[#6b6b75]'
+        }`}>
+          {mode}
+        </span>
 
         <Separator />
 
@@ -248,7 +239,7 @@ export function StatusBar() {
           variant={connected ? 'success' : 'default'}
         />
 
-        {/* Diagnostic indicators (errors + warnings) */}
+        {/* Diagnostic indicators (errors + warnings) from useDiagnostics */}
         {(diagnostics.errors > 0 || diagnostics.warnings > 0) && (
           <>
             <Separator />
@@ -282,16 +273,16 @@ export function StatusBar() {
 
         <Separator />
 
-        {/* Swarm status */}
+        {/* Swarm status from useSwarmStatus */}
         <StatusBarItem
           icon={<Activity className="w-3 h-3" />}
           label={swarmLabel}
           tooltip={
-            swarmStatus.active
-              ? `Swarm active: ${swarmStatus.agentCount} agent${swarmStatus.agentCount !== 1 ? 's' : ''} running`
+            swarmActive
+              ? `Swarm active: ${swarmAgentCount} agent${swarmAgentCount !== 1 ? 's' : ''} running`
               : 'Agent swarm idle'
           }
-          variant={swarmStatus.active ? 'success' : 'default'}
+          variant={swarmActive ? 'success' : 'default'}
         />
 
         <Separator />
@@ -299,14 +290,9 @@ export function StatusBar() {
         {/* Notifications */}
         <StatusBarItem
           icon={<Bell className="w-3 h-3" />}
-          label={notifications > 0 ? `${notifications}` : ''}
+          label=""
           onClick={handleNotificationsClick}
-          tooltip={
-            notifications > 0
-              ? `${notifications} unread notification${notifications !== 1 ? 's' : ''}`
-              : 'No notifications'
-          }
-          badge={notifications > 0 ? notifications : undefined}
+          tooltip="No notifications"
         />
 
         <Separator />

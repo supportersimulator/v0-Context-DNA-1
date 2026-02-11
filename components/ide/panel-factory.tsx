@@ -18,12 +18,22 @@ import { LearningPanel } from '@/components/dashboard/views/learning-panel';
 import { ArchitecturalAwarenessPanel } from '@/components/dashboard/views/architectural-awareness';
 import { VoiceChatView } from '@/components/dashboard/views/voice-chat-view';
 import DashboardShell from '@/components/dashboard/DashboardShell';
+import { SwarmView } from '@/components/panels/swarm-view';
+import { HarmonizerView } from '@/components/panels/harmonizer-view';
+import { EvidenceView } from '@/components/panels/evidence-view';
 
 // IDE-only panels (Electron)
 import { FileExplorer } from '@/components/ide/panels/file-explorer';
 import { DockerPanel } from '@/components/ide/panels/docker-panel';
 import { TerminalPanel } from '@/components/ide/panels/terminal-panel';
 import { OpenHandsPanel } from '@/components/ide/panels/openhands-panel';
+import { CodeEditorPanel } from '@/components/ide/panels/code-editor-panel';
+import { GitPanel } from '@/components/ide/panels/git-panel';
+import { DiffViewerPanel } from '@/components/ide/panels/diff-viewer-panel';
+import { FindReplacePanel } from '@/components/ide/panels/find-replace-panel';
+import { ProblemsPanel } from '@/components/ide/panels/problems-panel';
+import { MemoryExplorerPanel } from '@/components/ide/panels/memory-explorer-panel';
+import { SessionTimelinePanel } from '@/components/ide/panels/session-timeline-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -133,6 +143,41 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     minWidth: 180,
     minHeight: 100,
   },
+  swarm: {
+    label: 'Swarm',
+    description: 'Multi-agent swarm orchestration',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 150,
+  },
+  harmonizer: {
+    label: 'Harmonizer',
+    description: '7-gate code quality checker',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  evidence: {
+    label: 'Evidence',
+    description: 'Evidence pipeline claims and promotions',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  memory: {
+    label: 'Memory',
+    description: 'Persistent memory explorer (learnings, SOPs, patterns)',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  timeline: {
+    label: 'Timeline',
+    description: 'Session history and crash recovery',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -167,6 +212,41 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 150,
+  },
+  editor: {
+    label: 'Editor',
+    description: 'Monaco code editor with tabs',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 300,
+    minHeight: 150,
+  },
+  git: {
+    label: 'Source Control',
+    description: 'Git status, staging, and commits',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  diff: {
+    label: 'Diff Viewer',
+    description: 'Side-by-side file diff viewer',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 300,
+    minHeight: 150,
+  },
+  'find-replace': {
+    label: 'Find & Replace',
+    description: 'Search and replace across files',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  problems: {
+    label: 'Problems',
+    description: 'Errors, warnings, and diagnostics',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 100,
   },
 };
 
@@ -203,7 +283,8 @@ function PanelWrapper({
   panelId: string;
   children: React.ReactNode;
 }) {
-  const meta = PANEL_METADATA[panelId];
+  const allMeta = getAllPanelMetadata();
+  const meta = allMeta[panelId];
   return (
     <ResponsivePanelWrapper
       label={meta?.label ?? panelId}
@@ -315,6 +396,30 @@ function VoiceChatPanel(_props: IDockviewPanelProps) {
   );
 }
 
+function SwarmPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="swarm">
+      <SwarmView />
+    </PanelWrapper>
+  );
+}
+
+function HarmonizerPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="harmonizer">
+      <HarmonizerView />
+    </PanelWrapper>
+  );
+}
+
+function EvidencePanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="evidence">
+      <EvidenceView />
+    </PanelWrapper>
+  );
+}
+
 function DashboardShellPanel(_props: IDockviewPanelProps) {
   return <DashboardShell />;
 }
@@ -355,6 +460,62 @@ function OpenHandsPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function EditorPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="editor">
+      <CodeEditorPanel />
+    </PanelWrapper>
+  );
+}
+
+function GitPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="git">
+      <GitPanel />
+    </PanelWrapper>
+  );
+}
+
+function DiffViewerPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="diff">
+      <DiffViewerPanel />
+    </PanelWrapper>
+  );
+}
+
+function FindReplacePanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="find-replace">
+      <FindReplacePanel />
+    </PanelWrapper>
+  );
+}
+
+function ProblemsPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="problems">
+      <ProblemsPanel />
+    </PanelWrapper>
+  );
+}
+
+function MemoryExplorerPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="memory">
+      <MemoryExplorerPanel />
+    </PanelWrapper>
+  );
+}
+
+function SessionTimelinePanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="timeline">
+      <SessionTimelinePanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -376,11 +537,21 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   learnings: LearningsPanel,
   architecture: ArchitecturePanel,
   voicechat: VoiceChatPanel,
+  swarm: SwarmPanel,
+  harmonizer: HarmonizerPanel,
+  evidence: EvidencePanel,
   // IDE panels (Electron-only — gracefully degrade with placeholder in web)
   explorer: ExplorerPanel,
   docker: DockerPanelView,
   terminal: TerminalPanelView,
   openhands: OpenHandsPanelView,
+  editor: EditorPanelView,
+  git: GitPanelView,
+  diff: DiffViewerPanelView,
+  'find-replace': FindReplacePanelView,
+  problems: ProblemsPanelView,
+  memory: MemoryExplorerPanelView,
+  timeline: SessionTimelinePanelView,
 };
 
 /**

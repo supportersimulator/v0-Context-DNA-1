@@ -36,6 +36,16 @@ export interface IDEEvents {
   'explorer:file-selected': { path: string; type: 'file' | 'directory' };
   'explorer:visibility-changed': { visible: boolean };
 
+  // -- Editor -----------------------------------------------------------------
+  'editor:file-opened': { path: string; language: string };
+  'editor:file-closed': { path: string };
+  'editor:file-changed': { path: string; isDirty: boolean };
+  'editor:active-changed': { path: string | null; previous: string | null };
+
+  // -- Git --------------------------------------------------------------------
+  'git:status-updated': { branch: string; changedFiles: number; stagedFiles: number };
+  'git:commit-created': { message: string; hash: string };
+
   // -- Navigation -----------------------------------------------------------
   'navigation:page-changed': {
     page: 'dashboard' | 'synaptic' | 'live';

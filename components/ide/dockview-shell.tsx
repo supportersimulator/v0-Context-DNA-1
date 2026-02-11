@@ -18,6 +18,10 @@ import { OfflineIndicator } from './offline-indicator';
 import { useKeybindingInit, useKeybindings, useKeyContext } from '@/lib/ide/keybinding-registry';
 import { initThemeEngine } from '@/lib/ide/theme-engine';
 import { useLayoutPersistence } from '@/lib/ide/panel-lifecycle';
+import { useDiagnostics } from '@/lib/hooks/use-diagnostics';
+import { useEighthIntelligenceStatus } from '@/lib/hooks/use-eighth-intelligence';
+import { InlineAssistant } from './inline-assistant';
+import { useActiveFile } from '@/lib/ide/editor-store';
 
 // ---------------------------------------------------------------------------
 // Layout persistence (single layout — DashboardShell handles page switching)
@@ -119,16 +123,30 @@ export function DockviewShell() {
   // ------- Active panel tracking for Activity Bar -------
   const [activePanelIds, setActivePanelIds] = useState<string[]>(['dashboard-shell']);
 
-  // ------- Activity Bar badges (placeholder counts — will connect to real data) -------
+  // ------- Real-time diagnostics + 8th Intelligence status for badges -------
+  const diagnostics = useDiagnostics();
+  const eighthIntel = useEighthIntelligenceStatus();
+
+  // ------- Activity Bar badges (wired to live diagnostics + Synaptic status) -------
   const activityBadges = useMemo<Record<string, ActivityBadge>>(() => {
     const badges: Record<string, ActivityBadge> = {};
-    // Notifications badge on the bell icon
-    // These will be wired to real backend data in a future phase
+    if (diagnostics.errors > 0) {
+      badges['health'] = { count: diagnostics.errors, variant: 'error' };
+    } else if (diagnostics.warnings > 0) {
+      badges['health'] = { count: diagnostics.warnings, variant: 'warning' };
+    }
+    if (eighthIntel.active) {
+      badges['synaptic'] = { count: 0, dot: true, variant: 'success' };
+    }
     return badges;
-  }, []);
+  }, [diagnostics.errors, diagnostics.warnings, eighthIntel.active]);
 
   // ------- Command palette -------
   const { isOpen: cmdPaletteOpen, close: closeCmdPalette } = useCommandPalette();
+
+  // ------- Inline LLM Assistant -------
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const activeFile = useActiveFile();
 
   // ------- Auto-save on layout change -------
   useEffect(() => {
@@ -181,6 +199,17 @@ export function DockviewShell() {
         toggleSynapticChat: () => togglePanel('synaptic'),
         toggleInjection: () => togglePanel('injection'),
         toggleSearch: () => togglePanel('search'),
+        toggleSwarm: () => togglePanel('swarm'),
+        toggleHarmonizer: () => togglePanel('harmonizer'),
+        toggleEvidence: () => togglePanel('evidence'),
+        toggleEditor: () => togglePanel('editor'),
+        toggleGit: () => togglePanel('git'),
+        toggleDiff: () => togglePanel('diff'),
+        toggleProblems: () => togglePanel('problems'),
+        toggleFindReplace: () => togglePanel('find-replace'),
+        toggleMemory: () => togglePanel('memory'),
+        toggleTimeline: () => togglePanel('timeline'),
+        toggleInlineAssistant: () => setAssistantOpen((v) => !v),
       }),
     [togglePanel],
   );
@@ -190,6 +219,7 @@ export function DockviewShell() {
     'view.toggleExplorer': () => setExplorerVisible((v: boolean) => !v),
     'view.toggleTerminal': () => togglePanel('terminal'),
     'view.commandPalette': () => {}, // handled by command-palette's own useEffect
+    'ai.inlineAssistant': () => setAssistantOpen((v) => !v),
     'workspace.save': () => {
       if (dockviewApi) saveLayout(dockviewApi.toJSON());
     },
@@ -349,6 +379,15 @@ export function DockviewShell() {
 
       {/* Command Palette (overlay) */}
       <CommandPalette commands={commands} isOpen={cmdPaletteOpen} onClose={closeCmdPalette} />
+
+      {/* Inline LLM Assistant (overlay — Cmd+I) */}
+      <InlineAssistant
+        isOpen={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        contextCode={activeFile?.content}
+        contextLanguage={activeFile?.language}
+        contextFile={activeFile?.path}
+      />
 
       {/* Toast notifications (fixed bottom-right) */}
       <ToastContainer />

@@ -27,6 +27,17 @@ import {
   Wand2,
   Mic,
   Command,
+  Network,
+  ShieldCheck,
+  FlaskConical,
+  Code2,
+  GitBranch,
+  Diff,
+  AlertCircle,
+  FileSearch,
+  BookOpen,
+  Clock,
+  Sparkles,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -36,7 +47,7 @@ import {
 export interface Command {
   id: string;
   label: string;
-  category: 'View' | 'Navigation' | 'Workspace' | 'System';
+  category: 'View' | 'Navigation' | 'Workspace' | 'System' | 'AI';
   shortcut?: string;
   icon?: ReactNode;
   action: () => void;
@@ -164,6 +175,17 @@ export function createDefaultCommands(actions: {
   viewModels?: () => void;
   openInstallWizard?: () => void;
   toggleVoiceChat?: () => void;
+  toggleSwarm?: () => void;
+  toggleHarmonizer?: () => void;
+  toggleEvidence?: () => void;
+  toggleEditor?: () => void;
+  toggleGit?: () => void;
+  toggleDiff?: () => void;
+  toggleProblems?: () => void;
+  toggleFindReplace?: () => void;
+  toggleMemory?: () => void;
+  toggleTimeline?: () => void;
+  toggleInlineAssistant?: () => void;
 }): Command[] {
   const noop = () => {};
   return [
@@ -212,6 +234,90 @@ export function createDefaultCommands(actions: {
       category: 'View',
       icon: <Search className="w-4 h-4" />,
       action: actions.toggleSearch ?? noop,
+    },
+    {
+      id: 'view:toggle-swarm',
+      label: 'Toggle Swarm Panel',
+      category: 'View',
+      icon: <Network className="w-4 h-4" />,
+      action: actions.toggleSwarm ?? noop,
+    },
+    {
+      id: 'view:toggle-harmonizer',
+      label: 'Toggle Harmonizer Panel',
+      category: 'View',
+      icon: <ShieldCheck className="w-4 h-4" />,
+      action: actions.toggleHarmonizer ?? noop,
+    },
+    {
+      id: 'view:toggle-evidence',
+      label: 'Toggle Evidence Panel',
+      category: 'View',
+      icon: <FlaskConical className="w-4 h-4" />,
+      action: actions.toggleEvidence ?? noop,
+    },
+    {
+      id: 'view:toggle-editor',
+      label: 'Toggle Code Editor',
+      category: 'View',
+      shortcut: 'Cmd+Shift+E',
+      icon: <Code2 className="w-4 h-4" />,
+      action: actions.toggleEditor ?? noop,
+    },
+    {
+      id: 'view:toggle-git',
+      label: 'Toggle Source Control',
+      category: 'View',
+      shortcut: 'Cmd+Shift+G',
+      icon: <GitBranch className="w-4 h-4" />,
+      action: actions.toggleGit ?? noop,
+    },
+    {
+      id: 'view:toggle-diff',
+      label: 'Toggle Diff Viewer',
+      category: 'View',
+      shortcut: 'Cmd+Shift+D',
+      icon: <Diff className="w-4 h-4" />,
+      action: actions.toggleDiff ?? noop,
+    },
+    {
+      id: 'view:toggle-problems',
+      label: 'Toggle Problems Panel',
+      category: 'View',
+      shortcut: 'Cmd+Shift+M',
+      icon: <AlertCircle className="w-4 h-4" />,
+      action: actions.toggleProblems ?? noop,
+    },
+    {
+      id: 'view:toggle-find-replace',
+      label: 'Find in Files',
+      category: 'View',
+      shortcut: 'Cmd+Shift+F',
+      icon: <FileSearch className="w-4 h-4" />,
+      action: actions.toggleFindReplace ?? noop,
+    },
+    {
+      id: 'view:toggle-memory',
+      label: 'Toggle Memory Explorer',
+      category: 'View',
+      shortcut: 'Cmd+Shift+L',
+      icon: <BookOpen className="w-4 h-4" />,
+      action: actions.toggleMemory ?? noop,
+    },
+    {
+      id: 'view:toggle-timeline',
+      label: 'Toggle Session Timeline',
+      category: 'View',
+      icon: <Clock className="w-4 h-4" />,
+      action: actions.toggleTimeline ?? noop,
+    },
+    {
+      id: 'ai:inline-assistant',
+      label: 'Inline LLM Assistant',
+      category: 'AI',
+      shortcut: 'Cmd+I',
+      icon: <Sparkles className="w-4 h-4" />,
+      action: actions.toggleInlineAssistant ?? noop,
     },
 
     // Navigation

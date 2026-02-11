@@ -1,0 +1,294 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   IDE Performance CSS — Zero Layout Jank
+   ═══════════════════════════════════════════════════════════════════════════
+   CSS containment, GPU-accelerated transitions, and reduced-motion support.
+   Imported after globals.css in layout.tsx.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1. DOCKVIEW PANEL CONTAINMENT
+   Prevents cross-panel layout thrashing. Each panel is an isolated
+   rendering island — layout/paint in one panel never triggers reflow
+   in siblings.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Strict containment on every dockview panel */
+.dv-groupview > .dv-content-container,
+[data-dv-panel],
+.dv-panel-container {
+  contain: strict;
+  overflow: hidden;
+}
+
+/* Exception: panels that render dropdowns, tooltips, or popovers.
+   Add class="allow-overflow" to the panel content wrapper to opt out
+   of strict overflow clipping while keeping layout/style containment. */
+[data-dv-panel].allow-overflow,
+.dv-panel-container.allow-overflow {
+  contain: layout style;
+  overflow: visible;
+}
+
+/* Dockview group containers — contain layout only (tabs need overflow for DnD) */
+.dv-groupview {
+  contain: layout style;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   2. ACTIVITY BAR CONTAINMENT
+   The 48px-wide icon strip never causes layout in the main content area.
+   ───────────────────────────────────────────────────────────────────────── */
+[role="toolbar"][aria-label="Activity Bar"] {
+  contain: strict;
+  will-change: auto; /* No animations — static element */
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3. EXPLORER SHELL SIDEBAR CONTAINMENT
+   File tree is isolated. Resize drag changes width via inline style,
+   so we use layout+style containment (not strict — width changes).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Explorer panel (the file tree column) */
+.explorer-sidebar {
+  contain: layout style;
+}
+
+/* Explorer drag handle — thin border between sidebar and content */
+[role="separator"][aria-orientation="vertical"] {
+  contain: layout style paint;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. STATUS BAR CONTAINMENT
+   22px bar at bottom. Polls data but never changes height.
+   Full strict containment — status bar text updates should never
+   trigger layout in panels above.
+   ───────────────────────────────────────────────────────────────────────── */
+.ide-status-bar {
+  contain: strict;
+  /* Status bar items update text only — compositor handles it */
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   5. RESPONSIVE PANEL WRAPPER CONTAINMENT
+   Each ResponsivePanelWrapper is an isolated layout context.
+   ResizeObserver fires on the wrapper, children adapt via context.
+   ───────────────────────────────────────────────────────────────────────── */
+.responsive-panel {
+  contain: layout style;
+}
+
+/* When collapsed to placeholder, full strict containment */
+.responsive-panel.panel-collapsed {
+  contain: strict;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   6. GPU-ACCELERATED PANEL TRANSITIONS
+   Use transform instead of width/height for Explorer open/close.
+   Only apply will-change during active interactions, then remove.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Explorer sidebar: GPU-accelerated open/close via translateX.
+   The sidebar uses inline width, but during transitions we layer
+   transform on top for smooth animation. */
+.explorer-sidebar-enter {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.explorer-sidebar-enter-active {
+  transform: translateX(0);
+  opacity: 1;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.explorer-sidebar-exit {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.explorer-sidebar-exit-active {
+  transform: translateX(-100%);
+  opacity: 0;
+  transition: transform 120ms cubic-bezier(0.5, 0, 0.75, 0),
+              opacity 120ms cubic-bezier(0.5, 0, 0.75, 0);
+}
+
+/* Right-side explorer: reverse translateX direction */
+.explorer-sidebar-right-enter {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.explorer-sidebar-right-enter-active {
+  transform: translateX(0);
+  opacity: 1;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.explorer-sidebar-right-exit {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.explorer-sidebar-right-exit-active {
+  transform: translateX(100%);
+  opacity: 0;
+  transition: transform 120ms cubic-bezier(0.5, 0, 0.75, 0),
+              opacity 120ms cubic-bezier(0.5, 0, 0.75, 0);
+}
+
+/* Active panel resize: apply will-change only during drag interaction.
+   JS adds this class on mousedown, removes on mouseup. */
+.panel-resize-active {
+  will-change: transform;
+}
+
+.panel-resize-active * {
+  pointer-events: none; /* Prevent iframe/canvas interference during drag */
+}
+
+/* Dockview sash (the resize handles between groups) */
+.dv-sash {
+  will-change: auto;
+}
+
+.dv-sash:active,
+.dv-sash.active {
+  will-change: transform;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   7. STATUS BAR — COMPOSITOR-ONLY UPDATES
+   Text changes in status bar items should not trigger layout on the
+   bar itself. Each item is sized by flexbox, text truncates.
+   ───────────────────────────────────────────────────────────────────────── */
+.ide-status-bar > div {
+  contain: layout;
+}
+
+/* Status indicator dots: use opacity/color, never size */
+.status-indicator {
+  will-change: auto;
+  transition: color 200ms ease, opacity 200ms ease;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   8. ELECTRON TITLE BAR — STATIC, FULLY CONTAINED
+   ───────────────────────────────────────────────────────────────────────── */
+.app-drag-region {
+  contain: layout style;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   9. SCROLLBAR PERFORMANCE
+   Use thin, dark scrollbars that match the IDE theme.
+   overlay scrollbars don't cause layout shifts.
+   ───────────────────────────────────────────────────────────────────────── */
+.responsive-panel,
+.dv-panel-container,
+[data-dv-panel] {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a35 transparent;
+}
+
+.responsive-panel::-webkit-scrollbar,
+.dv-panel-container::-webkit-scrollbar,
+[data-dv-panel]::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.responsive-panel::-webkit-scrollbar-track,
+.dv-panel-container::-webkit-scrollbar-track,
+[data-dv-panel]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.responsive-panel::-webkit-scrollbar-thumb,
+.dv-panel-container::-webkit-scrollbar-thumb,
+[data-dv-panel]::-webkit-scrollbar-thumb {
+  background: #2a2a35;
+  border-radius: 3px;
+}
+
+.responsive-panel::-webkit-scrollbar-thumb:hover,
+.dv-panel-container::-webkit-scrollbar-thumb:hover,
+[data-dv-panel]::-webkit-scrollbar-thumb:hover {
+  background: #3a3a48;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   10. PREFERS-REDUCED-MOTION
+   Globally disables all animations and transitions when the user has
+   requested reduced motion in their OS settings.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  /* Kill all animations globally */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Specifically disable named animations from globals.css */
+  .animate-flame,
+  .skeleton,
+  .synaptic-box-message,
+  .synaptic-box-message.is-new {
+    animation: none !important;
+  }
+
+  /* Disable explorer sidebar transitions */
+  .explorer-sidebar-enter-active,
+  .explorer-sidebar-exit-active,
+  .explorer-sidebar-right-enter-active,
+  .explorer-sidebar-right-exit-active {
+    transition: none !important;
+  }
+
+  /* Disable glow and pulse effects */
+  .glow-primary,
+  .glow-primary-hover:hover {
+    box-shadow: none !important;
+  }
+
+  .synaptic-box-message:hover {
+    box-shadow:
+      0 0 20px rgba(34, 197, 94, 0.15),
+      0 0 40px rgba(34, 197, 94, 0.08),
+      inset 0 1px 0 rgba(34, 197, 94, 0.1) !important;
+  }
+
+  /* Remove will-change hints — not needed without animations */
+  .panel-resize-active {
+    will-change: auto !important;
+  }
+
+  /* Collapsed placeholder hover — instant, no transition */
+  .collapsed-placeholder {
+    transition: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   11. FORCED-COLORS (HIGH CONTRAST)
+   Ensures IDE chrome borders remain visible in Windows High Contrast mode.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (forced-colors: active) {
+  .dv-sash,
+  [role="separator"] {
+    border-color: ButtonText;
+  }
+
+  .dv-groupview {
+    border: 1px solid ButtonText;
+  }
+}

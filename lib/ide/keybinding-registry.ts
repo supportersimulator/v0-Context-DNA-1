@@ -539,6 +539,14 @@ export const DEFAULT_BINDINGS: KeyBindingDef[] = [
     when: 'commandPaletteVisible',
   },
 
+  // -- AI -------------------------------------------------------------------
+  {
+    id: 'ai.inlineAssistant',
+    key: 'cmd+i',
+    command: 'Inline LLM Assistant',
+    category: 'AI',
+  },
+
   // -- Navigation -------------------------------------------------------------
   {
     id: 'nav.liveView',
@@ -566,6 +574,29 @@ export const DEFAULT_BINDINGS: KeyBindingDef[] = [
     key: 'cmd+4',
     command: 'Professor',
     category: 'Navigation',
+    when: '!inputFocus',
+  },
+
+  // -- Panels ----------------------------------------------------------------
+  {
+    id: 'view.toggleSwarm',
+    key: 'cmd+shift+w',
+    command: 'Open Swarm Panel',
+    category: 'View',
+    when: '!inputFocus',
+  },
+  {
+    id: 'view.toggleHarmonizer',
+    key: 'cmd+shift+h',
+    command: 'Open Harmonizer Panel',
+    category: 'View',
+    when: '!inputFocus',
+  },
+  {
+    id: 'view.toggleEvidence',
+    key: 'cmd+shift+e',
+    command: 'Open Evidence Panel',
+    category: 'View',
     when: '!inputFocus',
   },
 

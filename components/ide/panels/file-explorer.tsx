@@ -12,6 +12,7 @@ import {
   ChevronDown,
   RefreshCw,
 } from 'lucide-react';
+import { getEditorStore } from '@/lib/ide/editor-store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,8 +161,20 @@ export function FileExplorer() {
     loadDir(cwd).then(setTree);
   }, [loadDir]);
 
-  // Toggle directory expand/collapse
+  // Toggle directory expand/collapse — or open file in editor
   const handleToggle = useCallback(async (target: TreeNode) => {
+    // File click → open in editor
+    if (target.isFile) {
+      try {
+        const efs = getElectronFs();
+        const content = efs ? await efs.readFile(target.path) : '';
+        getEditorStore().openFile(target.path, content);
+      } catch {
+        // Fallback: open empty tab
+        getEditorStore().openFile(target.path, '');
+      }
+      return;
+    }
     if (!target.isDirectory) return;
 
     setTree((prev) => {

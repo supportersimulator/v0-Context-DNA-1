@@ -12,6 +12,14 @@ import {
   Terminal,
   Settings,
   Bell,
+  Workflow,
+  Shield,
+  FlaskConical,
+  Code2,
+  Diff,
+  AlertCircle,
+  BookOpen,
+  Clock,
 } from 'lucide-react';
 import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
 
@@ -67,14 +75,29 @@ const TOP_ICONS: ActivityIconDef[] = [
     isExplorerToggle: true,
   },
   {
+    id: 'editor',
+    icon: Code2,
+    label: 'Editor',
+  },
+  {
     id: 'search',
     icon: Search,
     label: 'Search',
   },
   {
-    id: 'activity',
+    id: 'git',
     icon: GitBranch,
-    label: 'Activity',
+    label: 'Source Control',
+  },
+  {
+    id: 'diff',
+    icon: Diff,
+    label: 'Diff Viewer',
+  },
+  {
+    id: 'problems',
+    icon: AlertCircle,
+    label: 'Problems',
   },
   {
     id: 'health',
@@ -90,6 +113,31 @@ const TOP_ICONS: ActivityIconDef[] = [
     id: 'injection',
     icon: Syringe,
     label: 'Injection / Live View',
+  },
+  {
+    id: 'swarm',
+    icon: Workflow,
+    label: 'Swarm Controller',
+  },
+  {
+    id: 'harmonizer',
+    icon: Shield,
+    label: 'Harmonizer',
+  },
+  {
+    id: 'evidence',
+    icon: FlaskConical,
+    label: 'Evidence Pipeline',
+  },
+  {
+    id: 'memory',
+    icon: BookOpen,
+    label: 'Memory Explorer',
+  },
+  {
+    id: 'timeline',
+    icon: Clock,
+    label: 'Session Timeline',
   },
   {
     id: 'terminal',
