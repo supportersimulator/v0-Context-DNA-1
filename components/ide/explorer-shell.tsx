@@ -74,9 +74,13 @@ function saveExplorerPrefs(prefs: ExplorerPrefs) {
 
 export interface ExplorerShellProps {
   children: ReactNode;
+  /** When provided, visibility is controlled externally (e.g. by Activity Bar) */
+  visible?: boolean;
+  /** Called when visibility changes (controlled mode) */
+  onVisibleChange?: (visible: boolean) => void;
 }
 
-export function ExplorerShell({ children }: ExplorerShellProps) {
+export function ExplorerShell({ children, visible: controlledVisible, onVisibleChange }: ExplorerShellProps) {
   const [prefs, setPrefs] = useState<ExplorerPrefs>(DEFAULT_PREFS);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -97,10 +101,21 @@ export function ExplorerShell({ children }: ExplorerShellProps) {
     }
   }, [prefs]);
 
+  // ------ Sync controlled visibility to prefs (for localStorage persistence) ------
+  useEffect(() => {
+    if (controlledVisible !== undefined && initialized.current && prefs.visible !== controlledVisible) {
+      setPrefs((p) => ({ ...p, visible: controlledVisible }));
+    }
+  }, [controlledVisible, prefs.visible]);
+
   // ------ Toggle visibility ------
   const toggleVisible = useCallback(() => {
-    setPrefs((p) => ({ ...p, visible: !p.visible }));
-  }, []);
+    if (controlledVisible !== undefined) {
+      onVisibleChange?.(!controlledVisible);
+    } else {
+      setPrefs((p) => ({ ...p, visible: !p.visible }));
+    }
+  }, [controlledVisible, onVisibleChange]);
 
   // ------ Swap side ------
   const swapSide = useCallback(() => {
@@ -176,8 +191,11 @@ export function ExplorerShell({ children }: ExplorerShellProps) {
     };
   }, [isDragging]);
 
+  // Effective visibility: controlled prop takes precedence over internal prefs
+  const effectiveVisible = controlledVisible !== undefined ? controlledVisible : prefs.visible;
+
   // ------ Render: Explorer hidden → just children ------
-  if (!prefs.visible) {
+  if (!effectiveVisible) {
     return (
       <div ref={containerRef} className="flex flex-col h-full w-full relative">
         {children}

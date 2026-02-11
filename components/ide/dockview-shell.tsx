@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { DockviewReact } from 'dockview-react';
 import type { DockviewReadyEvent, DockviewApi, SerializedDockview } from 'dockview';
 import { useResponsive } from '@/lib/contexts/responsive-context';
@@ -10,6 +10,10 @@ import { RightHeaderActions } from './panel-header';
 import { WorkspaceSlots, type WorkspaceConfig } from './workspace-slots';
 import { MobileLayout } from './mobile-layout';
 import { ExplorerShell } from './explorer-shell';
+import { ActivityBar } from './activity-bar';
+import { StatusBar } from './status-bar';
+import { CommandPalette, useCommandPalette, createDefaultCommands } from './command-palette';
+import { ToastContainer } from './notification-center';
 
 // ---------------------------------------------------------------------------
 // Layout persistence (single layout — DashboardShell handles page switching)
@@ -72,6 +76,22 @@ export function DockviewShell() {
   const { state } = useResponsive();
   const isMobileView = state.isMobile || state.deviceMode === 'electron-mobile';
 
+  // ------- Explorer visibility (lifted for Activity Bar control) -------
+  const [explorerVisible, setExplorerVisible] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const raw = localStorage.getItem('contextdna_explorer_prefs');
+      if (raw) return JSON.parse(raw).visible ?? false;
+    } catch { /* corrupted */ }
+    return false;
+  });
+
+  // ------- Active panel tracking for Activity Bar -------
+  const [activePanelIds, setActivePanelIds] = useState<string[]>(['dashboard-shell']);
+
+  // ------- Command palette -------
+  const { isOpen: cmdPaletteOpen, close: closeCmdPalette } = useCommandPalette();
+
   // ------- Auto-save on layout change -------
   useEffect(() => {
     if (!dockviewApi) return;
@@ -80,6 +100,52 @@ export function DockviewShell() {
     });
     return () => disposable.dispose();
   }, [dockviewApi]);
+
+  // ------- Track active panels for Activity Bar -------
+  useEffect(() => {
+    if (!dockviewApi) return;
+    const update = () => {
+      setActivePanelIds(dockviewApi.panels.map((p) => p.id));
+    };
+    update();
+    const disposable = dockviewApi.onDidLayoutChange(update);
+    return () => disposable.dispose();
+  }, [dockviewApi]);
+
+  // ------- Toggle dockview panel (add/remove) -------
+  const togglePanel = useCallback(
+    (panelId: string) => {
+      if (!dockviewApi) return;
+      const existing = dockviewApi.panels.find((p) => p.id === panelId);
+      if (existing) {
+        if (dockviewApi.panels.length > 1) {
+          dockviewApi.removePanel(existing);
+        }
+      } else {
+        const allMeta = getAllPanelMetadata();
+        dockviewApi.addPanel({
+          id: panelId,
+          component: panelId,
+          title: allMeta[panelId]?.label ?? panelId,
+        });
+      }
+    },
+    [dockviewApi],
+  );
+
+  // ------- Command palette commands -------
+  const commands = useMemo(
+    () =>
+      createDefaultCommands({
+        toggleExplorer: () => setExplorerVisible((v: boolean) => !v),
+        toggleTerminal: () => togglePanel('terminal'),
+        toggleHealth: () => togglePanel('health'),
+        toggleSynapticChat: () => togglePanel('synaptic'),
+        toggleInjection: () => togglePanel('injection'),
+        toggleSearch: () => togglePanel('search'),
+      }),
+    [togglePanel],
+  );
 
   // ------- onReady handler -------
   const handleReady = useCallback((event: DockviewReadyEvent) => {
@@ -168,25 +234,48 @@ export function DockviewShell() {
       )}
 
       {/* ================================================================ */}
-      {/* Explorer Shell + Dockview container                              */}
-      {/* ExplorerShell wraps dockview with an optional file sidebar       */}
-      {/* (left or right, user-configurable, Cmd+B to toggle).            */}
-      {/* When explorer is visible, its inner edge becomes the boundary    */}
-      {/* that dockview panels dock against. Same across all parent pages. */}
+      {/* Main IDE area: Activity Bar + Explorer + Dockview + Status Bar   */}
       {/* ================================================================ */}
-      <div className="flex-1 min-h-0">
-        <ExplorerShell>
-          <div className="h-full w-full dockview-theme-dark">
-            <DockviewReact
-              className="dockview-theme-dark"
-              onReady={handleReady}
-              components={panelComponents}
-              rightHeaderActionsComponent={RightHeaderActions}
-              floatingGroupBounds="boundedWithinViewport"
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 flex flex-row">
+          {/* Activity Bar — outermost left icon strip (Electron only) */}
+          {state.isElectron && (
+            <ActivityBar
+              onToggleExplorer={() => setExplorerVisible((v: boolean) => !v)}
+              explorerVisible={explorerVisible}
+              onTogglePanel={togglePanel}
+              activePanelIds={activePanelIds}
             />
+          )}
+
+          {/* Center: ExplorerShell + DockviewReact */}
+          <div className="flex-1 min-w-0 min-h-0">
+            <ExplorerShell
+              visible={explorerVisible}
+              onVisibleChange={setExplorerVisible}
+            >
+              <div className="h-full w-full dockview-theme-dark">
+                <DockviewReact
+                  className="dockview-theme-dark"
+                  onReady={handleReady}
+                  components={panelComponents}
+                  rightHeaderActionsComponent={RightHeaderActions}
+                  floatingGroupBounds="boundedWithinViewport"
+                />
+              </div>
+            </ExplorerShell>
           </div>
-        </ExplorerShell>
+        </div>
+
+        {/* Status Bar — bottom */}
+        <StatusBar />
       </div>
+
+      {/* Command Palette (overlay) */}
+      <CommandPalette commands={commands} isOpen={cmdPaletteOpen} onClose={closeCmdPalette} />
+
+      {/* Toast notifications (fixed bottom-right) */}
+      <ToastContainer />
     </div>
   );
 }
