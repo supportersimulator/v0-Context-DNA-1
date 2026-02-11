@@ -12,6 +12,7 @@ import { HealthView } from '@/components/dashboard/views/health-view';
 import { ModelsView } from '@/components/dashboard/views/models-view';
 import { InstallWizardView } from '@/components/dashboard/views/install-wizard-view';
 import { SynapticChatView } from '@/components/dashboard/views/synaptic-chat-view';
+import { SynapticSplitView } from '@/components/dashboard/views/synaptic-split-view';
 import { InjectionFocusView } from '@/components/dashboard/views/injection-focus-view';
 import { LearningPanel } from '@/components/dashboard/views/learning-panel';
 import { ArchitecturalAwarenessPanel } from '@/components/dashboard/views/architectural-awareness';
@@ -277,7 +278,7 @@ function InstallPanel(_props: IDockviewPanelProps) {
 function SynapticPanel(_props: IDockviewPanelProps) {
   return (
     <PanelWrapper panelId="synaptic">
-      <SynapticChatView />
+      <SynapticSplitView />
     </PanelWrapper>
   );
 }

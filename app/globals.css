@@ -523,3 +523,15 @@
     display: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Safe area support for mobile notch devices
+   ═══════════════════════════════════════════════════════════════════════════ */
+@supports (padding: max(0px)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}

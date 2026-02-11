@@ -12,7 +12,7 @@ import { HealthView } from './views/health-view';
 import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
 import { InstallWizardView } from './views/install-wizard-view';
-import { SynapticChatView } from './views/synaptic-chat-view';
+import { SynapticSplitView } from './views/synaptic-split-view';
 // Voice is now integrated into SynapticChatView - no separate view needed
 import { WelcomeModal } from './welcome-modal';
 import { VoiceWakeOverlay } from '../auth/voice-wake-overlay';
@@ -258,10 +258,9 @@ export default function DashboardShell() {
       case 'install':
         return <InstallWizardView />;
       case 'synaptic':
-        // Show voice wake overlay if not verified
         return (
           <div className="relative h-full">
-            <SynapticChatView />
+            <SynapticSplitView />
             {voiceVerified === false && (
               <VoiceWakeOverlay
                 onWake={handleVoiceWake}
@@ -387,7 +386,11 @@ export default function DashboardShell() {
           </div>
         ) : (
           // Normal mode: standard view container
-          <div className="max-w-[1400px] mx-auto p-6">
+          <div className={cn(
+            activeTab === 'synaptic' || activeTab === 'injection'
+              ? "h-full"
+              : "max-w-[1400px] mx-auto p-6"
+          )}>
             {renderView()}
           </div>
         )}
