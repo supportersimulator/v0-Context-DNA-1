@@ -54,7 +54,7 @@ export function useRealtimePanels() {
   const wsRef = useRef<WebSocket | null>(null);
   const subscribersRef = useRef<Map<EventChannel, Set<EventCallback>>>(new Map());
   const reconnectCountRef = useRef(0);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Subscribe to a channel — returns unsubscribe function
   const subscribe = useCallback((channel: EventChannel, callback: EventCallback): (() => void) => {

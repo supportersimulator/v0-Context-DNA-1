@@ -35,7 +35,7 @@ interface BadgeData {
 export function useRealtimeBadges(): Record<string, ActivityBadge> {
   const [data, setData] = useState<BadgeData>({});
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // WebSocket connection
   const connectWs = useCallback(() => {

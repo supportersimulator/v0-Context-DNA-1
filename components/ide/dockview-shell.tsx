@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DockviewReact } from 'dockview-react';
 import type { DockviewReadyEvent, DockviewApi, SerializedDockview } from 'dockview';
+import { RotateCcw } from 'lucide-react';
 import { useResponsive } from '@/lib/contexts/responsive-context';
 import { ElectronWindowControls } from '@/components/electron/electron-window-controls';
 import { panelComponents, getAllPanelMetadata } from './panel-factory';
@@ -29,18 +30,39 @@ import { useActiveFile } from '@/lib/ide/editor-store';
 // ---------------------------------------------------------------------------
 const LAYOUT_STORAGE_KEY = 'contextdna_dockview_layout';
 
+// Layout schema version — bump when panel IDs change to invalidate stale layouts
+const LAYOUT_VERSION = 1;
+const LAYOUT_VERSION_KEY = 'contextdna_dockview_layout_v';
+
+/** Envelope wrapping the serialized dockview layout in localStorage. */
+interface LayoutEnvelope {
+  version: number;
+  layout: SerializedDockview;
+  savedAt: number;
+}
+
 function saveLayout(layout: SerializedDockview) {
   try {
-    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+    const envelope: LayoutEnvelope = {
+      version: LAYOUT_VERSION,
+      layout,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(envelope));
     localStorage.setItem(LAYOUT_VERSION_KEY, String(LAYOUT_VERSION));
   } catch {
     /* storage full -- silent */
   }
 }
 
-// Layout schema version — bump when panel IDs change to invalidate stale layouts
-const LAYOUT_VERSION = 1;
-const LAYOUT_VERSION_KEY = 'contextdna_dockview_layout_v';
+function clearSavedLayout() {
+  try {
+    localStorage.removeItem(LAYOUT_STORAGE_KEY);
+    localStorage.removeItem(LAYOUT_VERSION_KEY);
+  } catch {
+    /* silent */
+  }
+}
 
 function loadLayout(): SerializedDockview | null {
   if (typeof window === 'undefined') return null;
@@ -48,16 +70,56 @@ function loadLayout(): SerializedDockview | null {
     const savedVersion = localStorage.getItem(LAYOUT_VERSION_KEY);
     if (savedVersion !== String(LAYOUT_VERSION)) {
       // Schema changed — discard stale layout
-      localStorage.removeItem(LAYOUT_STORAGE_KEY);
+      clearSavedLayout();
       localStorage.setItem(LAYOUT_VERSION_KEY, String(LAYOUT_VERSION));
       return null;
     }
     const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+
+    // Support both envelope format and legacy bare SerializedDockview
+    if (parsed && typeof parsed === 'object' && 'layout' in parsed && 'version' in parsed) {
+      const envelope = parsed as LayoutEnvelope;
+      if (envelope.version !== LAYOUT_VERSION) {
+        clearSavedLayout();
+        return null;
+      }
+      return envelope.layout;
+    }
+
+    // Legacy: bare SerializedDockview stored directly
+    return parsed as SerializedDockview;
   } catch {
     /* corrupted -- ignore */
+    clearSavedLayout();
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Debounce helper — returns [debouncedFn, cancel]
+// ---------------------------------------------------------------------------
+function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  ms: number,
+): [T, () => void] {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const debounced = ((...args: unknown[]) => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, ms);
+  }) as T;
+  const cancel = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+  return [debounced, cancel];
 }
 
 // ---------------------------------------------------------------------------
@@ -154,13 +216,27 @@ export function DockviewShell() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const activeFile = useActiveFile();
 
-  // ------- Auto-save on layout change -------
+  // ------- Debounced auto-save on layout change (300ms) -------
   useEffect(() => {
     if (!dockviewApi) return;
-    const disposable = dockviewApi.onDidLayoutChange(() => {
+    const [debouncedSave, cancelSave] = debounce(() => {
       saveLayout(dockviewApi.toJSON());
+    }, 300);
+    const disposable = dockviewApi.onDidLayoutChange(() => {
+      debouncedSave();
     });
-    return () => disposable.dispose();
+    return () => {
+      cancelSave();
+      disposable.dispose();
+    };
+  }, [dockviewApi]);
+
+  // ------- Reset layout to default -------
+  const resetLayoutToDefault = useCallback(() => {
+    clearSavedLayout();
+    if (dockviewApi) {
+      applyDefaultLayout(dockviewApi);
+    }
   }, [dockviewApi]);
 
   // ------- Track active panels for Activity Bar -------
@@ -226,9 +302,13 @@ export function DockviewShell() {
         toggleLLMOrchestration: () => togglePanel('llm-orchestration'),
         toggleAgents: () => togglePanel('agents'),
         toggleLibrarian: () => togglePanel('librarian'),
+        toggleSettings: () => togglePanel('settings'),
+        toggleNotifications: () => togglePanel('notifications'),
         toggleInlineAssistant: () => setAssistantOpen((v) => !v),
+        saveLayout: () => { if (dockviewApi) saveLayout(dockviewApi.toJSON()); },
+        resetLayout: resetLayoutToDefault,
       }),
-    [togglePanel],
+    [togglePanel, dockviewApi, resetLayoutToDefault],
   );
 
   // ------- Keybinding handlers (wired to keybinding-registry) -------
@@ -335,12 +415,19 @@ export function DockviewShell() {
           {/* Draggable spacer (window dragging) */}
           <div className="flex-1" />
 
-          {/* Workspace slots — right side, subtle numbered buttons */}
+          {/* Workspace slots + reset layout — right side, subtle buttons */}
           <div className="flex items-center px-2 gap-1 no-drag">
             <WorkspaceSlots
               snapshotCurrentState={snapshotCurrentState}
               restoreWorkspace={restoreWorkspace}
             />
+            <button
+              onClick={resetLayoutToDefault}
+              title="Reset layout to default"
+              className="flex items-center justify-center w-5 h-5 rounded text-[#6b6b75] hover:text-[#e5e5e5] hover:bg-[#1a1a24] transition-colors duration-100"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
           </div>
 
           {/* Window controls (right edge) */}
@@ -372,7 +459,7 @@ export function DockviewShell() {
           )}
 
           {/* Center: ExplorerShell + DockviewReact */}
-          <div className="flex-1 min-w-0 min-h-0">
+          <div className="flex-1 min-w-0 min-h-0 relative">
             <ExplorerShell
               visible={explorerVisible}
               onVisibleChange={setExplorerVisible}
@@ -387,6 +474,17 @@ export function DockviewShell() {
                 />
               </div>
             </ExplorerShell>
+
+            {/* Reset Layout button — web mode (Electron has it in title bar) */}
+            {!state.isElectron && (
+              <button
+                onClick={resetLayoutToDefault}
+                title="Reset layout to default (Ctrl+Shift+P → Reset Layout)"
+                className="absolute top-1 right-1 z-30 flex items-center justify-center w-6 h-6 rounded opacity-30 hover:opacity-100 text-[#6b6b75] hover:text-[#e5e5e5] hover:bg-[#1a1a24]/80 transition-all duration-150"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            )}
           </div>
         </div>
 

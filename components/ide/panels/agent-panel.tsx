@@ -290,7 +290,7 @@ export function AgentPanel() {
                 <span className="text-[#e5e5e5] truncate flex-1">{s.task}</span>
                 <span className="text-[9px] px-1 rounded bg-[#1a1a24] text-[#6b6b75]">{s.model}</span>
                 {s.injectionActive && (
-                  <Syringe className="w-3 h-3 text-[#22c55e]" title="Context DNA injection active" />
+                  <Syringe className="w-3 h-3 text-[#22c55e]" />
                 )}
                 <span className="text-[#6b6b75]">{timeAgo(s.startedAt)}</span>
               </div>

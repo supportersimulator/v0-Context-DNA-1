@@ -46,6 +46,8 @@ import {
   Scale,
   Bot,
   Library,
+  Settings,
+  Bell,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -205,6 +207,8 @@ export function createDefaultCommands(actions: {
   toggleLLMOrchestration?: () => void;
   toggleAgents?: () => void;
   toggleLibrarian?: () => void;
+  toggleSettings?: () => void;
+  toggleNotifications?: () => void;
 }): Command[] {
   const noop = () => {};
   return [
@@ -407,6 +411,20 @@ export function createDefaultCommands(actions: {
       category: 'View',
       icon: <Library className="w-4 h-4" />,
       action: actions.toggleLibrarian ?? noop,
+    },
+    {
+      id: 'view:toggle-settings',
+      label: 'Toggle Settings',
+      category: 'View',
+      icon: <Settings className="w-4 h-4" />,
+      action: actions.toggleSettings ?? noop,
+    },
+    {
+      id: 'view:toggle-notifications',
+      label: 'Toggle Notifications',
+      category: 'View',
+      icon: <Bell className="w-4 h-4" />,
+      action: actions.toggleNotifications ?? noop,
     },
     {
       id: 'ai:inline-assistant',

@@ -213,7 +213,7 @@ const TOP_ICONS: ActivityIconDef[] = [
 
 const BOTTOM_ICONS: ActivityIconDef[] = [
   {
-    id: 'install',
+    id: 'settings',
     icon: Settings,
     label: 'Settings / Install Wizard',
   },
@@ -335,9 +335,6 @@ export function ActivityBar({
     (def: ActivityIconDef) => {
       if (def.isExplorerToggle) {
         onToggleExplorer();
-      } else if (def.id === 'notifications') {
-        // Placeholder — will connect to notification system
-        // For now, no-op (notifications panel not yet implemented)
       } else {
         onTogglePanel(def.id);
       }

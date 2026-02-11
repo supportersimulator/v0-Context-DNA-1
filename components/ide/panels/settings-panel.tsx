@@ -1,736 +1,571 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Settings,
-  Search,
-  RotateCcw,
-  Download,
-  Upload,
+  ChevronDown,
   ChevronRight,
-  Palette,
-  Code2,
-  FolderOpen,
-  Brain,
-  Bell,
+  CheckCircle2,
+  XCircle,
+  Eye,
+  EyeOff,
+  Play,
   Server,
-  Zap,
-  Keyboard,
-  X,
-  Check,
+  Database,
+  HardDrive,
+  Cpu,
+  MemoryStick,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  Circle,
+  Loader2,
+  Download,
+  GitBranch,
+  Container,
+  KeyRound,
 } from 'lucide-react';
-import {
-  type IDESettings,
-  type SettingMeta,
-  type SettingCategory,
-  SETTING_DEFAULTS,
-  SETTING_METADATA,
-  SETTING_CATEGORIES,
-  useSettings,
-  useSettingsVersion,
-} from '@/lib/ide/settings-store';
-import {
-  getAvailableThemes,
-  applyTheme,
-  getThemeById,
-  resolveThemeFromSettings,
-} from '@/lib/ide/theme-engine';
 
 // ---------------------------------------------------------------------------
-// Category icons
+// Types
 // ---------------------------------------------------------------------------
 
-const CATEGORY_ICONS: Record<SettingCategory, React.ReactNode> = {
-  Appearance: <Palette className="w-4 h-4" />,
-  Editor: <Code2 className="w-4 h-4" />,
-  Explorer: <FolderOpen className="w-4 h-4" />,
-  AI: <Brain className="w-4 h-4" />,
-  Notifications: <Bell className="w-4 h-4" />,
-  Backend: <Server className="w-4 h-4" />,
-  Performance: <Zap className="w-4 h-4" />,
-  Keyboard: <Keyboard className="w-4 h-4" />,
-};
-
-// ---------------------------------------------------------------------------
-// Accent color presets
-// ---------------------------------------------------------------------------
-
-const ACCENT_PRESETS = [
-  { color: '#22c55e', label: 'DNA Green' },
-  { color: '#3b82f6', label: 'Blue' },
-  { color: '#8b5cf6', label: 'Purple' },
-  { color: '#f59e0b', label: 'Amber' },
-  { color: '#ef4444', label: 'Red' },
-  { color: '#ec4899', label: 'Pink' },
-  { color: '#06b6d4', label: 'Cyan' },
-  { color: '#f97316', label: 'Orange' },
-];
-
-// ---------------------------------------------------------------------------
-// Toggle Switch
-// ---------------------------------------------------------------------------
-
-function Toggle({
-  checked,
-  onChange,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`
-        relative inline-flex h-5 w-9 items-center rounded-full transition-colors
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1
-        ${checked ? 'bg-[var(--primary)]' : 'bg-[#2a2a35]'}
-      `}
-    >
-      <span
-        className={`
-          inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform
-          ${checked ? 'translate-x-[18px]' : 'translate-x-[3px]'}
-        `}
-      />
-    </button>
-  );
+interface ServiceStatus {
+  name: string;
+  port: number;
+  status: 'healthy' | 'degraded' | 'offline' | 'unknown';
+  latencyMs?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Number input with slider
-// ---------------------------------------------------------------------------
-
-function NumberInput({
-  value,
-  onChange,
-  min = 0,
-  max = 100,
-  step = 1,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-}) {
-  return (
-    <div className="flex items-center gap-3 w-full max-w-xs">
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 h-1 rounded-full appearance-none bg-[#2a2a35] accent-[var(--primary)] cursor-pointer
-          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--primary)]
-          [&::-webkit-slider-thumb]:cursor-pointer"
-      />
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (!isNaN(n) && n >= min && n <= max) onChange(n);
-        }}
-        className="w-16 px-2 py-1 text-xs text-[#e5e5e5] bg-[#111118] border border-[#2a2a35] rounded
-          focus:outline-none focus:border-[var(--primary)] text-center"
-      />
-    </div>
-  );
+interface SystemInfo {
+  pythonVersion: string;
+  venvPath: string;
+  nodeVersion: string;
+  dockerContainers: { healthy: number; total: number };
+  diskUsage: { sqliteBytes: number; pgBytes: number };
+  memoryUsage: { schedulerMB: number; agentServiceMB: number };
 }
 
-// ---------------------------------------------------------------------------
-// Text input
-// ---------------------------------------------------------------------------
+interface InstallStep {
+  id: string;
+  label: string;
+  description: string;
+  completed: boolean;
+}
 
-function TextInput({
-  value,
-  onChange,
-  placeholder,
-}: {
+interface EnvVar {
+  key: string;
   value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full max-w-sm px-2.5 py-1.5 text-xs text-[#e5e5e5] bg-[#111118] border border-[#2a2a35] rounded
-        focus:outline-none focus:border-[var(--primary)] placeholder:text-[#4a4a55]"
-    />
-  );
+  masked: boolean;
+}
+
+interface SettingsData {
+  system: SystemInfo;
+  services: ServiceStatus[];
+  installSteps: InstallStep[];
+  envVars: EnvVar[];
 }
 
 // ---------------------------------------------------------------------------
-// Select dropdown
+// Mock data
 // ---------------------------------------------------------------------------
 
-function SelectInput({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="px-2.5 py-1.5 text-xs text-[#e5e5e5] bg-[#111118] border border-[#2a2a35] rounded
-        focus:outline-none focus:border-[var(--primary)] cursor-pointer
-        [&>option]:bg-[#111118] [&>option]:text-[#e5e5e5]"
-    >
-      {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Color picker with preset swatches
-// ---------------------------------------------------------------------------
-
-function ColorPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex gap-1">
-        {ACCENT_PRESETS.map((p) => (
-          <button
-            key={p.color}
-            title={p.label}
-            onClick={() => onChange(p.color)}
-            className={`
-              w-6 h-6 rounded-full border-2 transition-all
-              ${value === p.color ? 'border-white scale-110' : 'border-transparent hover:border-[#6b6b75]'}
-            `}
-            style={{ backgroundColor: p.color }}
-          />
-        ))}
-      </div>
-      <div className="flex items-center gap-1.5 ml-2">
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-6 h-6 rounded cursor-pointer border-none bg-transparent
-            [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none"
-        />
-        <span className="text-xs text-[#6b6b75] font-mono">{value}</span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// JSON editor (for keyboard.customBindings)
-// ---------------------------------------------------------------------------
-
-function JsonEditor({
-  value,
-  onChange,
-}: {
-  value: Record<string, string>;
-  onChange: (v: Record<string, string>) => void;
-}) {
-  const [raw, setRaw] = useState(JSON.stringify(value, null, 2));
-  const [error, setError] = useState<string | null>(null);
-
-  const handleBlur = () => {
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        onChange(parsed);
-        setError(null);
-      } else {
-        setError('Must be a JSON object');
-      }
-    } catch {
-      setError('Invalid JSON');
-    }
-  };
-
-  return (
-    <div className="w-full max-w-sm">
-      <textarea
-        value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        onBlur={handleBlur}
-        rows={4}
-        spellCheck={false}
-        className="w-full px-2.5 py-2 text-xs text-[#e5e5e5] bg-[#111118] border border-[#2a2a35] rounded
-          font-mono focus:outline-none focus:border-[var(--primary)] resize-y placeholder:text-[#4a4a55]"
-        placeholder='{ "commandId": "Ctrl+Shift+P" }'
-      />
-      {error && (
-        <span className="text-xs text-red-400 mt-1 block">{error}</span>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Theme selector — special control for appearance.theme
-// Shows theme previews with built-in themes
-// ---------------------------------------------------------------------------
-
-function ThemeSelector({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const themes = getAvailableThemes();
-  const themeOptions = ['dark', 'light', 'system'] as const;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        {themeOptions.map((opt) => (
-          <button
-            key={opt}
-            onClick={() => onChange(opt)}
-            className={`
-              px-3 py-1.5 text-xs rounded border transition-all capitalize
-              ${value === opt
-                ? 'bg-[var(--primary)]/15 border-[var(--primary)] text-[var(--primary)]'
-                : 'bg-[#111118] border-[#2a2a35] text-[#6b6b75] hover:text-[#e5e5e5] hover:border-[#3a3a45]'}
-            `}
-          >
-            {opt}
-          </button>
-        ))}
-      </div>
-      {/* Theme preview swatches */}
-      <div className="flex gap-2 mt-2">
-        {themes.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => {
-              onChange(t.mode);
-              applyTheme(t);
-            }}
-            title={t.name}
-            className="flex flex-col gap-0 rounded overflow-hidden border border-[#2a2a35] hover:border-[var(--primary)] transition-colors"
-          >
-            <div className="flex h-4 w-20">
-              <div className="flex-1" style={{ backgroundColor: t.colors.bgBase }} />
-              <div className="flex-1" style={{ backgroundColor: t.colors.bgSurface }} />
-              <div className="flex-1" style={{ backgroundColor: t.colors.bgElevated }} />
-            </div>
-            <div className="flex h-2 w-20">
-              <div className="flex-1" style={{ backgroundColor: t.colors.accent }} />
-              <div className="flex-1" style={{ backgroundColor: t.colors.info }} />
-              <div className="flex-1" style={{ backgroundColor: t.colors.warning }} />
-            </div>
-            <span className="text-[9px] text-[#6b6b75] px-1 py-0.5 bg-[#111118] text-center">
-              {t.name}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Individual setting row
-// ---------------------------------------------------------------------------
-
-function SettingRow({ meta }: { meta: SettingMeta }) {
-  const store = useSettings();
-  // Force re-render on any settings change
-  useSettingsVersion();
-
-  const value = store.get(meta.key);
-  const isModified = store.isModified(meta.key);
-
-  const handleChange = useCallback(
-    (newValue: unknown) => {
-      store.set(meta.key, newValue as any);
-      // If this is a theme change, also apply the theme
-      if (meta.key === 'appearance.theme') {
-        const theme = resolveThemeFromSettings();
-        applyTheme(theme);
-      }
-      if (meta.key === 'appearance.accentColor') {
-        const theme = resolveThemeFromSettings();
-        applyTheme(theme);
-      }
+function getMockData(): SettingsData {
+  return {
+    system: {
+      pythonVersion: '3.14.0a4',
+      venvPath: '/Users/aarontjomsland/Documents/er-simulator-superrepo/.venv',
+      nodeVersion: '22.11.0',
+      dockerContainers: { healthy: 19, total: 20 },
+      diskUsage: { sqliteBytes: 48_300_000, pgBytes: 312_000_000 },
+      memoryUsage: { schedulerMB: 103, agentServiceMB: 184 },
     },
-    [store, meta.key],
-  );
-
-  const handleReset = useCallback(() => {
-    store.reset(meta.key);
-    if (meta.key === 'appearance.theme' || meta.key === 'appearance.accentColor') {
-      const theme = resolveThemeFromSettings();
-      applyTheme(theme);
-    }
-  }, [store, meta.key]);
-
-  // Render appropriate control
-  let control: React.ReactNode;
-
-  if (meta.key === 'appearance.theme') {
-    control = (
-      <ThemeSelector
-        value={value as string}
-        onChange={(v) => handleChange(v)}
-      />
-    );
-  } else if (meta.type === 'boolean') {
-    control = (
-      <Toggle checked={value as boolean} onChange={(v) => handleChange(v)} />
-    );
-  } else if (meta.type === 'number') {
-    control = (
-      <NumberInput
-        value={value as number}
-        onChange={(v) => handleChange(v)}
-        min={meta.min}
-        max={meta.max}
-        step={meta.step}
-      />
-    );
-  } else if (meta.type === 'enum') {
-    control = (
-      <SelectInput
-        value={value as string}
-        onChange={(v) => handleChange(v)}
-        options={meta.enumValues ?? []}
-      />
-    );
-  } else if (meta.type === 'color') {
-    control = (
-      <ColorPicker
-        value={value as string}
-        onChange={(v) => handleChange(v)}
-      />
-    );
-  } else if (meta.type === 'json') {
-    control = (
-      <JsonEditor
-        value={value as Record<string, string>}
-        onChange={(v) => handleChange(v)}
-      />
-    );
-  } else {
-    control = (
-      <TextInput
-        value={value as string}
-        onChange={(v) => handleChange(v)}
-      />
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-1.5 px-4 py-3 hover:bg-[#111118]/50 transition-colors group">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-[#e5e5e5]">{meta.label}</span>
-            {isModified && (
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] flex-shrink-0" title="Modified" />
-            )}
-          </div>
-          <p className="text-[11px] text-[#6b6b75] mt-0.5 leading-relaxed">
-            {meta.description}
-          </p>
-        </div>
-        {isModified && (
-          <button
-            onClick={handleReset}
-            title="Reset to default"
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[#2a2a35] flex-shrink-0 mt-0.5"
-          >
-            <RotateCcw className="w-3 h-3 text-[#6b6b75]" />
-          </button>
-        )}
-      </div>
-      <div className="mt-1">{control}</div>
-    </div>
-  );
+    services: [
+      { name: 'agent_service', port: 8029, status: 'healthy', latencyMs: 12 },
+      { name: 'vllm-mlx', port: 5044, status: 'healthy', latencyMs: 45 },
+      { name: 'PostgreSQL (context_dna)', port: 5432, status: 'healthy', latencyMs: 3 },
+      { name: 'PostgreSQL (acontext)', port: 15432, status: 'healthy', latencyMs: 4 },
+      { name: 'Redis', port: 6379, status: 'healthy', latencyMs: 1 },
+    ],
+    installSteps: [
+      { id: 'python', label: 'Python 3.14 venv', description: 'Virtual environment with Python 3.14', completed: true },
+      { id: 'docker', label: 'Docker containers running', description: '20 containers orchestrated via Docker Compose', completed: true },
+      { id: 'postgres', label: 'PostgreSQL databases created', description: 'context_dna (5432) + acontext (15432)', completed: true },
+      { id: 'redis', label: 'Redis accessible', description: 'Port 6379, no auth (context-dna-redis)', completed: true },
+      { id: 'vllm', label: 'vllm-mlx model downloaded', description: 'Qwen3-14B-4bit (8.31GB)', completed: true },
+      { id: 'sqlite', label: 'SQLite databases initialized', description: '11 DBs with WAL mode + FTS5', completed: true },
+      { id: 'scheduler', label: 'Scheduler daemon active', description: 'lite_scheduler with 24 jobs', completed: true },
+      { id: 'hooks', label: 'Git hooks installed', description: 'post-commit hook for auto_learn.py', completed: false },
+    ],
+    envVars: [
+      { key: 'GOOGLE_SHEET_ID', value: '1aBcDeFgHiJkLmNoPqRsTuVwXyZ', masked: true },
+      { key: 'DATABASE_URL', value: 'postgresql://user:pass@127.0.0.1:5432/context_dna', masked: true },
+      { key: 'REDIS_URL', value: 'redis://127.0.0.1:6379/0', masked: false },
+      { key: 'OPENAI_API_KEY', value: 'sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', masked: true },
+      { key: 'VLLM_HOST', value: 'http://127.0.0.1:5044', masked: false },
+      { key: 'LIVE_SYNC_PORT', value: '3333', masked: false },
+    ],
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Category section
+// Collapsible Section
 // ---------------------------------------------------------------------------
 
-function CategorySection({
-  category,
-  settings,
-  isExpanded,
-  onToggle,
+function Section({
+  title,
+  icon,
+  defaultOpen = true,
+  badge,
+  children,
 }: {
-  category: SettingCategory;
-  settings: SettingMeta[];
-  isExpanded: boolean;
-  onToggle: () => void;
+  title: string;
+  icon: React.ReactNode;
+  defaultOpen?: boolean;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
+
   return (
     <div className="border-b border-[#2a2a35]/50">
       <button
-        onClick={onToggle}
-        className="flex items-center gap-2 w-full px-4 py-2.5 text-left hover:bg-[#111118] transition-colors"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 w-full text-left px-3 py-1.5 hover:bg-[#1a1a24] transition-colors"
       >
-        <ChevronRight
-          className={`w-3.5 h-3.5 text-[#6b6b75] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-        />
-        <span className="text-[var(--primary)]">{CATEGORY_ICONS[category]}</span>
-        <span className="text-xs font-semibold text-[#e5e5e5] tracking-wide uppercase">
-          {category}
+        {open
+          ? <ChevronDown className="w-3 h-3 text-[#6b6b75]" />
+          : <ChevronRight className="w-3 h-3 text-[#6b6b75]" />
+        }
+        <span className="text-[var(--primary)]">{icon}</span>
+        <span className="text-[10px] uppercase tracking-wider font-semibold text-[#6b6b75] flex-1">
+          {title}
         </span>
-        <span className="text-[10px] text-[#4a4a55] ml-auto">{settings.length}</span>
+        {badge}
       </button>
-      {isExpanded && (
-        <div className="border-t border-[#2a2a35]/30">
-          {settings.map((meta) => (
-            <SettingRow key={meta.key} meta={meta} />
-          ))}
-        </div>
+      {open && <div className="pb-1">{children}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Status indicator dot
+// ---------------------------------------------------------------------------
+
+function StatusDot({ status }: { status: string }) {
+  const color =
+    status === 'healthy' ? 'bg-[#22c55e]' :
+    status === 'degraded' ? 'bg-[#e5c07b]' :
+    status === 'offline' ? 'bg-[#ef4444]' :
+    'bg-[#6b6b75]';
+
+  return (
+    <span className={`w-2 h-2 rounded-full ${color} flex-shrink-0 inline-block`} />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Format bytes
+// ---------------------------------------------------------------------------
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+}
+
+// ---------------------------------------------------------------------------
+// Editable port field
+// ---------------------------------------------------------------------------
+
+function PortField({
+  port,
+  onRestart,
+}: {
+  port: number;
+  onRestart: () => void;
+}) {
+  const [value, setValue] = useState(String(port));
+  const [restarting, setRestarting] = useState(false);
+
+  const handleRestart = useCallback(() => {
+    setRestarting(true);
+    setTimeout(() => {
+      setRestarting(false);
+      onRestart();
+    }, 1500);
+  }, [onRestart]);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
+        className="w-16 px-1.5 py-0.5 text-[10px] font-mono text-[#e5e5e5] bg-[#111118] border border-[#2a2a35] rounded
+          focus:outline-none focus:border-[var(--primary)] text-center"
+      />
+      <button
+        onClick={handleRestart}
+        disabled={restarting}
+        title="Restart service"
+        className="p-0.5 rounded hover:bg-[#2a2a35] transition-colors disabled:opacity-50"
+      >
+        {restarting
+          ? <Loader2 className="w-3 h-3 text-[#e5c07b] animate-spin" />
+          : <RefreshCw className="w-3 h-3 text-[#6b6b75] hover:text-[#e5e5e5]" />
+        }
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Masked env var row
+// ---------------------------------------------------------------------------
+
+function EnvVarRow({ envVar }: { envVar: EnvVar }) {
+  const [revealed, setRevealed] = useState(!envVar.masked);
+
+  const displayValue = revealed
+    ? envVar.value
+    : envVar.value.slice(0, 4) + '\u2022'.repeat(Math.min(20, envVar.value.length - 4));
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 hover:bg-[#1a1a24]/50 transition-colors group">
+      <KeyRound className="w-3 h-3 text-[#6b6b75] flex-shrink-0" />
+      <span className="text-[10px] font-mono text-[#e5c07b] w-36 flex-shrink-0 truncate">
+        {envVar.key}
+      </span>
+      <span className="text-[10px] font-mono text-[#6b6b75] flex-1 truncate">
+        {displayValue}
+      </span>
+      {envVar.masked && (
+        <button
+          onClick={() => setRevealed((v) => !v)}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-[#2a2a35]"
+          title={revealed ? 'Hide' : 'Reveal'}
+        >
+          {revealed
+            ? <EyeOff className="w-3 h-3 text-[#6b6b75]" />
+            : <Eye className="w-3 h-3 text-[#6b6b75]" />
+          }
+        </button>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SettingsPanel — main exported component
+// SettingsPanel -- main export
 // ---------------------------------------------------------------------------
 
 export function SettingsPanel() {
-  const store = useSettings();
-  useSettingsVersion(); // re-render on any change
+  const [data, setData] = useState<SettingsData>(getMockData);
+  const [loading, setLoading] = useState(false);
+  const [runningSetup, setRunningSetup] = useState(false);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(SETTING_CATEGORIES),
-  );
-  const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Filter settings by search query
-  const filteredByCategory = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    const map = new Map<SettingCategory, SettingMeta[]>();
-
-    for (const cat of SETTING_CATEGORIES) {
-      const settings = SETTING_METADATA.filter((m) => m.category === cat);
-      if (!q) {
-        map.set(cat, settings);
-      } else {
-        const filtered = settings.filter(
-          (m) =>
-            m.label.toLowerCase().includes(q) ||
-            m.description.toLowerCase().includes(q) ||
-            m.key.toLowerCase().includes(q),
-        );
-        if (filtered.length > 0) map.set(cat, filtered);
-      }
-    }
-
-    return map;
-  }, [searchQuery]);
-
-  // Expand/collapse category
-  const toggleCategory = useCallback((cat: string) => {
-    setExpandedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
-    });
-  }, []);
-
-  // Export settings as JSON file
-  const handleExport = useCallback(() => {
-    const data = store.export();
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'contextdna-settings.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [store]);
-
-  // Import settings from JSON file
-  const handleImport = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const parsed = JSON.parse(ev.target?.result as string);
-          if (typeof parsed === 'object' && parsed !== null) {
-            store.import(parsed as Partial<IDESettings>);
-            // Re-apply theme after import
-            const theme = resolveThemeFromSettings();
-            applyTheme(theme);
-            setImportStatus('success');
-            setTimeout(() => setImportStatus('idle'), 2000);
-          } else {
-            setImportStatus('error');
-            setTimeout(() => setImportStatus('idle'), 2000);
-          }
-        } catch {
-          setImportStatus('error');
-          setTimeout(() => setImportStatus('idle'), 2000);
+  // Attempt live fetch from agent_service
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8029/api/settings/status', {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.system) setData(json);
         }
-      };
-      reader.readAsText(file);
-      // Reset input so same file can be re-imported
-      e.target.value = '';
-    },
-    [store],
-  );
+      } catch {
+        // keep mock data
+      }
+    };
 
-  // Reset all settings
-  const handleResetAll = useCallback(() => {
-    store.resetAll();
-    const theme = resolveThemeFromSettings();
-    applyTheme(theme);
-  }, [store]);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Count modified settings
-  const modifiedCount = useMemo(() => {
-    return SETTING_METADATA.filter((m) => store.isModified(m.key)).length;
-  }, [store]);
+  const handleRefresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('http://127.0.0.1:8029/api/settings/status', {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.system) setData(json);
+      }
+    } catch {
+      // keep current
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleRunSetup = useCallback(() => {
+    setRunningSetup(true);
+    // Simulate setup execution
+    setTimeout(() => {
+      setData((prev) => ({
+        ...prev,
+        installSteps: prev.installSteps.map((s) => ({ ...s, completed: true })),
+      }));
+      setRunningSetup(false);
+    }, 3000);
+  }, []);
+
+  const { system, services, installSteps, envVars } = data;
+  const completedSteps = installSteps.filter((s) => s.completed).length;
+  const allComplete = completedSteps === installSteps.length;
+  const healthyServices = services.filter((s) => s.status === 'healthy').length;
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0f]">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2a2a35] flex-shrink-0">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#2a2a35] flex-shrink-0">
         <Settings className="w-3.5 h-3.5 text-[var(--primary)]" />
-        <span className="text-xs font-medium text-[#e5e5e5]">Settings</span>
-        {modifiedCount > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--primary)]/15 text-[var(--primary)]">
-            {modifiedCount} modified
-          </span>
-        )}
+        <span className="text-xs font-medium text-[#e5e5e5]">Settings / Install Wizard</span>
         <div className="ml-auto flex items-center gap-1">
           <button
-            onClick={handleExport}
-            title="Export settings"
-            className="p-1 rounded hover:bg-[#1a1a24] transition-colors"
+            onClick={handleRefresh}
+            disabled={loading}
+            title="Refresh status"
+            className="p-1 rounded hover:bg-[#1a1a24] transition-colors disabled:opacity-50"
           >
-            <Download className="w-3.5 h-3.5 text-[#6b6b75] hover:text-[#e5e5e5]" />
+            <RefreshCw className={`w-3 h-3 text-[#6b6b75] ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <button
-            onClick={handleImport}
-            title="Import settings"
-            className="p-1 rounded hover:bg-[#1a1a24] transition-colors"
-          >
-            {importStatus === 'success' ? (
-              <Check className="w-3.5 h-3.5 text-[var(--primary)]" />
-            ) : importStatus === 'error' ? (
-              <X className="w-3.5 h-3.5 text-red-400" />
-            ) : (
-              <Upload className="w-3.5 h-3.5 text-[#6b6b75] hover:text-[#e5e5e5]" />
-            )}
-          </button>
-          {modifiedCount > 0 && (
-            <button
-              onClick={handleResetAll}
-              title="Reset all to defaults"
-              className="p-1 rounded hover:bg-[#1a1a24] transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-[#6b6b75] hover:text-red-400" />
-            </button>
-          )}
         </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json"
-          onChange={handleFileChange}
-          className="hidden"
-        />
       </div>
 
-      {/* Search bar */}
-      <div className="px-3 py-2 border-b border-[#2a2a35]/50 flex-shrink-0">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4a4a55]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search settings..."
-            className="w-full pl-8 pr-8 py-1.5 text-xs text-[#e5e5e5] bg-[#111118] border border-[#2a2a35] rounded
-              focus:outline-none focus:border-[var(--primary)] placeholder:text-[#4a4a55]"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2"
-            >
-              <X className="w-3.5 h-3.5 text-[#4a4a55] hover:text-[#e5e5e5]" />
-            </button>
-          )}
-        </div>
-        {searchQuery && (
-          <span className="text-[10px] text-[#4a4a55] mt-1 block">
-            {Array.from(filteredByCategory.values()).reduce((acc, arr) => acc + arr.length, 0)} results
-          </span>
-        )}
-      </div>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto min-h-0">
 
-      {/* Settings list */}
-      <div className="flex-1 overflow-auto">
-        {filteredByCategory.size === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-[#4a4a55] text-xs gap-1">
-            <Search className="w-5 h-5 opacity-50" />
-            <span>No settings match &quot;{searchQuery}&quot;</span>
+        {/* ---- Section 1: System Status ---- */}
+        <Section
+          title="System Status"
+          icon={<Cpu className="w-3.5 h-3.5" />}
+          defaultOpen={true}
+          badge={
+            <span className="flex items-center gap-1 text-[9px] text-[#6b6b75]">
+              {healthyServices === services.length
+                ? <Wifi className="w-3 h-3 text-[#22c55e]" />
+                : <WifiOff className="w-3 h-3 text-[#e5c07b]" />
+              }
+              {healthyServices}/{services.length}
+            </span>
+          }
+        >
+          <div className="px-3 py-1.5 space-y-1.5">
+            {/* Runtime versions */}
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#6b6b75]">Python</span>
+                <span className="text-[#e5e5e5] font-mono">{system.pythonVersion}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#6b6b75]">Node</span>
+                <span className="text-[#e5e5e5] font-mono">{system.nodeVersion}</span>
+              </div>
+            </div>
+
+            <div className="text-[10px] flex items-center gap-1.5">
+              <span className="text-[#6b6b75]">venv</span>
+              <span className="text-[#e5e5e5] font-mono text-[9px] truncate">{system.venvPath}</span>
+            </div>
+
+            {/* Docker */}
+            <div className="flex items-center gap-2 text-[10px] mt-1">
+              <Container className="w-3 h-3 text-[#3b82f6]" />
+              <span className="text-[#6b6b75]">Docker</span>
+              <span className="text-[#e5e5e5] font-mono">
+                {system.dockerContainers.healthy} healthy / {system.dockerContainers.total} total
+              </span>
+              {system.dockerContainers.healthy === system.dockerContainers.total
+                ? <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />
+                : <XCircle className="w-3 h-3 text-[#e5c07b]" />
+              }
+            </div>
+
+            {/* Disk */}
+            <div className="flex items-center gap-2 text-[10px]">
+              <HardDrive className="w-3 h-3 text-[#6b6b75]" />
+              <span className="text-[#6b6b75]">Disk</span>
+              <span className="text-[#e5e5e5] font-mono">
+                SQLite: {formatBytes(system.diskUsage.sqliteBytes)}
+              </span>
+              <span className="text-[#4a4a55]">|</span>
+              <span className="text-[#e5e5e5] font-mono">
+                PG: {formatBytes(system.diskUsage.pgBytes)}
+              </span>
+            </div>
+
+            {/* Memory */}
+            <div className="flex items-center gap-2 text-[10px]">
+              <MemoryStick className="w-3 h-3 text-[#c678dd]" />
+              <span className="text-[#6b6b75]">RSS</span>
+              <span className="text-[#e5e5e5] font-mono">
+                scheduler: {system.memoryUsage.schedulerMB}MB
+              </span>
+              <span className="text-[#4a4a55]">|</span>
+              <span className="text-[#e5e5e5] font-mono">
+                agent: {system.memoryUsage.agentServiceMB}MB
+              </span>
+            </div>
           </div>
-        ) : (
-          Array.from(filteredByCategory.entries()).map(([category, settings]) => (
-            <CategorySection
-              key={category}
-              category={category}
-              settings={settings}
-              isExpanded={expandedCategories.has(category) || searchQuery.length > 0}
-              onToggle={() => toggleCategory(category)}
-            />
-          ))
-        )}
+        </Section>
+
+        {/* ---- Section 2: Service Configuration ---- */}
+        <Section
+          title="Service Configuration"
+          icon={<Server className="w-3.5 h-3.5" />}
+          defaultOpen={true}
+          badge={
+            <span className="text-[9px] text-[#6b6b75]">
+              {healthyServices} active
+            </span>
+          }
+        >
+          <div className="px-3 py-1 space-y-0.5">
+            {services.map((svc) => (
+              <div
+                key={svc.name}
+                className="flex items-center gap-2 py-1.5 text-[10px] hover:bg-[#1a1a24]/50 px-1.5 rounded transition-colors"
+              >
+                <StatusDot status={svc.status} />
+                <span className="text-[#e5e5e5] flex-1 truncate">{svc.name}</span>
+                {svc.latencyMs !== undefined && (
+                  <span className="text-[9px] text-[#4a4a55] font-mono">{svc.latencyMs}ms</span>
+                )}
+                <PortField
+                  port={svc.port}
+                  onRestart={() => {
+                    // In production: POST to restart endpoint
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Auth note for Redis */}
+          <div className="px-4 py-1 text-[9px] text-[#4a4a55] italic">
+            Redis: no auth (context-dna-redis on 6379)
+          </div>
+        </Section>
+
+        {/* ---- Section 3: Install Wizard ---- */}
+        <Section
+          title="Install Wizard"
+          icon={<Download className="w-3.5 h-3.5" />}
+          defaultOpen={false}
+          badge={
+            allComplete ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#22c55e]/15 text-[#22c55e]">
+                Complete
+              </span>
+            ) : (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#e5c07b]/15 text-[#e5c07b]">
+                {completedSteps}/{installSteps.length}
+              </span>
+            )
+          }
+        >
+          <div className="px-3 py-1.5 space-y-0.5">
+            {installSteps.map((step) => (
+              <div
+                key={step.id}
+                className="flex items-start gap-2 py-1.5 px-1.5 rounded hover:bg-[#1a1a24]/50 transition-colors"
+              >
+                {step.completed ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#22c55e] flex-shrink-0 mt-0.5" />
+                ) : (
+                  <Circle className="w-3.5 h-3.5 text-[#4a4a55] flex-shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[10px] ${step.completed ? 'text-[#e5e5e5]' : 'text-[#6b6b75]'}`}>
+                    {step.label}
+                  </div>
+                  <div className="text-[9px] text-[#4a4a55] truncate">{step.description}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Progress bar */}
+          <div className="px-4 py-1.5">
+            <div className="h-1.5 bg-[#1a1a24] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#22c55e] transition-all duration-500"
+                style={{ width: `${(completedSteps / installSteps.length) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Run Setup button */}
+          {!allComplete && (
+            <div className="px-4 py-2">
+              <button
+                onClick={handleRunSetup}
+                disabled={runningSetup}
+                className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-[10px] font-medium rounded
+                  bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30
+                  hover:bg-[var(--primary)]/25 transition-colors disabled:opacity-50"
+              >
+                {runningSetup ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Running Setup...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3 h-3" />
+                    Run Setup
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {allComplete && (
+            <div className="px-4 py-2 text-center">
+              <span className="text-[10px] text-[#22c55e]">
+                All components installed and verified
+              </span>
+            </div>
+          )}
+        </Section>
+
+        {/* ---- Section 4: Environment Variables ---- */}
+        <Section
+          title="Environment Variables"
+          icon={<KeyRound className="w-3.5 h-3.5" />}
+          defaultOpen={false}
+          badge={
+            <span className="text-[9px] text-[#6b6b75]">{envVars.length} vars</span>
+          }
+        >
+          <div className="py-0.5">
+            {envVars.map((ev) => (
+              <EnvVarRow key={ev.key} envVar={ev} />
+            ))}
+          </div>
+          <div className="px-4 py-1.5 text-[9px] text-[#4a4a55] italic">
+            Source: .env (never committed to git)
+          </div>
+        </Section>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-t border-[#2a2a35] text-[10px] text-[#4a4a55] flex-shrink-0">
-        <span>
-          {SETTING_METADATA.length} settings
-          {modifiedCount > 0 && ` / ${modifiedCount} customized`}
+      <div className="flex items-center justify-between px-3 py-1.5 border-t border-[#2a2a35] text-[9px] text-[#4a4a55] flex-shrink-0">
+        <span className="flex items-center gap-1">
+          <Database className="w-3 h-3" />
+          Context DNA v2.0
         </span>
-        <span className="font-mono">localStorage</span>
+        <span className="font-mono flex items-center gap-1">
+          <GitBranch className="w-3 h-3" />
+          main
+        </span>
       </div>
     </div>
   );

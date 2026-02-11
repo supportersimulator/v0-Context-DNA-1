@@ -45,6 +45,10 @@ import { EpistemicPanel } from '@/components/ide/panels/epistemic-panel';
 import { LLMOrchestrationPanel } from '@/components/ide/panels/llm-orchestration-panel';
 import { AgentPanel } from '@/components/ide/panels/agent-panel';
 import { LibrarianPanel } from '@/components/ide/panels/librarian-panel';
+import { SwarmControllerPanel } from '@/components/ide/panels/swarm-controller-panel';
+import { TodayLearningsPanel } from '@/components/ide/panels/today-learnings-panel';
+import { SettingsPanel } from '@/components/ide/panels/settings-panel';
+import { NotificationsPanel } from '@/components/ide/panels/notifications-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -335,6 +339,34 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+  },
+  'swarm-controller': {
+    label: 'Swarm Controller',
+    description: 'Cost tracking, harmonizer gate, and per-agent resource meters',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 150,
+  },
+  'today-learnings': {
+    label: 'Today\'s Learnings',
+    description: 'Learnings feed with domain tags, evidence status, and confidence',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  settings: {
+    label: 'Settings',
+    description: 'System configuration, service status, and install wizard',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 280,
+    minHeight: 200,
+  },
+  notifications: {
+    label: 'Notifications',
+    description: 'Alerts, event feed, and action items',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 150,
   },
 };
 
@@ -692,6 +724,38 @@ function LibrarianPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function SwarmControllerPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="swarm-controller">
+      <SwarmControllerPanel />
+    </PanelWrapper>
+  );
+}
+
+function TodayLearningsPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="today-learnings">
+      <TodayLearningsPanel />
+    </PanelWrapper>
+  );
+}
+
+function SettingsPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="settings">
+      <SettingsPanel />
+    </PanelWrapper>
+  );
+}
+
+function NotificationsPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="notifications">
+      <NotificationsPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -740,6 +804,10 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'llm-orchestration': LLMOrchestrationPanelView,
   agents: AgentPanelView,
   librarian: LibrarianPanelView,
+  'swarm-controller': SwarmControllerPanelView,
+  'today-learnings': TodayLearningsPanelView,
+  settings: SettingsPanelView,
+  notifications: NotificationsPanelView,
 };
 
 /**
