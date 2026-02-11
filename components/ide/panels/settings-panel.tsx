@@ -24,6 +24,19 @@ import {
   GitBranch,
   Container,
   KeyRound,
+  Monitor,
+  Laptop,
+  Smartphone,
+  Shield,
+  Fingerprint,
+  FolderTree,
+  Code2,
+  Layers,
+  HeartPulse,
+  Unplug,
+  Globe,
+  Lock,
+  UserCheck,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +59,48 @@ interface SystemInfo {
   memoryUsage: { schedulerMB: number; agentServiceMB: number };
 }
 
+interface PlatformInfo {
+  os: string;
+  osVersion: string;
+  arch: string;
+  chip: string;
+  ramGB: number;
+  gpuAvailable: boolean;
+  gpuType: string;
+  recommendedBackend: string;
+  recommendedModel: string;
+  estimatedVRAM: string;
+}
+
+interface HierarchyProfile {
+  repoType: string;
+  projectName: string;
+  services: { name: string; path: string; type: string }[];
+  submodules: string[];
+  activeIDE: string;
+  trackedPaths: string[];
+  profilePath: string;
+}
+
+interface DeviceInfo {
+  deviceId: string;
+  hardwareFingerprint: string;
+  publicKeyBound: boolean;
+  subscriptionStatus: 'active' | 'trial' | 'expired' | 'none';
+  subscriptionPlan: string;
+  linkedDevices: { name: string; type: 'desktop' | 'mobile' | 'tablet'; lastSeen: number; current: boolean }[];
+  crossDeviceEnabled: boolean;
+}
+
+interface RecoveryStatus {
+  agentLoaded: boolean;
+  lastRun: number;
+  lastResult: 'ok' | 'recovered' | 'failed' | 'never';
+  dockerAutoRestart: boolean;
+  servicesMonitored: number;
+  plistPath: string;
+}
+
 interface InstallStep {
   id: string;
   label: string;
@@ -61,6 +116,10 @@ interface EnvVar {
 
 interface SettingsData {
   system: SystemInfo;
+  platform: PlatformInfo;
+  hierarchy: HierarchyProfile;
+  device: DeviceInfo;
+  recovery: RecoveryStatus;
   services: ServiceStatus[];
   installSteps: InstallStep[];
   envVars: EnvVar[];
@@ -79,6 +138,52 @@ function getMockData(): SettingsData {
       dockerContainers: { healthy: 19, total: 20 },
       diskUsage: { sqliteBytes: 48_300_000, pgBytes: 312_000_000 },
       memoryUsage: { schedulerMB: 103, agentServiceMB: 184 },
+    },
+    platform: {
+      os: 'macOS',
+      osVersion: 'Sequoia 15.5',
+      arch: 'arm64',
+      chip: 'Apple M4 Max',
+      ramGB: 64,
+      gpuAvailable: true,
+      gpuType: 'Metal (40-core GPU)',
+      recommendedBackend: 'MLX',
+      recommendedModel: 'Qwen3-14B-4bit',
+      estimatedVRAM: '~8.3GB',
+    },
+    hierarchy: {
+      repoType: 'submodule-monorepo',
+      projectName: 'er-simulator-superrepo',
+      services: [
+        { name: 'backend', path: 'backend', type: 'django' },
+        { name: 'context_dna', path: 'context-dna', type: 'python' },
+        { name: 'memory', path: 'memory', type: 'python' },
+        { name: 'infra', path: 'infra', type: 'terraform' },
+      ],
+      submodules: ['landing-page', 'sim-frontend', 'admin.ersimulator.com', 'admin.contextdna.io'],
+      activeIDE: 'Cursor',
+      trackedPaths: ['backend/', 'context-dna/', 'memory/'],
+      profilePath: '~/.context-dna/hierarchy_profile.json',
+    },
+    device: {
+      deviceId: 'cdna-a1b2c3d4',
+      hardwareFingerprint: 'sha256:e4f8...9c21',
+      publicKeyBound: true,
+      subscriptionStatus: 'active',
+      subscriptionPlan: 'Pro (Lifetime)',
+      linkedDevices: [
+        { name: 'MacBook Pro', type: 'desktop', lastSeen: Date.now(), current: true },
+        { name: 'iPhone 16 Pro', type: 'mobile', lastSeen: Date.now() - 3600000, current: false },
+      ],
+      crossDeviceEnabled: true,
+    },
+    recovery: {
+      agentLoaded: true,
+      lastRun: Date.now() - 1800000,
+      lastResult: 'ok',
+      dockerAutoRestart: true,
+      servicesMonitored: 20,
+      plistPath: '~/Library/LaunchAgents/com.contextdna.recovery.plist',
     },
     services: [
       { name: 'agent_service', port: 8029, status: 'healthy', latencyMs: 12 },
@@ -176,6 +281,32 @@ function formatBytes(bytes: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Time ago helper
+// ---------------------------------------------------------------------------
+
+function timeAgo(ms: number): string {
+  if (ms === 0) return 'never';
+  const sec = Math.floor((Date.now() - ms) / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Info row (reusable key-value)
+// ---------------------------------------------------------------------------
+
+function InfoRow({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[10px]">
+      <span className="text-[#6b6b75] min-w-[60px]">{label}</span>
+      <span className={`text-[#e5e5e5] ${mono ? 'font-mono' : ''} truncate`}>{value}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Editable port field
 // ---------------------------------------------------------------------------
 
@@ -209,7 +340,6 @@ function PortField({
       <button
         onClick={handleRestart}
         disabled={restarting}
-        title="Restart service"
         className="p-0.5 rounded hover:bg-[#2a2a35] transition-colors disabled:opacity-50"
       >
         {restarting
@@ -245,7 +375,6 @@ function EnvVarRow({ envVar }: { envVar: EnvVar }) {
         <button
           onClick={() => setRevealed((v) => !v)}
           className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-[#2a2a35]"
-          title={revealed ? 'Hide' : 'Reveal'}
         >
           {revealed
             ? <EyeOff className="w-3 h-3 text-[#6b6b75]" />
@@ -255,6 +384,18 @@ function EnvVarRow({ envVar }: { envVar: EnvVar }) {
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Device icon helper
+// ---------------------------------------------------------------------------
+
+function DeviceIcon({ type }: { type: 'desktop' | 'mobile' | 'tablet' }) {
+  switch (type) {
+    case 'desktop': return <Laptop className="w-3 h-3 text-[#3b82f6]" />;
+    case 'mobile': return <Smartphone className="w-3 h-3 text-[#22c55e]" />;
+    case 'tablet': return <Monitor className="w-3 h-3 text-[#c678dd]" />;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +447,6 @@ export function SettingsPanel() {
 
   const handleRunSetup = useCallback(() => {
     setRunningSetup(true);
-    // Simulate setup execution
     setTimeout(() => {
       setData((prev) => ({
         ...prev,
@@ -316,7 +456,7 @@ export function SettingsPanel() {
     }, 3000);
   }, []);
 
-  const { system, services, installSteps, envVars } = data;
+  const { system, platform, hierarchy, device, recovery, services, installSteps, envVars } = data;
   const completedSteps = installSteps.filter((s) => s.completed).length;
   const allComplete = completedSteps === installSteps.length;
   const healthyServices = services.filter((s) => s.status === 'healthy').length;
@@ -331,7 +471,6 @@ export function SettingsPanel() {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            title="Refresh status"
             className="p-1 rounded hover:bg-[#1a1a24] transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 text-[#6b6b75] ${loading ? 'animate-spin' : ''}`} />
@@ -342,10 +481,52 @@ export function SettingsPanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto min-h-0">
 
-        {/* ---- Section 1: System Status ---- */}
+        {/* ---- Section: Platform & Hardware ---- */}
+        <Section
+          title="Platform & Hardware"
+          icon={<Cpu className="w-3.5 h-3.5" />}
+          defaultOpen={true}
+          badge={
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#3b82f6]/15 text-[#3b82f6]">
+              {platform.arch}
+            </span>
+          }
+        >
+          <div className="px-3 py-1.5 space-y-1">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <InfoRow label="OS" value={`${platform.os} ${platform.osVersion}`} />
+              <InfoRow label="Arch" value={platform.arch} />
+              <InfoRow label="Chip" value={platform.chip} />
+              <InfoRow label="RAM" value={`${platform.ramGB}GB`} />
+            </div>
+
+            {/* GPU */}
+            <div className="flex items-center gap-2 text-[10px] mt-1.5 pt-1.5 border-t border-[#2a2a35]/30">
+              {platform.gpuAvailable ? (
+                <CheckCircle2 className="w-3 h-3 text-[#22c55e] flex-shrink-0" />
+              ) : (
+                <XCircle className="w-3 h-3 text-[#ef4444] flex-shrink-0" />
+              )}
+              <span className="text-[#6b6b75]">GPU</span>
+              <span className="text-[#e5e5e5] font-mono text-[9px]">{platform.gpuType}</span>
+            </div>
+
+            {/* Recommended config */}
+            <div className="mt-1.5 pt-1.5 border-t border-[#2a2a35]/30 space-y-0.5">
+              <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1">Recommended</div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <InfoRow label="Backend" value={platform.recommendedBackend} />
+                <InfoRow label="VRAM" value={platform.estimatedVRAM} />
+              </div>
+              <InfoRow label="Model" value={platform.recommendedModel} />
+            </div>
+          </div>
+        </Section>
+
+        {/* ---- Section: System Status ---- */}
         <Section
           title="System Status"
-          icon={<Cpu className="w-3.5 h-3.5" />}
+          icon={<Server className="w-3.5 h-3.5" />}
           defaultOpen={true}
           badge={
             <span className="flex items-center gap-1 text-[9px] text-[#6b6b75]">
@@ -416,11 +597,11 @@ export function SettingsPanel() {
           </div>
         </Section>
 
-        {/* ---- Section 2: Service Configuration ---- */}
+        {/* ---- Section: Service Configuration ---- */}
         <Section
           title="Service Configuration"
-          icon={<Server className="w-3.5 h-3.5" />}
-          defaultOpen={true}
+          icon={<Unplug className="w-3.5 h-3.5" />}
+          defaultOpen={false}
           badge={
             <span className="text-[9px] text-[#6b6b75]">
               {healthyServices} active
@@ -454,7 +635,233 @@ export function SettingsPanel() {
           </div>
         </Section>
 
-        {/* ---- Section 3: Install Wizard ---- */}
+        {/* ---- Section: Hierarchy Profile ---- */}
+        <Section
+          title="Hierarchy Profile"
+          icon={<FolderTree className="w-3.5 h-3.5" />}
+          defaultOpen={false}
+          badge={
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#c678dd]/15 text-[#c678dd]">
+              {hierarchy.repoType}
+            </span>
+          }
+        >
+          <div className="px-3 py-1.5 space-y-2">
+            {/* Project info */}
+            <div className="space-y-0.5">
+              <InfoRow label="Project" value={hierarchy.projectName} mono={false} />
+              <InfoRow label="Type" value={hierarchy.repoType} />
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#6b6b75] min-w-[60px]">IDE</span>
+                <Code2 className="w-3 h-3 text-[#3b82f6]" />
+                <span className="text-[#e5e5e5]">{hierarchy.activeIDE}</span>
+              </div>
+            </div>
+
+            {/* Services */}
+            <div className="pt-1.5 border-t border-[#2a2a35]/30">
+              <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1">Detected Services</div>
+              <div className="space-y-0.5">
+                {hierarchy.services.map((svc) => (
+                  <div key={svc.name} className="flex items-center gap-2 text-[10px] py-0.5 px-1 rounded hover:bg-[#1a1a24]/50">
+                    <Layers className="w-3 h-3 text-[#6b6b75]" />
+                    <span className="text-[#e5e5e5] flex-1">{svc.name}</span>
+                    <span className="text-[9px] font-mono text-[#4a4a55]">{svc.path}/</span>
+                    <span className="text-[9px] px-1 rounded bg-[#1a1a24] text-[#6b6b75]">{svc.type}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Submodules */}
+            <div className="pt-1.5 border-t border-[#2a2a35]/30">
+              <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1">
+                Submodules ({hierarchy.submodules.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {hierarchy.submodules.map((sm) => (
+                  <span key={sm} className="text-[9px] px-1.5 py-0.5 rounded bg-[#1a1a24] text-[#6b6b75] font-mono">
+                    {sm}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Profile path */}
+            <div className="pt-1 text-[9px] text-[#4a4a55] italic font-mono truncate">
+              {hierarchy.profilePath}
+            </div>
+          </div>
+        </Section>
+
+        {/* ---- Section: Subscription & Device ---- */}
+        <Section
+          title="Subscription & Device"
+          icon={<Shield className="w-3.5 h-3.5" />}
+          defaultOpen={false}
+          badge={
+            device.subscriptionStatus === 'active' ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#22c55e]/15 text-[#22c55e]">
+                {device.subscriptionPlan}
+              </span>
+            ) : device.subscriptionStatus === 'trial' ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#e5c07b]/15 text-[#e5c07b]">
+                Trial
+              </span>
+            ) : (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#ef4444]/15 text-[#ef4444]">
+                Inactive
+              </span>
+            )
+          }
+        >
+          <div className="px-3 py-1.5 space-y-2">
+            {/* Device identity */}
+            <div className="space-y-0.5">
+              <InfoRow label="Device ID" value={device.deviceId} />
+              <InfoRow label="Fingerprint" value={device.hardwareFingerprint} />
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#6b6b75] min-w-[60px]">Key Bound</span>
+                {device.publicKeyBound ? (
+                  <>
+                    <Lock className="w-3 h-3 text-[#22c55e]" />
+                    <span className="text-[#22c55e]">X25519 bound</span>
+                  </>
+                ) : (
+                  <>
+                    <Fingerprint className="w-3 h-3 text-[#e5c07b]" />
+                    <span className="text-[#e5c07b]">Unbound</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Linked devices */}
+            <div className="pt-1.5 border-t border-[#2a2a35]/30">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-[9px] text-[#6b6b75] uppercase tracking-wider flex-1">
+                  Linked Devices ({device.linkedDevices.length})
+                </span>
+                {device.crossDeviceEnabled && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#3b82f6]/15 text-[#3b82f6] flex items-center gap-1">
+                    <Globe className="w-2.5 h-2.5" />
+                    Cross-Device
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1">
+                {device.linkedDevices.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-[#1a1a24]/50 text-[10px]">
+                    <DeviceIcon type={d.type} />
+                    <span className={`flex-1 ${d.current ? 'text-[#e5e5e5]' : 'text-[#6b6b75]'}`}>
+                      {d.name}
+                    </span>
+                    {d.current && (
+                      <span className="text-[9px] px-1 rounded bg-[#22c55e]/15 text-[#22c55e]">current</span>
+                    )}
+                    <span className="text-[9px] text-[#4a4a55]">{timeAgo(d.lastSeen)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Cross-device features */}
+            <div className="pt-1.5 border-t border-[#2a2a35]/30">
+              <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1">Cross-Device Features</div>
+              <div className="grid grid-cols-2 gap-1">
+                {[
+                  { label: 'Voice Mode', enabled: device.crossDeviceEnabled },
+                  { label: 'LLM Chat', enabled: device.crossDeviceEnabled },
+                  { label: 'Doc Upload', enabled: device.crossDeviceEnabled },
+                  { label: 'Text Orchestration', enabled: device.crossDeviceEnabled },
+                ].map((feat) => (
+                  <div key={feat.label} className="flex items-center gap-1 text-[10px]">
+                    {feat.enabled ? (
+                      <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />
+                    ) : (
+                      <Circle className="w-3 h-3 text-[#4a4a55]" />
+                    )}
+                    <span className={feat.enabled ? 'text-[#e5e5e5]' : 'text-[#4a4a55]'}>
+                      {feat.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Security note */}
+            <div className="px-1 py-1 text-[9px] text-[#4a4a55] italic">
+              4-layer security: Device ID + HW Fingerprint + X25519 + Ed25519
+            </div>
+          </div>
+        </Section>
+
+        {/* ---- Section: Recovery Agent ---- */}
+        <Section
+          title="Recovery Agent"
+          icon={<HeartPulse className="w-3.5 h-3.5" />}
+          defaultOpen={false}
+          badge={
+            recovery.agentLoaded ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#22c55e]/15 text-[#22c55e]">
+                Active
+              </span>
+            ) : (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#ef4444]/15 text-[#ef4444]">
+                Inactive
+              </span>
+            )
+          }
+        >
+          <div className="px-3 py-1.5 space-y-1.5">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#6b6b75] min-w-[60px]">Status</span>
+                {recovery.agentLoaded ? (
+                  <>
+                    <UserCheck className="w-3 h-3 text-[#22c55e]" />
+                    <span className="text-[#22c55e]">Loaded (launchd)</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-3 h-3 text-[#ef4444]" />
+                    <span className="text-[#ef4444]">Not loaded</span>
+                  </>
+                )}
+              </div>
+              <InfoRow label="Last Run" value={timeAgo(recovery.lastRun)} />
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#6b6b75] min-w-[60px]">Result</span>
+                <span className={`font-mono ${
+                  recovery.lastResult === 'ok' ? 'text-[#22c55e]' :
+                  recovery.lastResult === 'recovered' ? 'text-[#e5c07b]' :
+                  recovery.lastResult === 'failed' ? 'text-[#ef4444]' :
+                  'text-[#6b6b75]'
+                }`}>
+                  {recovery.lastResult}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-1.5 border-t border-[#2a2a35]/30 space-y-0.5">
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#6b6b75] min-w-[60px]">Docker</span>
+                {recovery.dockerAutoRestart ? (
+                  <span className="text-[#22c55e]">Auto-restart enabled</span>
+                ) : (
+                  <span className="text-[#6b6b75]">Manual only</span>
+                )}
+              </div>
+              <InfoRow label="Monitored" value={`${recovery.servicesMonitored} services`} />
+            </div>
+
+            <div className="pt-1 text-[9px] text-[#4a4a55] italic font-mono truncate">
+              {recovery.plistPath}
+            </div>
+          </div>
+        </Section>
+
+        {/* ---- Section: Install Wizard ---- */}
         <Section
           title="Install Wizard"
           icon={<Download className="w-3.5 h-3.5" />}
@@ -536,7 +943,7 @@ export function SettingsPanel() {
           )}
         </Section>
 
-        {/* ---- Section 4: Environment Variables ---- */}
+        {/* ---- Section: Environment Variables ---- */}
         <Section
           title="Environment Variables"
           icon={<KeyRound className="w-3.5 h-3.5" />}
