@@ -42,6 +42,10 @@ import {
   Puzzle,
   Users,
   Map,
+  ArrowLeftRight,
+  Scale,
+  Bot,
+  Library,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -194,6 +198,13 @@ export function createDefaultCommands(actions: {
   toggleExtensions?: () => void;
   toggleCollaboration?: () => void;
   toggleMinimap?: () => void;
+  toggleContextBus?: () => void;
+  toggleSync?: () => void;
+  toggleInjectionViewer?: () => void;
+  toggleEpistemic?: () => void;
+  toggleLLMOrchestration?: () => void;
+  toggleAgents?: () => void;
+  toggleLibrarian?: () => void;
 }): Command[] {
   const noop = () => {};
   return [
@@ -347,6 +358,55 @@ export function createDefaultCommands(actions: {
       category: 'View',
       icon: <Map className="w-4 h-4" />,
       action: actions.toggleMinimap ?? noop,
+    },
+    {
+      id: 'view:toggle-context-bus',
+      label: 'Toggle ContextBus Panel',
+      category: 'View',
+      icon: <Radio className="w-4 h-4" />,
+      action: actions.toggleContextBus ?? noop,
+    },
+    {
+      id: 'view:toggle-sync',
+      label: 'Toggle Bidirectional Sync',
+      category: 'View',
+      icon: <ArrowLeftRight className="w-4 h-4" />,
+      action: actions.toggleSync ?? noop,
+    },
+    {
+      id: 'view:toggle-injection-viewer',
+      label: 'Toggle Injection Viewer (9-Section)',
+      category: 'View',
+      icon: <Eye className="w-4 h-4" />,
+      action: actions.toggleInjectionViewer ?? noop,
+    },
+    {
+      id: 'view:toggle-epistemic',
+      label: 'Toggle Epistemic Sustainability',
+      category: 'View',
+      icon: <Scale className="w-4 h-4" />,
+      action: actions.toggleEpistemic ?? noop,
+    },
+    {
+      id: 'view:toggle-llm-orchestration',
+      label: 'Toggle LLM Orchestration',
+      category: 'View',
+      icon: <Cpu className="w-4 h-4" />,
+      action: actions.toggleLLMOrchestration ?? noop,
+    },
+    {
+      id: 'view:toggle-agents',
+      label: 'Toggle Agent Tasks',
+      category: 'View',
+      icon: <Bot className="w-4 h-4" />,
+      action: actions.toggleAgents ?? noop,
+    },
+    {
+      id: 'view:toggle-librarian',
+      label: 'Toggle Repo Librarian',
+      category: 'View',
+      icon: <Library className="w-4 h-4" />,
+      action: actions.toggleLibrarian ?? noop,
     },
     {
       id: 'ai:inline-assistant',

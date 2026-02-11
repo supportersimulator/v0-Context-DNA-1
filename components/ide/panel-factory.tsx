@@ -38,6 +38,13 @@ import { DebugPanel } from '@/components/ide/panels/debug-panel';
 import { ExtensionsPanel } from '@/components/ide/panels/extensions-panel';
 import { CollaborationPanel } from '@/components/ide/panels/collaboration-panel';
 import { MinimapPanel } from '@/components/ide/panels/minimap-panel';
+import { ContextBusPanel } from '@/components/ide/panels/context-bus-panel';
+import { SyncPanel } from '@/components/ide/panels/sync-panel';
+import { InjectionViewerPanel } from '@/components/ide/panels/injection-viewer-panel';
+import { EpistemicPanel } from '@/components/ide/panels/epistemic-panel';
+import { LLMOrchestrationPanel } from '@/components/ide/panels/llm-orchestration-panel';
+import { AgentPanel } from '@/components/ide/panels/agent-panel';
+import { LibrarianPanel } from '@/components/ide/panels/librarian-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -279,6 +286,55 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 200,
+  },
+  'context-bus': {
+    label: 'ContextBus',
+    description: 'Lite/Heavy mode toggle and bus status',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  sync: {
+    label: 'Sync',
+    description: 'Bidirectional SQLite/PG/Redis sync dashboard',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  'injection-viewer': {
+    label: 'Injection Viewer',
+    description: '9-section webhook injection live viewer',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 150,
+  },
+  epistemic: {
+    label: 'Epistemic',
+    description: 'Evidence pipeline and epistemic sustainability',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 150,
+  },
+  'llm-orchestration': {
+    label: 'LLM',
+    description: 'Local LLM orchestration (vllm-mlx + Qwen3)',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  agents: {
+    label: 'Agents',
+    description: 'Claude Code-style agent task submission',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 150,
+  },
+  librarian: {
+    label: 'Librarian',
+    description: 'Repo librarian with 8-intent query system',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
   },
 };
 
@@ -580,6 +636,62 @@ function MinimapPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function ContextBusPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="context-bus">
+      <ContextBusPanel />
+    </PanelWrapper>
+  );
+}
+
+function SyncPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="sync">
+      <SyncPanel />
+    </PanelWrapper>
+  );
+}
+
+function InjectionViewerPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="injection-viewer">
+      <InjectionViewerPanel />
+    </PanelWrapper>
+  );
+}
+
+function EpistemicPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="epistemic">
+      <EpistemicPanel />
+    </PanelWrapper>
+  );
+}
+
+function LLMOrchestrationPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="llm-orchestration">
+      <LLMOrchestrationPanel />
+    </PanelWrapper>
+  );
+}
+
+function AgentPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="agents">
+      <AgentPanel />
+    </PanelWrapper>
+  );
+}
+
+function LibrarianPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="librarian">
+      <LibrarianPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -620,6 +732,14 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   extensions: ExtensionsPanelView,
   collaboration: CollaborationPanelView,
   minimap: MinimapPanelView,
+  // Context DNA deep panels (Phase 10)
+  'context-bus': ContextBusPanelView,
+  sync: SyncPanelView,
+  'injection-viewer': InjectionViewerPanelView,
+  epistemic: EpistemicPanelView,
+  'llm-orchestration': LLMOrchestrationPanelView,
+  agents: AgentPanelView,
+  librarian: LibrarianPanelView,
 };
 
 /**

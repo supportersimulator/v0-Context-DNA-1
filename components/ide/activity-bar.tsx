@@ -23,6 +23,13 @@ import {
   Puzzle,
   Users,
   Map,
+  Radio,
+  ArrowLeftRight,
+  Eye,
+  Scale,
+  Cpu,
+  Bot,
+  Library,
 } from 'lucide-react';
 import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
 
@@ -166,6 +173,41 @@ const TOP_ICONS: ActivityIconDef[] = [
     id: 'minimap',
     icon: Map,
     label: 'Minimap',
+  },
+  {
+    id: 'context-bus',
+    icon: Radio,
+    label: 'ContextBus',
+  },
+  {
+    id: 'sync',
+    icon: ArrowLeftRight,
+    label: 'Bidirectional Sync',
+  },
+  {
+    id: 'injection-viewer',
+    icon: Eye,
+    label: 'Injection Viewer',
+  },
+  {
+    id: 'epistemic',
+    icon: Scale,
+    label: 'Epistemic Sustainability',
+  },
+  {
+    id: 'llm-orchestration',
+    icon: Cpu,
+    label: 'LLM Orchestration',
+  },
+  {
+    id: 'agents',
+    icon: Bot,
+    label: 'Agent Tasks',
+  },
+  {
+    id: 'librarian',
+    icon: Library,
+    label: 'Repo Librarian',
   },
 ];
 
