@@ -8,16 +8,43 @@ import { RecentActivity } from '../recent-activity';
 import { RecordModal } from '../record-modal';
 import { WinsChart } from '../wins-chart';
 import { Button } from '@/components/ui/button';
+import {
+  ConfigBenchmarkWidget,
+  type LLMStatus,
+  type BenchmarkResult,
+} from './config-benchmark-widget';
+import { BenchmarkConsentModal } from './benchmark-consent-modal';
+import { IntegrationsModal } from './integrations-modal';
 
 type RecordType = 'win' | 'fix' | 'pattern';
 
+// ---------------------------------------------------------------------------
+// Placeholder data — will be replaced by live API / SWR queries
+// ---------------------------------------------------------------------------
+
+const PLACEHOLDER_LLM: LLMStatus = {
+  modelName: 'Qwen3-14B-4bit',
+  online: true,
+  tokensPerSecond: 35.1,
+  ttft: 0.24,
+};
+
+const PLACEHOLDER_BENCHMARK: BenchmarkResult = {
+  suiteName: 'coding-14B',
+  date: new Date().toISOString(),
+  metrics: { tokensPerSecond: 35.1, ttft: 0.24, ramUsageGB: 5.8 },
+  shared: false,
+};
+
 export function HomeView() {
   const [modalType, setModalType] = useState<RecordType | null>(null);
-  
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [showIntegrationsModal, setShowIntegrationsModal] = useState(false);
+
   const { data: stats, isLoading: statsLoading, mutate: mutateStats } = useSWR('stats', fetchStats, {
     refreshInterval: 30000,
   });
-  
+
   const { data: recentData, isLoading: recentLoading, mutate: mutateRecent } = useSWR('recent', () => fetchRecent(5), {
     refreshInterval: 30000,
   });
@@ -29,6 +56,15 @@ export function HomeView() {
 
   return (
     <div className="space-y-8">
+      {/* Config Benchmark Widget — LLM status + quick actions */}
+      <ConfigBenchmarkWidget
+        llmStatus={PLACEHOLDER_LLM}
+        lastBenchmark={PLACEHOLDER_BENCHMARK}
+        onCompareConfigs={() => setShowConsentModal(true)}
+        onOpenIntegrations={() => setShowIntegrationsModal(true)}
+        onRunBenchmark={() => console.log('[Home] Run benchmark clicked')}
+      />
+
       {/* Primary Stats Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statsLoading ? (
@@ -155,6 +191,22 @@ export function HomeView() {
           onSuccess={handleRecordSuccess}
         />
       )}
+
+      {/* Benchmark Consent Modal */}
+      <BenchmarkConsentModal
+        isOpen={showConsentModal}
+        onClose={() => setShowConsentModal(false)}
+        onConsent={(username) => {
+          console.log('[Home] Benchmark consent granted:', username);
+          setShowConsentModal(false);
+        }}
+      />
+
+      {/* Integrations Modal */}
+      <IntegrationsModal
+        isOpen={showIntegrationsModal}
+        onClose={() => setShowIntegrationsModal(false)}
+      />
     </div>
   );
 }

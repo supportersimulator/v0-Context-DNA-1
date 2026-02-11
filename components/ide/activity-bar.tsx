@@ -30,6 +30,11 @@ import {
   Cpu,
   Bot,
   Library,
+  GitCompare,
+  Plug,
+  Trophy,
+  Package,
+  Activity,
 } from 'lucide-react';
 import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
 
@@ -208,6 +213,31 @@ const TOP_ICONS: ActivityIconDef[] = [
     id: 'librarian',
     icon: Library,
     label: 'Repo Librarian',
+  },
+  {
+    id: 'benchmark-consent',
+    icon: GitCompare,
+    label: 'Compare Configs',
+  },
+  {
+    id: 'integrations',
+    icon: Plug,
+    label: 'Integrations',
+  },
+  {
+    id: 'leaderboard',
+    icon: Trophy,
+    label: 'Leaderboard',
+  },
+  {
+    id: 'config-packs',
+    icon: Package,
+    label: 'Config Packs',
+  },
+  {
+    id: 'bottleneck',
+    icon: Activity,
+    label: 'Bottleneck Analysis',
   },
 ];
 

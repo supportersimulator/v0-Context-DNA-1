@@ -106,10 +106,57 @@ function loadMessages(): ChatMessage[] {
 
 function saveMessages(msgs: ChatMessage[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs.slice(-MAX_STORED)));
+    // Filter out empty assistant placeholders before persisting
+    const toSave = msgs.filter(m => m.content.trim() !== '');
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave.slice(-MAX_STORED)));
   } catch {
     // quota exceeded — silently skip
   }
+}
+
+// =============================================================================
+// Anthropic API Message Sanitization
+// =============================================================================
+
+/**
+ * Sanitize messages array for the Anthropic Messages API.
+ *
+ * Requirements enforced:
+ *  1. No empty content — messages with blank content are dropped.
+ *  2. Roles limited to 'user' | 'assistant' — anything else is dropped.
+ *  3. Strict alternation — consecutive same-role messages are merged.
+ *  4. First message must be role 'user' — leading assistant messages are dropped.
+ */
+function sanitizeMessagesForAPI(
+  raw: { role: string; content: string }[]
+): { role: 'user' | 'assistant'; content: string }[] {
+  // Step 1: Drop empty content and non-user/assistant roles
+  const filtered = raw.filter(
+    (m) =>
+      m.content.trim() !== '' &&
+      (m.role === 'user' || m.role === 'assistant')
+  ) as { role: 'user' | 'assistant'; content: string }[];
+
+  // Step 2: Drop leading assistant messages (first must be 'user')
+  let start = 0;
+  while (start < filtered.length && filtered[start].role !== 'user') {
+    start++;
+  }
+  const trimmed = filtered.slice(start);
+
+  // Step 3: Merge consecutive same-role messages
+  const merged: { role: 'user' | 'assistant'; content: string }[] = [];
+  for (const msg of trimmed) {
+    const last = merged[merged.length - 1];
+    if (last && last.role === msg.role) {
+      // Merge into previous message
+      last.content += '\n\n' + msg.content;
+    } else {
+      merged.push({ ...msg });
+    }
+  }
+
+  return merged;
 }
 
 // =============================================================================
@@ -178,11 +225,14 @@ export function ClaudeChatView() {
     setInput('');
     setStreaming(true);
 
-    // Build API messages (last 20 for context window management)
-    const apiMessages = updated.slice(-20).map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Build API messages — sanitize for Anthropic requirements:
+    //  1. No empty content strings
+    //  2. Only 'user' and 'assistant' roles (no 'system')
+    //  3. Strict user/assistant alternation
+    //  4. First message must be 'user'
+    const apiMessages = sanitizeMessagesForAPI(
+      updated.slice(-20).map(m => ({ role: m.role, content: m.content }))
+    );
 
     try {
       abortRef.current = new AbortController();

@@ -17,6 +17,14 @@ import { InjectionFocusView } from '@/components/dashboard/views/injection-focus
 import { LearningPanel } from '@/components/dashboard/views/learning-panel';
 import { ArchitecturalAwarenessPanel } from '@/components/dashboard/views/architectural-awareness';
 import { VoiceChatView } from '@/components/dashboard/views/voice-chat-view';
+import { BenchmarkConsentModal } from '@/components/dashboard/views/benchmark-consent-modal';
+import { IntegrationsModal } from '@/components/dashboard/views/integrations-modal';
+import { LeaderboardView } from '@/components/dashboard/views/leaderboard-view';
+import { ConfigPackBrowser } from '@/components/dashboard/views/config-pack-browser';
+import { BottleneckCard } from '@/components/dashboard/views/bottleneck-card';
+import { ConfigBenchmarkSummary } from '@/components/dashboard/views/config-benchmark-summary';
+import { analyzeBottleneck } from '@/lib/benchmark/bottleneck-analyzer';
+import type { BenchmarkInput } from '@/lib/benchmark/bottleneck-analyzer';
 import DashboardShell from '@/components/dashboard/DashboardShell';
 import { SwarmView } from '@/components/panels/swarm-view';
 import { HarmonizerView } from '@/components/panels/harmonizer-view';
@@ -191,6 +199,48 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     description: 'Session history and crash recovery',
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
+    minHeight: 120,
+  },
+  'benchmark-consent': {
+    label: 'Compare Configs',
+    description: 'Benchmark consent and config comparison',
+    pages: ['dashboard'],
+    minWidth: 200,
+    minHeight: 150,
+  },
+  integrations: {
+    label: 'Integrations',
+    description: 'Discover local runtimes, services, and tools',
+    pages: ['dashboard'],
+    minWidth: 220,
+    minHeight: 150,
+  },
+  leaderboard: {
+    label: 'Leaderboard',
+    description: 'Community benchmark leaderboard -- compare local LLM performance',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 300,
+    minHeight: 200,
+  },
+  'config-packs': {
+    label: 'Config Packs',
+    description: 'Browse and install community config packs',
+    pages: ['dashboard'],
+    minWidth: 250,
+    minHeight: 150,
+  },
+  bottleneck: {
+    label: 'Bottleneck',
+    description: 'Performance bottleneck analysis and suggestions',
+    pages: ['dashboard'],
+    minWidth: 220,
+    minHeight: 120,
+  },
+  'config-summary': {
+    label: 'Config Summary',
+    description: 'LLM performance, config sync status, and community stats',
+    pages: ['dashboard'],
+    minWidth: 300,
     minHeight: 120,
   },
 };
@@ -540,6 +590,80 @@ function EvidencePanel(_props: IDockviewPanelProps) {
   );
 }
 
+function BenchmarkConsentPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="benchmark-consent">
+      <BenchmarkConsentModal
+        isOpen={true}
+        onClose={() => {}}
+        onConsent={() => {}}
+      />
+    </PanelWrapper>
+  );
+}
+
+function IntegrationsPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="integrations">
+      <IntegrationsModal isOpen={true} onClose={() => {}} />
+    </PanelWrapper>
+  );
+}
+
+function LeaderboardPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="leaderboard">
+      <LeaderboardView />
+    </PanelWrapper>
+  );
+}
+
+function ConfigPacksPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="config-packs">
+      <ConfigPackBrowser />
+    </PanelWrapper>
+  );
+}
+
+// Placeholder benchmark input for standalone panel rendering
+const BOTTLENECK_PLACEHOLDER_INPUT: BenchmarkInput = {
+  mode: 'pipeline',
+  phase_timings: {
+    context_build: 120,
+    retrieval: 85,
+    llm_local: 450,
+    tool_exec: 200,
+    post_process: 45,
+  },
+  total_duration_ms: 900,
+  system: {
+    gpu_util_pct: 72,
+    cpu_util_pct: 45,
+    ram_used_pct: 68,
+    swap_active: false,
+    temperature_c: 78,
+  },
+  ttft: { p50_ms: 180, p95_ms: 420, p99_ms: 680 },
+};
+
+function BottleneckPanel(_props: IDockviewPanelProps) {
+  const report = analyzeBottleneck(BOTTLENECK_PLACEHOLDER_INPUT);
+  return (
+    <PanelWrapper panelId="bottleneck">
+      <BottleneckCard report={report} benchmarkInput={BOTTLENECK_PLACEHOLDER_INPUT} />
+    </PanelWrapper>
+  );
+}
+
+function ConfigSummaryPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="config-summary">
+      <ConfigBenchmarkSummary />
+    </PanelWrapper>
+  );
+}
+
 function DashboardShellPanel(_props: IDockviewPanelProps) {
   return <DashboardShell />;
 }
@@ -780,6 +904,13 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   swarm: SwarmPanel,
   harmonizer: HarmonizerPanel,
   evidence: EvidencePanel,
+  // Benchmark / Config / Community panels
+  'benchmark-consent': BenchmarkConsentPanel,
+  integrations: IntegrationsPanel,
+  leaderboard: LeaderboardPanel,
+  'config-packs': ConfigPacksPanel,
+  bottleneck: BottleneckPanel,
+  'config-summary': ConfigSummaryPanel,
   // IDE panels (Electron-only — gracefully degrade with placeholder in web)
   explorer: ExplorerPanel,
   docker: DockerPanelView,

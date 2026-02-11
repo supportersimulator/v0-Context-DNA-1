@@ -7,18 +7,26 @@
  *
  * UX Pattern (inspired by ChatGPT voice):
  * - Single unified chat thread for both voice and text
- * - Voice input: Speak → process silently → show only Synaptic's response
- * - Text input: Type → show user message → show Synaptic's response
+ * - Voice input: Speak -> process silently -> show only Synaptic's response
+ * - Text input: Type -> show user message -> show Synaptic's response
  * - Both modes play TTS for Synaptic's responses
  * - No transcription clutter for voice input
+ *
+ * Mode Switcher: Option A
+ * - Segmented pill control: [Synaptic | Claude]
+ * - Synaptic: Local LLM (Qwen3-14B) via WebSocket
+ * - Claude: Anthropic API (Claude Sonnet 4.5) via SSE streaming
+ * - Conversation persists across mode switches
+ * - Each message tagged with model metadata
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon, Code2, AudioLines } from "lucide-react";
+import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon, Code2, AudioLines, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { parseAnthropicSSE, sanitizeMessagesForClaude } from "@/lib/chat/claude-stream";
 
 // =============================================================================
 // Theme Configuration - Warm Coral Cowork UI
@@ -27,6 +35,7 @@ type ThemeMode = "dark" | "light";
 
 const THEME_KEY = "synaptic_theme_mode";
 const DEV_MODE_KEY = "synaptic_dev_mode";
+const CHAT_MODE_KEY = "synaptic_chat_mode";
 
 // Warm coral accent used in both modes
 const ACCENT = {
@@ -34,6 +43,14 @@ const ACCENT = {
   hover: "#e8896a",        // Lighter coral
   muted: "rgba(217,120,87,0.15)",
   glow: "rgba(217,120,87,0.3)",
+};
+
+// Claude violet accent
+const CLAUDE_ACCENT = {
+  primary: "#a78bfa",      // Violet-400
+  hover: "#c4b5fd",        // Violet-300
+  muted: "rgba(167,139,250,0.15)",
+  glow: "rgba(167,139,250,0.3)",
 };
 
 // Theme-specific styles
@@ -71,6 +88,8 @@ import { getVoiceSessionToken } from "@/components/auth/voice-gate";
 // Types
 // =============================================================================
 
+type ChatMode = "synaptic" | "claude";
+
 interface ChatMessage {
   id: string;
   timestamp: string;
@@ -79,6 +98,7 @@ interface ChatMessage {
   source: "text" | "voice"; // Track input method
   fullText?: string; // Full markdown text for dev mode
   isDevMode?: boolean; // Whether this response was in dev mode
+  model?: string; // Which model generated this message
 }
 
 type VoiceState = "idle" | "listening" | "processing" | "speaking";
@@ -133,6 +153,32 @@ function getTextWebSocketUrl(): string {
 }
 
 // =============================================================================
+// Claude Chat Persistence (localStorage, matches existing pattern)
+// =============================================================================
+
+const CLAUDE_STORAGE_KEY = "contextdna_claude_chat_in_synaptic";
+const MAX_STORED = 50;
+
+function loadClaudeMessages(): ChatMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CLAUDE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveClaudeMessages(msgs: ChatMessage[]) {
+  try {
+    const toSave = msgs.filter(m => m.content.trim() !== "");
+    localStorage.setItem(CLAUDE_STORAGE_KEY, JSON.stringify(toSave.slice(-MAX_STORED)));
+  } catch {
+    // quota exceeded
+  }
+}
+
+// =============================================================================
 // Main Component
 // =============================================================================
 
@@ -140,11 +186,15 @@ export function SynapticChatView() {
   // Theme state (persisted to localStorage)
   const [theme, setTheme] = useState<ThemeMode>("dark");
 
+  // Chat mode: synaptic (local LLM) vs claude (Anthropic API)
+  const [chatMode, setChatMode] = useState<ChatMode>("synaptic");
+
   // Dev mode: VOICE (terse, spoken) vs DEV (full visual + brief narrator)
   const [devMode, setDevMode] = useState(false);
 
-  // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Chat state - separate message lists for each mode
+  const [synapticMessages, setSynapticMessages] = useState<ChatMessage[]>([]);
+  const [claudeMessages, setClaudeMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
 
   // Connection state
@@ -152,11 +202,22 @@ export function SynapticChatView() {
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
 
+  // Claude state
+  const [claudeStreaming, setClaudeStreaming] = useState(false);
+  const [claudeApiAvailable, setClaudeApiAvailable] = useState<boolean | null>(null);
+
   // Voice state
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
 
   // Get current theme styles
   const t = THEMES[theme];
+
+  // Active accent based on mode
+  const activeAccent = chatMode === "claude" ? CLAUDE_ACCENT : ACCENT;
+
+  // Current messages based on mode
+  const messages = chatMode === "synaptic" ? synapticMessages : claudeMessages;
+  const setMessages = chatMode === "synaptic" ? setSynapticMessages : setClaudeMessages;
 
   // Refs
   const textWsRef = useRef<WebSocket | null>(null);
@@ -166,6 +227,7 @@ export function SynapticChatView() {
   const chunksRef = useRef<Blob[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const claudeAbortRef = useRef<AbortController | null>(null);
 
   // ==========================================================================
   // Audio Context
@@ -205,7 +267,7 @@ export function SynapticChatView() {
   }, [getAudioContext]);
 
   // ==========================================================================
-  // Text Chat WebSocket
+  // Text Chat WebSocket (Synaptic mode)
   // ==========================================================================
 
   const connectTextChat = useCallback(() => {
@@ -224,19 +286,20 @@ export function SynapticChatView() {
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
       if (data.type === "history") {
-        setMessages(
+        setSynapticMessages(
           data.messages.map((m: any, i: number) => ({
             id: `hist-${i}`,
             timestamp: m.timestamp,
             sender: m.sender === "aaron" ? "user" : "synaptic",
             content: m.message,
             source: "text" as const,
+            model: "Qwen3-14B",
           }))
         );
       } else if (data.type === "message") {
         // Only add if it's from Synaptic (user messages already added locally)
         if (data.sender === "synaptic") {
-          setMessages((prev) => [
+          setSynapticMessages((prev) => [
             ...prev,
             {
               id: `msg-${Date.now()}`,
@@ -244,6 +307,7 @@ export function SynapticChatView() {
               sender: "synaptic",
               content: data.message,
               source: "text",
+              model: "Qwen3-14B",
             },
           ]);
         }
@@ -286,7 +350,7 @@ export function SynapticChatView() {
         } else if (data.type === "response") {
           // Synaptic's response - ADD to messages
           // In dev mode, full_text has markdown; content has voice summary
-          setMessages(prev => [...prev, {
+          setSynapticMessages(prev => [...prev, {
             id: `voice-${Date.now()}`,
             timestamp: new Date().toISOString(),
             sender: "synaptic",
@@ -294,6 +358,7 @@ export function SynapticChatView() {
             source: "voice",
             fullText: data.full_text, // Full markdown when dev_mode=true
             isDevMode: data.dev_mode,
+            model: "Qwen3-14B",
           }]);
 
           // Play TTS audio if present
@@ -311,12 +376,13 @@ export function SynapticChatView() {
           console.log(`[Voice] Mode switched to ${newMode ? "DEV" : "VOICE"} via ${data.trigger || "server"}`);
           // Add system message for visibility
           if (data.trigger === "voice_command") {
-            setMessages(prev => [...prev, {
+            setSynapticMessages(prev => [...prev, {
               id: `sys-${Date.now()}`,
               timestamp: new Date().toISOString(),
               sender: "synaptic",
-              content: `🎛️ Switched to ${newMode ? "Dev Mode" : "Voice Mode"} (${newMode ? "full visual output" : "terse spoken output"})`,
+              content: `Switched to ${newMode ? "Dev Mode" : "Voice Mode"} (${newMode ? "full visual output" : "terse spoken output"})`,
               source: "voice",
+              model: "Qwen3-14B",
             }]);
           }
         } else if (data.type === "error") {
@@ -396,10 +462,10 @@ export function SynapticChatView() {
   }, []);
 
   // ==========================================================================
-  // Send Text Message
+  // Send Text Message (Synaptic mode - via WebSocket)
   // ==========================================================================
 
-  const sendTextMessage = useCallback(() => {
+  const sendSynapticMessage = useCallback(() => {
     if (!input.trim() || !textWsRef.current || textWsRef.current.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -412,12 +478,120 @@ export function SynapticChatView() {
       content: input.trim(),
       source: "text",
     };
-    setMessages(prev => [...prev, userMessage]);
+    setSynapticMessages(prev => [...prev, userMessage]);
 
     // Send to server
     textWsRef.current.send(JSON.stringify({ message: input.trim() }));
     setInput("");
   }, [input]);
+
+  // ==========================================================================
+  // Send Text Message (Claude mode - via SSE streaming)
+  // ==========================================================================
+
+  const sendClaudeMessage = useCallback(async () => {
+    const text = input.trim();
+    if (!text || claudeStreaming) return;
+
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      sender: "user",
+      content: text,
+      source: "text",
+    };
+
+    const assistantMsg: ChatMessage = {
+      id: `claude-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      sender: "synaptic", // reuse "synaptic" sender for rendering (styled differently via model tag)
+      content: "",
+      source: "text",
+      model: "Claude Sonnet 4.5",
+    };
+
+    const updated = [...claudeMessages, userMsg];
+    setClaudeMessages([...updated, assistantMsg]);
+    setInput("");
+    setClaudeStreaming(true);
+
+    // Build API messages - sanitize for Anthropic requirements
+    const apiMessages = sanitizeMessagesForClaude(
+      updated
+        .filter(m => !m.content.startsWith("Error:"))
+        .slice(-20)
+        .map(m => ({
+          role: m.sender === "user" ? "user" : "assistant",
+          content: m.content,
+        }))
+    );
+
+    try {
+      claudeAbortRef.current = new AbortController();
+
+      const res = await fetch("/api/claude/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: apiMessages,
+          system: "You are Claude, an AI assistant by Anthropic. You are helpful, harmless, and honest. You are embedded inside the Context DNA IDE — a VS Code-style admin dashboard for managing AI memory systems. Be concise and technical.",
+        }),
+        signal: claudeAbortRef.current.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const errText = await res.text();
+        setClaudeMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsg.id
+              ? { ...m, content: `Error: ${errText || res.statusText}` }
+              : m
+          )
+        );
+        setClaudeStreaming(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      let accumulated = "";
+
+      for await (const chunk of parseAnthropicSSE(reader)) {
+        accumulated += chunk;
+        setClaudeMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsg.id ? { ...m, content: accumulated } : m
+          )
+        );
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
+        // User cancelled
+      } else {
+        setClaudeMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsg.id
+              ? { ...m, content: `Error: ${String(err)}` }
+              : m
+          )
+        );
+      }
+    } finally {
+      setClaudeStreaming(false);
+      claudeAbortRef.current = null;
+    }
+  }, [input, claudeMessages, claudeStreaming]);
+
+  // ==========================================================================
+  // Unified send handler
+  // ==========================================================================
+
+  const sendTextMessage = useCallback(() => {
+    if (chatMode === "claude") {
+      sendClaudeMessage();
+    } else {
+      sendSynapticMessage();
+    }
+  }, [chatMode, sendClaudeMessage, sendSynapticMessage]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -447,7 +621,30 @@ export function SynapticChatView() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [synapticMessages, claudeMessages, chatMode]);
+
+  // Check Claude API availability
+  useEffect(() => {
+    fetch("/api/claude/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "ping" }] }),
+    }).then(res => {
+      setClaudeApiAvailable(res.status !== 503);
+    }).catch(() => {
+      setClaudeApiAvailable(false);
+    });
+  }, []);
+
+  // Load Claude messages from localStorage
+  useEffect(() => {
+    setClaudeMessages(loadClaudeMessages());
+  }, []);
+
+  // Persist Claude messages (skip during streaming)
+  useEffect(() => {
+    if (!claudeStreaming) saveClaudeMessages(claudeMessages);
+  }, [claudeMessages, claudeStreaming]);
 
   // ==========================================================================
   // Theme persistence
@@ -462,6 +659,11 @@ export function SynapticChatView() {
     const savedDevMode = localStorage.getItem(DEV_MODE_KEY);
     if (savedDevMode === "true") {
       setDevMode(true);
+    }
+    // Load chat mode from localStorage
+    const savedChatMode = localStorage.getItem(CHAT_MODE_KEY) as ChatMode | null;
+    if (savedChatMode === "synaptic" || savedChatMode === "claude") {
+      setChatMode(savedChatMode);
     }
   }, []);
 
@@ -490,49 +692,79 @@ export function SynapticChatView() {
     });
   }, []);
 
+  // Switch chat mode
+  const switchChatMode = useCallback((mode: ChatMode) => {
+    setChatMode(mode);
+    localStorage.setItem(CHAT_MODE_KEY, mode);
+  }, []);
+
   // ==========================================================================
   // Render
   // ==========================================================================
 
-  const isConnected = textConnected || voiceConnected;
+  const isConnected = chatMode === "synaptic"
+    ? (textConnected || voiceConnected)
+    : (claudeApiAvailable === true);
+
+  const isBusy = chatMode === "synaptic"
+    ? voiceState !== "idle"
+    : claudeStreaming;
+
+  const canSend = chatMode === "synaptic"
+    ? (textConnected && voiceState === "idle" && input.trim() !== "")
+    : (!claudeStreaming && claudeApiAvailable !== false && input.trim() !== "");
 
   return (
     <div className={cn("flex flex-col h-full transition-colors duration-300", t.bg)}>
-      {/* Header - Warm coral accent */}
+      {/* Header */}
       <div className={cn("flex items-center gap-3 p-4 border-b", t.border, t.bgSecondary)}>
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center"
-          style={{ backgroundColor: ACCENT.muted }}
+          className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors duration-200"
+          style={{ backgroundColor: activeAccent.muted }}
         >
-          <Brain className="h-5 w-5" style={{ color: ACCENT.primary }} />
+          {chatMode === "claude" ? (
+            <Sparkles className="h-5 w-5" style={{ color: CLAUDE_ACCENT.primary }} />
+          ) : (
+            <Brain className="h-5 w-5" style={{ color: ACCENT.primary }} />
+          )}
         </div>
         <div className="flex-1">
-          <h2 className={cn("font-semibold", t.text)}>Synaptic</h2>
+          <h2 className={cn("font-semibold", t.text)}>
+            {chatMode === "claude" ? "Claude" : "Synaptic"}
+          </h2>
           <p className={cn("text-xs", t.textMuted)}>
-            {voiceState === "listening" ? "Listening..." :
-             voiceState === "processing" ? "Thinking..." :
-             voiceState === "speaking" ? "Speaking..." :
-             "Voice + Text • Hold mic or type"}
+            {chatMode === "claude" ? (
+              claudeStreaming ? "Responding..." :
+              claudeApiAvailable === false ? "API key not configured" :
+              "Anthropic Claude \u2022 Cloud AI"
+            ) : (
+              voiceState === "listening" ? "Listening..." :
+              voiceState === "processing" ? "Thinking..." :
+              voiceState === "speaking" ? "Speaking..." :
+              "Voice + Text \u2022 Hold mic or type"
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Dev mode toggle - VOICE vs DEV projection */}
-          <button
-            onClick={toggleDevMode}
-            className={cn(
-              "w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative",
-              t.bgMuted, t.bgHover,
-              devMode && "ring-2 ring-offset-1"
-            )}
-            style={devMode ? { '--tw-ring-color': ACCENT.primary, '--tw-ring-offset-color': 'transparent' } as React.CSSProperties : {}}
-            title={devMode ? "Dev mode: Full visual + brief narrator" : "Voice mode: Terse spoken output"}
-          >
-            {devMode ? (
-              <Code2 className="h-4 w-4" style={{ color: ACCENT.primary }} />
-            ) : (
-              <AudioLines className="h-4 w-4" style={{ color: ACCENT.primary }} />
-            )}
-          </button>
+          {/* Dev mode toggle - only visible in Synaptic mode */}
+          {chatMode === "synaptic" && (
+            <button
+              onClick={toggleDevMode}
+              className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative",
+                t.bgMuted, t.bgHover,
+                devMode && "ring-2 ring-offset-1"
+              )}
+              style={devMode ? { '--tw-ring-color': ACCENT.primary, '--tw-ring-offset-color': 'transparent' } as React.CSSProperties : {}}
+              title={devMode ? "Dev mode: Full visual + brief narrator" : "Voice mode: Terse spoken output"}
+            >
+              {devMode ? (
+                <Code2 className="h-4 w-4" style={{ color: ACCENT.primary }} />
+              ) : (
+                <AudioLines className="h-4 w-4" style={{ color: ACCENT.primary }} />
+              )}
+            </button>
+          )}
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
@@ -543,9 +775,9 @@ export function SynapticChatView() {
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
             {theme === "dark" ? (
-              <Sun className="h-4 w-4" style={{ color: ACCENT.primary }} />
+              <Sun className="h-4 w-4" style={{ color: activeAccent.primary }} />
             ) : (
-              <Moon className="h-4 w-4" style={{ color: ACCENT.primary }} />
+              <Moon className="h-4 w-4" style={{ color: activeAccent.primary }} />
             )}
           </button>
           {/* Connection indicator */}
@@ -554,14 +786,76 @@ export function SynapticChatView() {
               "w-2 h-2 rounded-full",
               isConnected
                 ? "bg-emerald-500"
-                : connecting
+                : connecting && chatMode === "synaptic"
                 ? "animate-pulse"
                 : "bg-red-500"
-            )} style={!isConnected && connecting ? { backgroundColor: ACCENT.primary } : {}} />
+            )} style={!isConnected && connecting && chatMode === "synaptic" ? { backgroundColor: ACCENT.primary } : {}} />
             <span className={cn("text-xs", t.textMuted)}>
-              {isConnected ? "Connected" : connecting ? "Connecting..." : "Offline"}
+              {isConnected ? "Connected" :
+               chatMode === "claude" && claudeApiAvailable === false ? "No API key" :
+               connecting ? "Connecting..." : "Offline"}
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Mode Switcher — Sleek segmented pill */}
+      <div className={cn("flex items-center justify-center py-2 border-b", t.border)} style={{ backgroundColor: theme === "dark" ? "rgba(15,15,18,0.8)" : "rgba(250,248,246,0.8)" }}>
+        <div
+          className="inline-flex items-center rounded-full p-0.5 gap-0"
+          style={{ backgroundColor: theme === "dark" ? "#1a1a20" : "#eae6e2" }}
+        >
+          {/* Synaptic option */}
+          <button
+            onClick={() => switchChatMode("synaptic")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all duration-200",
+              chatMode === "synaptic"
+                ? "shadow-sm"
+                : "hover:opacity-80"
+            )}
+            style={
+              chatMode === "synaptic"
+                ? {
+                    backgroundColor: theme === "dark" ? "#2a2a32" : "#ffffff",
+                    color: "#22c55e",
+                  }
+                : {
+                    backgroundColor: "transparent",
+                    color: theme === "dark" ? "#6b6b75" : "#999",
+                  }
+            }
+          >
+            <Brain className="h-3 w-3" />
+            <span>Synaptic</span>
+            <span className="text-[10px] opacity-60 hidden sm:inline">Qwen3-14B</span>
+          </button>
+
+          {/* Claude option */}
+          <button
+            onClick={() => switchChatMode("claude")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all duration-200",
+              chatMode === "claude"
+                ? "shadow-sm"
+                : "hover:opacity-80"
+            )}
+            style={
+              chatMode === "claude"
+                ? {
+                    backgroundColor: theme === "dark" ? "#2a2a32" : "#ffffff",
+                    color: "#22c55e",
+                  }
+                : {
+                    backgroundColor: "transparent",
+                    color: theme === "dark" ? "#6b6b75" : "#999",
+                  }
+            }
+          >
+            <Sparkles className="h-3 w-3" />
+            <span>Claude</span>
+            <span className="text-[10px] opacity-60 hidden sm:inline">Sonnet 4.5</span>
+          </button>
         </div>
       </div>
 
@@ -572,18 +866,36 @@ export function SynapticChatView() {
             <div className={cn("text-center py-12", t.textMuted)}>
               <div
                 className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-                style={{ backgroundColor: ACCENT.muted }}
+                style={{ backgroundColor: activeAccent.muted }}
               >
-                <MessageCircle className="h-8 w-8" style={{ color: ACCENT.primary, opacity: 0.7 }} />
+                {chatMode === "claude" ? (
+                  <Sparkles className="h-8 w-8" style={{ color: CLAUDE_ACCENT.primary, opacity: 0.7 }} />
+                ) : (
+                  <MessageCircle className="h-8 w-8" style={{ color: ACCENT.primary, opacity: 0.7 }} />
+                )}
               </div>
-              <p className={cn("text-lg font-medium mb-2", t.text)}>Talk to Synaptic</p>
-              <p className="text-sm opacity-70">
-                Hold the mic to speak, or type a message
+              <p className={cn("text-lg font-medium mb-2", t.text)}>
+                {chatMode === "claude" ? "Chat with Claude" : "Talk to Synaptic"}
               </p>
+              <p className="text-sm opacity-70">
+                {chatMode === "claude"
+                  ? "Cloud-powered AI for complex tasks"
+                  : "Hold the mic to speak, or type a message"}
+              </p>
+              {chatMode === "claude" && claudeApiAvailable === false && (
+                <div
+                  className="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
+                  style={{ backgroundColor: "rgba(239,68,68,0.1)", color: "#f87171" }}
+                >
+                  <span>Add ANTHROPIC_API_KEY to enable</span>
+                </div>
+              )}
             </div>
           ) : (
             messages.map((msg) => {
               const isBoxMessage = isSynapticBoxMessage(msg.content);
+              const isClaude = msg.model === "Claude Sonnet 4.5";
+              const bubbleAccent = isClaude ? CLAUDE_ACCENT : ACCENT;
 
               return (
                 <div
@@ -599,7 +911,7 @@ export function SynapticChatView() {
                       isBoxMessage
                         ? "p-0 border"
                         : msg.sender === "user"
-                        ? cn("px-4 py-3", t.userBubble)
+                        ? cn("px-4 py-3", isClaude ? "bg-[#a78bfa] text-white" : t.userBubble)
                         : cn("px-4 py-3", t.synapticBubble)
                     )}
                     style={isBoxMessage ? {
@@ -607,12 +919,16 @@ export function SynapticChatView() {
                       borderColor: `rgba(217,120,87,0.3)`,
                     } : {}}
                   >
-                    {/* Sender indicator for Synaptic (non-box messages) */}
+                    {/* Sender indicator for assistant messages (non-box) */}
                     {msg.sender === "synaptic" && !isBoxMessage && (
                       <div className={cn("flex items-center gap-2 mb-1 text-xs", t.textMuted)}>
-                        <Brain className="h-3 w-3" style={{ color: ACCENT.primary }} />
-                        <span>Synaptic</span>
-                        {msg.source === "voice" && (
+                        {isClaude ? (
+                          <Sparkles className="h-3 w-3" style={{ color: CLAUDE_ACCENT.primary }} />
+                        ) : (
+                          <Brain className="h-3 w-3" style={{ color: ACCENT.primary }} />
+                        )}
+                        <span>{isClaude ? "Claude" : "Synaptic"}</span>
+                        {msg.source === "voice" && !isClaude && (
                           <Volume2 className="h-3 w-3" style={{ color: ACCENT.primary }} />
                         )}
                       </div>
@@ -636,8 +952,14 @@ export function SynapticChatView() {
                           {msg.fullText}
                         </pre>
                       </div>
-                    ) : (
+                    ) : msg.content ? (
                       <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    ) : (
+                      // Streaming placeholder (empty content during Claude streaming)
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" style={{ color: bubbleAccent.primary }} />
+                        <span className={cn("text-sm", t.textMuted)}>Thinking...</span>
+                      </div>
                     )}
 
                     {/* Box message footer */}
@@ -653,8 +975,8 @@ export function SynapticChatView() {
             })
           )}
 
-          {/* Processing indicator */}
-          {voiceState === "processing" && (
+          {/* Processing indicator (Synaptic voice mode) */}
+          {chatMode === "synaptic" && voiceState === "processing" && (
             <div className="flex justify-start">
               <div
                 className={cn("rounded-2xl px-4 py-3 flex items-center gap-2", t.synapticBubble)}
@@ -667,11 +989,11 @@ export function SynapticChatView() {
         </div>
       </ScrollArea>
 
-      {/* Input Area - Hybrid Voice + Text with warm coral accent */}
+      {/* Input Area - Hybrid Voice + Text with accent color */}
       <div className={cn("p-4 border-t backdrop-blur", t.border, t.bgSecondary)}>
         <div className="max-w-3xl mx-auto">
-          {/* Voice recording indicator */}
-          {voiceState === "listening" && (
+          {/* Voice recording indicator (Synaptic mode only) */}
+          {chatMode === "synaptic" && voiceState === "listening" && (
             <div
               className="flex items-center justify-center gap-3 mb-4 py-3 rounded-lg border"
               style={{
@@ -684,7 +1006,7 @@ export function SynapticChatView() {
             </div>
           )}
 
-          {voiceState === "speaking" && (
+          {chatMode === "synaptic" && voiceState === "speaking" && (
             <div
               className="flex items-center justify-center gap-3 mb-4 py-3 rounded-lg border"
               style={{
@@ -699,59 +1021,61 @@ export function SynapticChatView() {
 
           {/* Input row */}
           <div className="flex items-center gap-3">
-            {/* Voice Button - Warm coral when idle - Mobile & Desktop compatible */}
-            <Button
-              size="lg"
-              className={cn(
-                "w-14 h-14 rounded-full shrink-0 transition-all duration-200 border-0",
-                voiceState === "listening"
-                  ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30"
-                  : voiceState === "processing"
-                  ? "cursor-wait"
-                  : voiceState === "speaking"
-                  ? "cursor-wait"
-                  : ""
-              )}
-              style={
-                voiceState === "idle"
-                  ? { backgroundColor: ACCENT.primary, touchAction: "none" }
-                  : voiceState === "processing"
-                  ? { backgroundColor: ACCENT.hover, touchAction: "none" }
-                  : voiceState === "speaking"
-                  ? { backgroundColor: ACCENT.primary, touchAction: "none" }
-                  : { touchAction: "none" }
-              }
-              disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "listening")}
-              onMouseDown={() => voiceState === "idle" && startRecording()}
-              onMouseUp={() => voiceState === "listening" && stopRecording()}
-              onMouseLeave={() => voiceState === "listening" && stopRecording()}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                voiceState === "idle" && startRecording();
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                voiceState === "listening" && stopRecording();
-              }}
-              onTouchCancel={(e) => {
-                e.preventDefault();
-                voiceState === "listening" && stopRecording();
-              }}
-              onPointerDown={() => voiceState === "idle" && startRecording()}
-              onPointerUp={() => voiceState === "listening" && stopRecording()}
-              onPointerLeave={() => voiceState === "listening" && stopRecording()}
-              onPointerCancel={() => voiceState === "listening" && stopRecording()}
-            >
-              {voiceState === "listening" ? (
-                <Mic className="h-6 w-6 animate-pulse text-white" />
-              ) : voiceState === "processing" ? (
-                <Loader2 className="h-6 w-6 animate-spin text-white" />
-              ) : voiceState === "speaking" ? (
-                <Volume2 className="h-6 w-6 animate-pulse text-white" />
-              ) : (
-                <Mic className="h-6 w-6 text-white" />
-              )}
-            </Button>
+            {/* Voice Button - only visible in Synaptic mode */}
+            {chatMode === "synaptic" && (
+              <Button
+                size="lg"
+                className={cn(
+                  "w-14 h-14 rounded-full shrink-0 transition-all duration-200 border-0",
+                  voiceState === "listening"
+                    ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-500/30"
+                    : voiceState === "processing"
+                    ? "cursor-wait"
+                    : voiceState === "speaking"
+                    ? "cursor-wait"
+                    : ""
+                )}
+                style={
+                  voiceState === "idle"
+                    ? { backgroundColor: ACCENT.primary, touchAction: "none" }
+                    : voiceState === "processing"
+                    ? { backgroundColor: ACCENT.hover, touchAction: "none" }
+                    : voiceState === "speaking"
+                    ? { backgroundColor: ACCENT.primary, touchAction: "none" }
+                    : { touchAction: "none" }
+                }
+                disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "listening")}
+                onMouseDown={() => voiceState === "idle" && startRecording()}
+                onMouseUp={() => voiceState === "listening" && stopRecording()}
+                onMouseLeave={() => voiceState === "listening" && stopRecording()}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  voiceState === "idle" && startRecording();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  voiceState === "listening" && stopRecording();
+                }}
+                onTouchCancel={(e) => {
+                  e.preventDefault();
+                  voiceState === "listening" && stopRecording();
+                }}
+                onPointerDown={() => voiceState === "idle" && startRecording()}
+                onPointerUp={() => voiceState === "listening" && stopRecording()}
+                onPointerLeave={() => voiceState === "listening" && stopRecording()}
+                onPointerCancel={() => voiceState === "listening" && stopRecording()}
+              >
+                {voiceState === "listening" ? (
+                  <Mic className="h-6 w-6 animate-pulse text-white" />
+                ) : voiceState === "processing" ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-white" />
+                ) : voiceState === "speaking" ? (
+                  <Volume2 className="h-6 w-6 animate-pulse text-white" />
+                ) : (
+                  <Mic className="h-6 w-6 text-white" />
+                )}
+              </Button>
+            )}
 
             {/* Text Input */}
             <div className="flex-1 relative">
@@ -760,8 +1084,16 @@ export function SynapticChatView() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder="Type a message..."
-                disabled={!textConnected || voiceState !== "idle"}
+                placeholder={
+                  chatMode === "claude"
+                    ? (claudeApiAvailable === false ? "API key required..." : "Ask Claude anything...")
+                    : "Type a message..."
+                }
+                disabled={
+                  chatMode === "synaptic"
+                    ? (!textConnected || voiceState !== "idle")
+                    : (claudeStreaming || claudeApiAvailable === false)
+                }
                 className={cn(
                   "pr-12 h-12 rounded-full border transition-colors",
                   t.inputBg, t.text, t.border,
@@ -769,31 +1101,39 @@ export function SynapticChatView() {
                 )}
                 style={{
                   // @ts-ignore - custom focus style
-                  "--tw-ring-color": ACCENT.muted,
+                  "--tw-ring-color": activeAccent.muted,
                 }}
               />
               <Button
                 size="sm"
                 onClick={sendTextMessage}
-                disabled={!textConnected || !input.trim() || voiceState !== "idle"}
+                disabled={!canSend}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full p-0 border-0"
-                style={{ backgroundColor: ACCENT.primary }}
+                style={{ backgroundColor: activeAccent.primary }}
               >
-                <Send className="h-4 w-4 text-white" />
+                {claudeStreaming && chatMode === "claude" ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-white" />
+                ) : (
+                  <Send className="h-4 w-4 text-white" />
+                )}
               </Button>
             </div>
           </div>
 
           {/* Help text */}
           <p className={cn("text-xs text-center mt-3", t.textMuted)}>
-            {voiceState === "idle" ? (
-              "Hold mic to speak • Type to chat"
-            ) : voiceState === "listening" ? (
-              "Release when done speaking"
-            ) : voiceState === "processing" ? (
-              "Processing your request..."
+            {chatMode === "claude" ? (
+              claudeStreaming ? "Claude is responding..." : "Claude Sonnet 4.5 \u2022 Streaming responses"
             ) : (
-              "Synaptic is responding..."
+              voiceState === "idle" ? (
+                "Hold mic to speak \u2022 Type to chat"
+              ) : voiceState === "listening" ? (
+                "Release when done speaking"
+              ) : voiceState === "processing" ? (
+                "Processing your request..."
+              ) : (
+                "Synaptic is responding..."
+              )
             )}
           </p>
         </div>
