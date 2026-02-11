@@ -17,6 +17,12 @@ import { LearningPanel } from '@/components/dashboard/views/learning-panel';
 import { ArchitecturalAwarenessPanel } from '@/components/dashboard/views/architectural-awareness';
 import { VoiceChatView } from '@/components/dashboard/views/voice-chat-view';
 
+// IDE-only panels (Electron)
+import { FileExplorer } from '@/components/ide/panels/file-explorer';
+import { DockerPanel } from '@/components/ide/panels/docker-panel';
+import { TerminalPanel } from '@/components/ide/panels/terminal-panel';
+import { OpenHandsPanel } from '@/components/ide/panels/openhands-panel';
+
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
 // ---------------------------------------------------------------------------
@@ -119,6 +125,57 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     minHeight: 100,
   },
 };
+
+// ---------------------------------------------------------------------------
+// IDE-only panel metadata (Electron-exclusive)
+// These are merged into PANEL_METADATA when running inside Electron.
+// ---------------------------------------------------------------------------
+export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
+  explorer: {
+    label: 'Explorer',
+    description: 'File tree browser',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+  },
+  docker: {
+    label: 'Docker',
+    description: 'Container management and monitoring',
+    pages: ['dashboard', 'live'],
+    minWidth: 200,
+    minHeight: 100,
+  },
+  terminal: {
+    label: 'Terminal',
+    description: 'Integrated terminal',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 100,
+  },
+  openhands: {
+    label: 'OpenHands',
+    description: 'AI coding agent interface',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 250,
+    minHeight: 150,
+  },
+};
+
+/** Detect Electron environment (client-side only) */
+function isElectronEnv(): boolean {
+  if (typeof window === 'undefined') return false;
+  return !!(window as any).electron?.isElectron;
+}
+
+/**
+ * Returns full panel metadata, including IDE panels when in Electron.
+ */
+export function getAllPanelMetadata(): Record<string, PanelMeta> {
+  if (isElectronEnv()) {
+    return { ...PANEL_METADATA, ...IDE_PANEL_METADATA };
+  }
+  return PANEL_METADATA;
+}
 
 // ---------------------------------------------------------------------------
 // PanelWrapper: responsive container wrapping every view
@@ -250,11 +307,48 @@ function VoiceChatPanel(_props: IDockviewPanelProps) {
 }
 
 // ---------------------------------------------------------------------------
+// IDE-only panel components (Electron)
+// ---------------------------------------------------------------------------
+
+function ExplorerPanel(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="explorer">
+      <FileExplorer />
+    </PanelWrapper>
+  );
+}
+
+function DockerPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="docker">
+      <DockerPanel />
+    </PanelWrapper>
+  );
+}
+
+function TerminalPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="terminal">
+      <TerminalPanel />
+    </PanelWrapper>
+  );
+}
+
+function OpenHandsPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="openhands">
+      <OpenHandsPanel />
+    </PanelWrapper>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
 // ---------------------------------------------------------------------------
 
 export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
+  // Core panels (always available)
   home: HomePanel,
   activity: ActivityPanel,
   professor: ProfessorPanel,
@@ -267,13 +361,20 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   learnings: LearningsPanel,
   architecture: ArchitecturePanel,
   voicechat: VoiceChatPanel,
+  // IDE panels (Electron-only — gracefully degrade with placeholder in web)
+  explorer: ExplorerPanel,
+  docker: DockerPanelView,
+  terminal: TerminalPanelView,
+  openhands: OpenHandsPanelView,
 };
 
 /**
  * Returns panel IDs available for a given page.
+ * Includes IDE panels when running in Electron.
  */
 export function getPanelsForPage(page: ParentPage): string[] {
-  return Object.entries(PANEL_METADATA)
+  const allMeta = getAllPanelMetadata();
+  return Object.entries(allMeta)
     .filter(([, meta]) => meta.pages.includes(page))
     .map(([id]) => id);
 }

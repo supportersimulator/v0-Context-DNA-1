@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MoreVertical, Check, Square } from 'lucide-react';
 import type { DockviewApi } from 'dockview';
 import type { PageId } from './dockview-shell';
-import { PANEL_METADATA, getPanelsForPage } from './panel-factory';
+import { PANEL_METADATA, getAllPanelMetadata, getPanelsForPage } from './panel-factory';
 
 // ---------------------------------------------------------------------------
 // PanelDropdown component
@@ -71,10 +71,11 @@ export function PanelDropdown({
         }
       } else {
         // Add the panel
+        const allMeta = getAllPanelMetadata();
         dockviewApi.addPanel({
           id: panelId,
           component: panelId,
-          title: PANEL_METADATA[panelId].label,
+          title: allMeta[panelId]?.label ?? panelId,
         });
       }
 
@@ -121,7 +122,8 @@ export function PanelDropdown({
           <div className="py-1 max-h-[360px] overflow-y-auto">
             {sortedPanels.map((panelId) => {
               const isActive = activePanels.includes(panelId);
-              const meta = PANEL_METADATA[panelId];
+              const allMeta = getAllPanelMetadata();
+              const meta = allMeta[panelId];
 
               return (
                 <button

@@ -2,11 +2,16 @@
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
+  "main": "dist-electron/main.js",
   "scripts": {
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:dev": "npm run electron:compile && concurrently -n next,electron \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "next build && next export && npm run electron:compile && electron-builder",
+    "electron:pack": "npm run electron:compile && electron-builder --dir"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -76,9 +81,13 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^8.0.0"
   }
 }
