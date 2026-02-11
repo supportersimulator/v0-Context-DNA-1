@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'dockview-react/dist/styles/dockview.css';
+@import '@xterm/xterm/css/xterm.css';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Dockview Theme Override — ContextDNA Dark Mode
