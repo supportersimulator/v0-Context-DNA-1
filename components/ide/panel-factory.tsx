@@ -277,7 +277,7 @@ function SynapticPanel(_props: IDockviewPanelProps) {
 function InjectionPanel(_props: IDockviewPanelProps) {
   return (
     <PanelWrapper panelId="injection">
-      <InjectionFocusView />
+      <InjectionFocusView standalone />
     </PanelWrapper>
   );
 }

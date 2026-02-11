@@ -19,9 +19,11 @@ import { format, isSameDay, startOfDay } from 'date-fns';
 
 interface InjectionFocusViewProps {
   onClose?: () => void;
+  /** When true, renders only injection content without SplitPanelLayout (for dockview panel mode) */
+  standalone?: boolean;
 }
 
-export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
+export function InjectionFocusView({ onClose, standalone }: InjectionFocusViewProps) {
   const [expandedSops, setExpandedSops] = useState<Set<string>>(new Set());
   const [showRawOutput, setShowRawOutput] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -225,6 +227,8 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
         </div>
       </div>
     );
+
+    if (standalone) return waitingPanel;
 
     return (
       <SplitPanelLayout
@@ -654,7 +658,10 @@ export function InjectionFocusView({ onClose }: InjectionFocusViewProps) {
     </ScrollArea>
   );
 
-  // Navigation is handled by DashboardShell - this view just renders the 3-panel layout
+  // Standalone mode: render only injection content (dockview handles layout)
+  if (standalone) return injectionPanel;
+
+  // Full mode: render 3-panel layout internally
   return (
     <SplitPanelLayout
       leftPanel={injectionPanel}

@@ -9,7 +9,7 @@ import { useResponsive } from '@/lib/contexts/responsive-context';
 import { useIsDesktop, useIsTabletUp } from '@/lib/hooks/use-media-query';
 import { ElectronWindowControls } from '@/components/electron/electron-window-controls';
 import { PanelDropdown } from './panel-dropdown';
-import { panelComponents, PANEL_METADATA, type ParentPage } from './panel-factory';
+import { panelComponents, PANEL_METADATA, getAllPanelMetadata, type ParentPage } from './panel-factory';
 import { RightHeaderActions } from './panel-header';
 import { WorkspaceSlots, type WorkspaceConfig } from './workspace-slots';
 import { MobileLayout } from './mobile-layout';
@@ -27,11 +27,13 @@ const LAYOUT_STORAGE_KEY = 'contextdna_dockview_layouts';
 function getDefaultPanelsForPage(page: PageId): string[] {
   switch (page) {
     case 'dashboard':
-      return ['home', 'activity'];
+      // All dashboard views as tabs in one group (mimics DashboardShell TabList)
+      return ['home', 'activity', 'professor', 'search', 'health', 'models'];
     case 'synaptic':
       return ['synaptic'];
     case 'live':
-      return ['injection', 'synaptic'];
+      // 3-panel layout: injection (left) + learnings (right-top) + architecture (right-bottom)
+      return ['injection', 'learnings', 'architecture'];
     default:
       return ['home'];
   }
@@ -73,29 +75,82 @@ function loadLayout(page: PageId): SerializedDockview | null {
 function applyDefaultLayout(api: DockviewApi, page: PageId) {
   api.clear();
 
-  const defaults = getDefaultPanelsForPage(page);
+  const allMeta = getAllPanelMetadata();
 
-  if (defaults.length === 0) return;
+  switch (page) {
+    case 'dashboard': {
+      // Dashboard: all views as TABS in one group (mimics DashboardShell TabList)
+      const tabs = getDefaultPanelsForPage('dashboard');
+      if (tabs.length === 0) return;
 
-  // Add the first panel
-  const first = defaults[0];
-  const meta = PANEL_METADATA[first];
-  api.addPanel({
-    id: first,
-    component: first,
-    title: meta?.label ?? first,
-  });
+      const first = tabs[0];
+      api.addPanel({
+        id: first,
+        component: first,
+        title: allMeta[first]?.label ?? first,
+      });
 
-  // Add remaining panels to the right of previous
-  for (let i = 1; i < defaults.length; i++) {
-    const panelId = defaults[i];
-    const panelMeta = PANEL_METADATA[panelId];
-    api.addPanel({
-      id: panelId,
-      component: panelId,
-      title: panelMeta?.label ?? panelId,
-      position: { referencePanel: defaults[i - 1], direction: 'right' },
-    });
+      // Add remaining as tabs in the SAME group (no direction = same group)
+      for (let i = 1; i < tabs.length; i++) {
+        const panelId = tabs[i];
+        api.addPanel({
+          id: panelId,
+          component: panelId,
+          title: allMeta[panelId]?.label ?? panelId,
+          position: { referencePanel: first },
+        });
+      }
+      break;
+    }
+
+    case 'synaptic': {
+      // Synaptic: single full-screen panel
+      api.addPanel({
+        id: 'synaptic',
+        component: 'synaptic',
+        title: allMeta['synaptic']?.label ?? 'Synaptic',
+      });
+      break;
+    }
+
+    case 'live': {
+      // Live View: 3-panel split matching the original SplitPanelLayout
+      // Left (60%): Injection with calendar, history, WebSocket
+      // Right-top: Today's Learnings
+      // Right-bottom: Architecture awareness
+
+      // 1. Injection panel (fills left ~60%)
+      api.addPanel({
+        id: 'injection',
+        component: 'injection',
+        title: allMeta['injection']?.label ?? 'Injection',
+      });
+
+      // 2. Learnings to the right of injection
+      api.addPanel({
+        id: 'learnings',
+        component: 'learnings',
+        title: allMeta['learnings']?.label ?? 'Learnings',
+        position: { referencePanel: 'injection', direction: 'right' },
+      });
+
+      // 3. Architecture below learnings (stacked right column)
+      api.addPanel({
+        id: 'architecture',
+        component: 'architecture',
+        title: allMeta['architecture']?.label ?? 'Architecture',
+        position: { referencePanel: 'learnings', direction: 'below' },
+      });
+      break;
+    }
+
+    default: {
+      api.addPanel({
+        id: 'home',
+        component: 'home',
+        title: allMeta['home']?.label ?? 'Home',
+      });
+    }
   }
 }
 
