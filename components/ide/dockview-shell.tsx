@@ -9,6 +9,7 @@ import { panelComponents, getAllPanelMetadata } from './panel-factory';
 import { RightHeaderActions } from './panel-header';
 import { WorkspaceSlots, type WorkspaceConfig } from './workspace-slots';
 import { MobileLayout } from './mobile-layout';
+import { ExplorerShell } from './explorer-shell';
 
 // ---------------------------------------------------------------------------
 // Layout persistence (single layout — DashboardShell handles page switching)
@@ -167,19 +168,24 @@ export function DockviewShell() {
       )}
 
       {/* ================================================================ */}
-      {/* Dockview container — fills remaining height                      */}
-      {/* DashboardShell is the main panel. Its header bar                 */}
-      {/* (Dashboard/Synaptic/Live View) is the topmost app element.       */}
-      {/* Same header persists across ALL pages (Dashboard, Synaptic, Live)*/}
+      {/* Explorer Shell + Dockview container                              */}
+      {/* ExplorerShell wraps dockview with an optional file sidebar       */}
+      {/* (left or right, user-configurable, Cmd+B to toggle).            */}
+      {/* When explorer is visible, its inner edge becomes the boundary    */}
+      {/* that dockview panels dock against. Same across all parent pages. */}
       {/* ================================================================ */}
-      <div className="flex-1 min-h-0 dockview-theme-dark">
-        <DockviewReact
-          className="dockview-theme-dark"
-          onReady={handleReady}
-          components={panelComponents}
-          rightHeaderActionsComponent={RightHeaderActions}
-          floatingGroupBounds="boundedWithinViewport"
-        />
+      <div className="flex-1 min-h-0">
+        <ExplorerShell>
+          <div className="h-full w-full dockview-theme-dark">
+            <DockviewReact
+              className="dockview-theme-dark"
+              onReady={handleReady}
+              components={panelComponents}
+              rightHeaderActionsComponent={RightHeaderActions}
+              floatingGroupBounds="boundedWithinViewport"
+            />
+          </div>
+        </ExplorerShell>
       </div>
     </div>
   );
