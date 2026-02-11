@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Pin,
   PinOff,
@@ -9,8 +9,12 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Plus,
+  Check,
+  Square,
 } from 'lucide-react';
 import type { DockviewApi, DockviewGroupPanel, IDockviewHeaderActionsProps } from 'dockview';
+import { getAllPanelMetadata } from './panel-factory';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -217,6 +221,8 @@ export function RightHeaderActions({
 }: IDockviewHeaderActionsProps) {
   const [maximized, setMaximized] = useState(false);
   const [isFloating, setIsFloating] = useState(false);
+  const [showPanelPicker, setShowPanelPicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   // Sync floating state from group location on mount and location changes
   useEffect(() => {
@@ -226,6 +232,18 @@ export function RightHeaderActions({
     });
     return () => disposable.dispose();
   }, [group]);
+
+  // Close picker on click outside
+  useEffect(() => {
+    if (!showPanelPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPanelPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPanelPicker]);
 
   const handleFloat = useCallback(() => {
     if (!activePanel) return;
@@ -267,11 +285,78 @@ export function RightHeaderActions({
     }
   }, [containerApi, activePanel]);
 
+  // Get active panel IDs from the containerApi
+  const getActivePanelIds = useCallback((): string[] => {
+    const ids: string[] = [];
+    containerApi.panels.forEach((p) => ids.push(p.id));
+    return ids;
+  }, [containerApi]);
+
+  const togglePanel = useCallback(
+    (panelId: string) => {
+      const activeIds = getActivePanelIds();
+      if (activeIds.includes(panelId)) {
+        const panel = containerApi.getPanel(panelId);
+        if (panel) containerApi.removePanel(panel);
+      } else {
+        const allMeta = getAllPanelMetadata();
+        containerApi.addPanel({
+          id: panelId,
+          component: panelId,
+          title: allMeta[panelId]?.label ?? panelId,
+        });
+      }
+    },
+    [containerApi, getActivePanelIds],
+  );
+
   const btnClass =
     'flex items-center justify-center w-5 h-5 rounded transition-colors text-[#6b6b75] hover:bg-[#1a1a24] hover:text-[#e5e5e5]';
 
+  // Build panel picker list
+  const allMeta = getAllPanelMetadata();
+  const activeIds = showPanelPicker ? getActivePanelIds() : [];
+  const availablePanels = Object.keys(allMeta).filter((id) => id !== 'dashboard-shell');
+
   return (
     <div className="flex items-center gap-0.5 pr-1">
+      {/* Add panel (+) */}
+      <div ref={pickerRef} className="relative">
+        <button
+          className={`${btnClass} ${showPanelPicker ? 'text-[#22c55e]' : ''}`}
+          onClick={() => setShowPanelPicker(!showPanelPicker)}
+          title="Add panel"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+        {showPanelPicker && (
+          <div className="absolute right-0 top-full mt-1 z-50 min-w-[240px] rounded-lg border border-[#2a2a35] bg-[#1a1a24] shadow-lg">
+            <div className="px-3 py-1.5 border-b border-[#2a2a35]/50">
+              <span className="text-xs font-semibold text-[#e5e5e5]">Panels</span>
+            </div>
+            <div className="py-1 max-h-[320px] overflow-y-auto">
+              {availablePanels.map((panelId) => {
+                const isActive = activeIds.includes(panelId);
+                const meta = allMeta[panelId];
+                return (
+                  <button
+                    key={panelId}
+                    onClick={() => togglePanel(panelId)}
+                    className="w-full px-3 py-1.5 text-left hover:bg-[#111118] transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    {isActive ? (
+                      <Check className="w-3.5 h-3.5 text-[#22c55e] flex-shrink-0" />
+                    ) : (
+                      <Square className="w-3.5 h-3.5 text-[#6b6b75] flex-shrink-0" />
+                    )}
+                    <span className="text-xs text-[#e5e5e5]">{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
       {/* Float / Dock toggle */}
       <button
         className={`${btnClass} ${isFloating ? 'text-[#22c55e]' : ''}`}

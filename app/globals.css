@@ -26,6 +26,13 @@
   --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
+/* Hide dockview tab header when a group has only one tab.
+   This makes the dashboard-shell panel seamless — no redundant "Context DNA" tab
+   above DashboardShell's own header bar. Tabs reappear when 2+ panels are docked. */
+.dockview-theme-dark .dv-tabs-and-actions-container:has(.dv-tabs-container > :only-child) {
+  display: none;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /* Context DNA Dark Theme - Linear/Raycast inspired */

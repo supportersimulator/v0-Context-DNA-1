@@ -16,6 +16,7 @@ import { InjectionFocusView } from '@/components/dashboard/views/injection-focus
 import { LearningPanel } from '@/components/dashboard/views/learning-panel';
 import { ArchitecturalAwarenessPanel } from '@/components/dashboard/views/architectural-awareness';
 import { VoiceChatView } from '@/components/dashboard/views/voice-chat-view';
+import DashboardShell from '@/components/dashboard/DashboardShell';
 
 // IDE-only panels (Electron)
 import { FileExplorer } from '@/components/ide/panels/file-explorer';
@@ -40,6 +41,13 @@ export interface PanelMeta {
 }
 
 export const PANEL_METADATA: Record<string, PanelMeta> = {
+  'dashboard-shell': {
+    label: 'Context DNA',
+    description: 'Main application shell (Dashboard / Synaptic / Live View)',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 300,
+    minHeight: 200,
+  },
   home: {
     label: 'Home',
     description: 'Stats overview and quick actions',
@@ -306,6 +314,10 @@ function VoiceChatPanel(_props: IDockviewPanelProps) {
   );
 }
 
+function DashboardShellPanel(_props: IDockviewPanelProps) {
+  return <DashboardShell />;
+}
+
 // ---------------------------------------------------------------------------
 // IDE-only panel components (Electron)
 // ---------------------------------------------------------------------------
@@ -348,7 +360,9 @@ function OpenHandsPanelView(_props: IDockviewPanelProps) {
 // ---------------------------------------------------------------------------
 
 export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
-  // Core panels (always available)
+  // Primary shell (DashboardShell with its own nav — Dashboard/Synaptic/Live View)
+  'dashboard-shell': DashboardShellPanel,
+  // Core panels (always available — can dock around the shell)
   home: HomePanel,
   activity: ActivityPanel,
   professor: ProfessorPanel,

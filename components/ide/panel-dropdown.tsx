@@ -3,20 +3,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { MoreVertical, Check, Square } from 'lucide-react';
 import type { DockviewApi } from 'dockview';
-import type { PageId } from './dockview-shell';
-import { PANEL_METADATA, getAllPanelMetadata, getPanelsForPage } from './panel-factory';
+import { getAllPanelMetadata } from './panel-factory';
 
 // ---------------------------------------------------------------------------
 // PanelDropdown component
 // ---------------------------------------------------------------------------
 interface PanelDropdownProps {
-  activePage: PageId;
   dockviewApi: DockviewApi | null;
   getActivePanelIds: () => string[];
 }
 
 export function PanelDropdown({
-  activePage,
   dockviewApi,
   getActivePanelIds,
 }: PanelDropdownProps) {
@@ -85,8 +82,9 @@ export function PanelDropdown({
     [dockviewApi, activePanels, refreshActivePanels],
   );
 
-  // Sort: active panels first, filtered by page
-  const availablePanels = getPanelsForPage(activePage);
+  // Sort: active panels first, show all available panels (except dashboard-shell itself)
+  const allMeta = getAllPanelMetadata();
+  const availablePanels = Object.keys(allMeta).filter((id) => id !== 'dashboard-shell');
   const sortedPanels = [...availablePanels].sort((a, b) => {
     const aActive = activePanels.includes(a);
     const bActive = activePanels.includes(b);
@@ -99,7 +97,7 @@ export function PanelDropdown({
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center justify-center h-8 w-8 rounded-md border border-[#2a2a35] bg-[#111118] text-[#6b6b75] hover:text-[#e5e5e5] hover:bg-[#1a1a24] transition-colors"
-        title={`Manage panels for ${activePage}`}
+        title="Manage panels"
       >
         <MoreVertical className="w-4 h-4" />
       </button>
@@ -110,7 +108,7 @@ export function PanelDropdown({
           <div className="px-3 py-2 border-b border-[#2a2a35]/50">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-[#e5e5e5]">
-                Panels — {activePage}
+                Panels
               </span>
               <span className="text-xs text-[#6b6b75]">
                 {activePanels.length} active
@@ -122,7 +120,6 @@ export function PanelDropdown({
           <div className="py-1 max-h-[360px] overflow-y-auto">
             {sortedPanels.map((panelId) => {
               const isActive = activePanels.includes(panelId);
-              const allMeta = getAllPanelMetadata();
               const meta = allMeta[panelId];
 
               return (

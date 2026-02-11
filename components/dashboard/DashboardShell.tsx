@@ -33,11 +33,34 @@ export default function DashboardShell() {
   const [voiceVerified, setVoiceVerified] = useState<boolean | null>(null);
 
   // Check voice verification status on mount
+  // Web (production): Always require voice verification when server is reachable
+  // Local dev: Auto-bypass if voice server is unreachable (prevents blocking UI)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const verified = sessionStorage.getItem(VOICE_VERIFIED_KEY) === 'true';
-      setVoiceVerified(verified);
+    if (typeof window === 'undefined') return;
+    const verified = sessionStorage.getItem(VOICE_VERIFIED_KEY) === 'true';
+    if (verified) {
+      setVoiceVerified(true);
+      return;
     }
+    // Use same base URL logic as VoiceWakeOverlay
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+    const baseUrl = isLocal
+      ? 'http://localhost:8000/api/contextdna'
+      : '/api';
+    // Probe voice server — production always shows overlay, local dev bypasses if down
+    const controller = new AbortController();
+    fetch(`${baseUrl}/voice/enrollment-status`, {
+      signal: controller.signal,
+      method: 'GET',
+    })
+      .then(() => setVoiceVerified(false)) // server reachable → require verification
+      .catch(() => {
+        // Production: still show overlay (server may be temporarily slow)
+        // Local dev: bypass so app is usable without voice server running
+        setVoiceVerified(isLocal ? true : false);
+      });
+    return () => controller.abort();
   }, []);
 
   // Handle voice wake completion
