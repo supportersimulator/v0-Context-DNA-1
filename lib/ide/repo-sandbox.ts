@@ -1,23 +1,32 @@
 // =============================================================================
-// repo-sandbox.ts — GitHub Repo Sandbox Manager
+// repo-sandbox.ts — Git Repo Sandbox Manager (GitHub + HuggingFace)
 //
-// Foundation for testing any GitHub repo from the Extensions panel.
+// Foundation for testing any Git repo from the Extensions panel.
 // Three-tier capability:
 //   Tier 1: ANALYZE — Clone repo, detect stack, report dependencies
 //   Tier 2: EXECUTE — Run tests/build in sandbox (Terminal API or Docker)
 //   Tier 3: LOAD AS PANEL — If contextdna-panel.json found, mount via iframe
+//
+// Supported sources:
+//   - GitHub: owner/repo, https://github.com/owner/repo
+//   - HuggingFace Spaces: https://huggingface.co/spaces/author/name
+//   - HuggingFace Models: https://huggingface.co/author/model
 // =============================================================================
 
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import { getSpaceEmbedUrl } from '@/lib/ide/huggingface-api';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+export type RepoSource = 'github' | 'huggingface';
+
 export interface RepoSandbox {
   id: string;
   repoUrl: string;
   branch: string;
+  source: RepoSource;
   status: 'cloning' | 'analyzing' | 'building' | 'ready' | 'error';
   analysis?: RepoAnalysis;
   /** Docker container ID (Electron only) */
@@ -43,6 +52,10 @@ export interface RepoAnalysis {
   dependencies: string[];
   /** Context DNA panel manifest, if present */
   panelManifest?: PanelManifest;
+  /** HuggingFace Space embed URL (for Gradio/Streamlit apps) */
+  hfSpaceUrl?: string;
+  /** HuggingFace model ID (for model repos) */
+  hfModelId?: string;
 }
 
 export interface PanelManifest {
@@ -82,8 +95,30 @@ async function shellExec(command: string, signal?: AbortSignal): Promise<string>
 // Repo URL normalization
 // ---------------------------------------------------------------------------
 
-function normalizeRepoUrl(input: string): string {
-  // Handle: owner/repo, https://github.com/owner/repo, git@github.com:owner/repo.git
+/**
+ * Detect the source platform from a URL or shorthand.
+ * Call with `forceSource` when the user picks a specific tab (e.g. HuggingFace).
+ */
+function detectSource(input: string, forceSource?: RepoSource): RepoSource {
+  if (forceSource) return forceSource;
+  if (/huggingface\.co\//i.test(input)) return 'huggingface';
+  if (/hf\.space\//i.test(input)) return 'huggingface';
+  return 'github';
+}
+
+function normalizeRepoUrl(input: string, source: RepoSource): string {
+  if (source === 'huggingface') {
+    // Already a full HF URL
+    if (input.startsWith('https://huggingface.co/')) {
+      return input;
+    }
+    // Shorthand: author/repo → assume Spaces (most common use case)
+    const shortMatch = input.match(/^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)$/);
+    if (shortMatch) return `https://huggingface.co/spaces/${shortMatch[1]}`;
+    return input;
+  }
+
+  // GitHub handling
   const shortMatch = input.match(/^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)$/);
   if (shortMatch) return `https://github.com/${shortMatch[1]}.git`;
 
@@ -164,6 +199,37 @@ async function analyzeRepo(
     analysis.hasTests = files.includes('pytest.ini') || files.includes('tests') || files.includes('test');
     if (files.includes('setup.py')) analysis.entryPoints.push('setup.py');
     if (files.includes('manage.py')) analysis.entryPoints.push('manage.py');
+
+    // Gradio/Streamlit detection (HuggingFace Spaces)
+    if (files.includes('app.py') && !analysis.framework) {
+      try {
+        const appHead = await shellExec(`head -30 "${clonePath}/app.py" 2>/dev/null`, signal);
+        if (/import\s+gradio|from\s+gradio/i.test(appHead)) {
+          analysis.framework = 'gradio';
+          analysis.entryPoints.push('app.py (Gradio)');
+        } else if (/import\s+streamlit|from\s+streamlit/i.test(appHead)) {
+          analysis.framework = 'streamlit';
+          analysis.entryPoints.push('app.py (Streamlit)');
+        }
+      } catch {
+        // Could not read app.py
+      }
+    }
+  }
+
+  // HuggingFace model detection (config.json with model_type)
+  if (files.includes('config.json')) {
+    try {
+      const cfgRaw = await shellExec(`cat "${clonePath}/config.json" 2>/dev/null`, signal);
+      const cfg = JSON.parse(cfgRaw) as Record<string, unknown>;
+      if (cfg.model_type) {
+        analysis.language = 'python';
+        analysis.framework = `hf-model (${String(cfg.model_type)})`;
+        analysis.entryPoints.push(`model_type: ${String(cfg.model_type)}`);
+      }
+    } catch {
+      // Not a model config or malformed JSON
+    }
   }
 
   // Go detection
@@ -196,15 +262,18 @@ async function analyzeRepo(
 // ---------------------------------------------------------------------------
 
 /**
- * Clone + analyze a GitHub repo. Returns a sandbox handle.
+ * Clone + analyze a Git repo (GitHub or HuggingFace). Returns a sandbox handle.
+ * Pass `forceSource` when the calling tab knows the source (e.g. HuggingFace tab).
  */
 export async function createRepoSandbox(
   repoUrl: string,
   branch?: string,
   signal?: AbortSignal,
+  forceSource?: RepoSource,
 ): Promise<RepoSandbox> {
   const id = sandboxId();
-  const url = normalizeRepoUrl(repoUrl);
+  const source = detectSource(repoUrl, forceSource);
+  const url = normalizeRepoUrl(repoUrl, source);
   const branchFlag = branch ? `--branch ${branch}` : '';
   const clonePath = `/tmp/contextdna-sandbox/${id}`;
 
@@ -212,6 +281,7 @@ export async function createRepoSandbox(
     id,
     repoUrl: url,
     branch: branch ?? 'main',
+    source,
     status: 'cloning',
     createdAt: Date.now(),
   };
@@ -226,6 +296,19 @@ export async function createRepoSandbox(
 
     // Analyze
     sandbox.analysis = await analyzeRepo(clonePath, signal);
+
+    // HuggingFace Space: compute embed URL from the space ID
+    if (source === 'huggingface' && sandbox.analysis) {
+      const spaceMatch = url.match(/huggingface\.co\/spaces\/([^/]+\/[^/]+)/);
+      if (spaceMatch && (sandbox.analysis.framework === 'gradio' || sandbox.analysis.framework === 'streamlit')) {
+        sandbox.analysis.hfSpaceUrl = getSpaceEmbedUrl(spaceMatch[1]);
+      }
+      const modelMatch = url.match(/huggingface\.co\/([^/]+\/[^/]+?)(?:\/|$)/);
+      if (modelMatch && sandbox.analysis.framework?.startsWith('hf-model')) {
+        sandbox.analysis.hfModelId = modelMatch[1];
+      }
+    }
+
     sandbox.status = 'ready';
   } catch (err) {
     sandbox.status = 'error';

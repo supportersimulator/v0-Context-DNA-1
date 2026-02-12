@@ -3,7 +3,7 @@
 // Inspired by Cursor's Settings → Models panel.
 // ---------------------------------------------------------------------------
 
-export type ProviderId = 'anthropic' | 'openai' | 'deepseek' | 'google' | 'bedrock' | 'local';
+export type ProviderId = 'anthropic' | 'openai' | 'deepseek' | 'google' | 'bedrock' | 'local' | 'huggingface';
 
 export interface ProviderDef {
   id: ProviderId;
@@ -50,6 +50,13 @@ export const PROVIDERS: ProviderDef[] = [
     envKey: 'DEEPSEEK_API_KEY',
     baseUrlConfigurable: true,
     defaultBaseUrl: 'https://api.deepseek.com/v1',
+  },
+  {
+    id: 'huggingface',
+    name: 'HuggingFace',
+    envKey: 'HF_TOKEN',
+    baseUrlConfigurable: true,
+    defaultBaseUrl: 'https://api-inference.huggingface.co',
   },
 ];
 
@@ -157,6 +164,44 @@ export const MODEL_CATALOG: ModelDef[] = [
     supportsSubscription: false,
     supportsApi: true,
     category: 'reasoning',
+    defaultEnabled: false,
+  },
+
+  // ── HuggingFace (Inference API) ──
+  {
+    id: 'huggingface/qwen2.5-72b',
+    provider: 'huggingface',
+    displayName: 'Qwen 2.5 72B',
+    apiModelId: 'Qwen/Qwen2.5-72B-Instruct',
+    costPerMInput: 0,
+    costPerMOutput: 0,
+    supportsSubscription: false,
+    supportsApi: true,
+    category: 'general',
+    defaultEnabled: false,
+  },
+  {
+    id: 'huggingface/llama-3.1-8b',
+    provider: 'huggingface',
+    displayName: 'Llama 3.1 8B',
+    apiModelId: 'meta-llama/Llama-3.1-8B-Instruct',
+    costPerMInput: 0,
+    costPerMOutput: 0,
+    supportsSubscription: false,
+    supportsApi: true,
+    category: 'general',
+    defaultEnabled: false,
+  },
+  {
+    id: 'huggingface/mistral-7b',
+    provider: 'huggingface',
+    displayName: 'Mistral 7B',
+    apiModelId: 'mistralai/Mistral-7B-Instruct-v0.3',
+    costPerMInput: 0,
+    costPerMOutput: 0,
+    supportsSubscription: false,
+    supportsApi: true,
+    category: 'coding',
     defaultEnabled: false,
   },
 ];

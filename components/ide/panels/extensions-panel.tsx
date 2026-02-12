@@ -19,6 +19,11 @@ import {
   Play,
   AlertCircle,
   FolderOpen,
+  Heart,
+  ExternalLink as LinkIcon,
+  Sparkles,
+  Send,
+  Bot,
 } from 'lucide-react';
 import {
   createRepoSandbox,
@@ -28,6 +33,16 @@ import {
   type RepoSandbox,
   type RepoAnalysis,
 } from '@/lib/ide/repo-sandbox';
+import {
+  searchHFModels,
+  searchHFSpaces,
+  runHFInference,
+  getSpaceEmbedUrl,
+  getPipelineLabel,
+  formatDownloads,
+  type HFModelInfo,
+  type HFSpaceInfo,
+} from '@/lib/ide/huggingface-api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -345,13 +360,299 @@ function GitHubTab() {
 }
 
 // ---------------------------------------------------------------------------
+// HFModelCard — compact model card for HuggingFace models
+// ---------------------------------------------------------------------------
+function HFModelCard({
+  model,
+  onTest,
+}: {
+  model: HFModelInfo;
+  onTest: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 px-3 py-2 hover:bg-[#1a1a24]/50 group transition-colors">
+      <div className="w-8 h-8 rounded-lg bg-[#e5c07b]/10 border border-[#2a2a35] flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Bot className="w-3.5 h-3.5 text-[#e5c07b]" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-[#e5e5e5] truncate">{model.modelId}</span>
+          {model.gated && <span className="text-[8px] px-1 py-0 rounded bg-[#ef4444]/15 text-[#ef4444]">gated</span>}
+        </div>
+        <div className="flex items-center gap-2.5 mt-0.5 text-[9px] text-[#6b6b75]">
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#61afef]/10 text-[#61afef]">{getPipelineLabel(model.pipelineTag)}</span>
+          <span className="flex items-center gap-0.5"><Download className="w-2.5 h-2.5" /> {formatDownloads(model.downloads)}</span>
+          <span className="flex items-center gap-0.5"><Heart className="w-2.5 h-2.5" /> {formatDownloads(model.likes)}</span>
+        </div>
+      </div>
+      <button
+        onClick={onTest}
+        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-[#e5c07b]/10 text-[#e5c07b] hover:bg-[#e5c07b]/20 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+      >
+        <Sparkles className="w-2.5 h-2.5" /> Test
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HFSpaceCard — compact Space card
+// ---------------------------------------------------------------------------
+function HFSpaceCard({
+  space,
+  onOpenPanel,
+  onClone,
+}: {
+  space: HFSpaceInfo;
+  onOpenPanel: () => void;
+  onClone: () => void;
+}) {
+  const sdkColor: Record<string, string> = {
+    gradio: '#22c55e',
+    streamlit: '#ef4444',
+    docker: '#56b6c2',
+    static: '#6b6b75',
+  };
+  const color = sdkColor[space.sdk] ?? '#6b6b75';
+
+  return (
+    <div className="flex items-start gap-2.5 px-3 py-2 hover:bg-[#1a1a24]/50 group transition-colors">
+      <div className="w-8 h-8 rounded-lg border border-[#2a2a35] flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: `${color}15` }}>
+        <Sparkles className="w-3.5 h-3.5" style={{ color }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-[#e5e5e5] truncate">{space.name}</span>
+          <span className="text-[9px] text-[#6b6b75]">by {space.author}</span>
+        </div>
+        <div className="flex items-center gap-2 mt-0.5 text-[9px] text-[#6b6b75]">
+          <span className="px-1.5 py-0.5 rounded-full text-[9px]" style={{ backgroundColor: `${color}15`, color }}>{space.sdk}</span>
+          <span className="flex items-center gap-0.5"><Heart className="w-2.5 h-2.5" /> {formatDownloads(space.likes)}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={onOpenPanel}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-[#c678dd]/10 text-[#c678dd] hover:bg-[#c678dd]/20"
+          title="Open in panel (iframe)"
+        >
+          <LinkIcon className="w-2.5 h-2.5" /> Open
+        </button>
+        <button
+          onClick={onClone}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[#6b6b75] hover:bg-[#1a1a24]"
+          title="Clone and analyze source"
+        >
+          <FolderOpen className="w-2.5 h-2.5" /> Clone
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HuggingFaceTab — Spaces + Models search with inference testing
+// ---------------------------------------------------------------------------
+function HuggingFaceTab() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [subTab, setSubTab] = useState<'spaces' | 'models'>('spaces');
+  const [loading, setLoading] = useState(false);
+  const [models, setModels] = useState<HFModelInfo[]>([]);
+  const [spaces, setSpaces] = useState<HFSpaceInfo[]>([]);
+
+  // Inference tester state
+  const [testingModel, setTestingModel] = useState<string | null>(null);
+  const [inferenceInput, setInferenceInput] = useState('');
+  const [inferenceOutput, setInferenceOutput] = useState<string | null>(null);
+  const [inferenceLoading, setInferenceLoading] = useState(false);
+
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim() || loading) return;
+    setLoading(true);
+    try {
+      if (subTab === 'models') {
+        const results = await searchHFModels(searchQuery.trim(), { limit: 20 });
+        setModels(results);
+      } else {
+        const results = await searchHFSpaces(searchQuery.trim(), { limit: 20 });
+        setSpaces(results);
+      }
+    } catch {
+      // Search failed silently
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, loading, subTab]);
+
+  const handleInference = useCallback(async () => {
+    if (!testingModel || !inferenceInput.trim() || inferenceLoading) return;
+    setInferenceLoading(true);
+    setInferenceOutput(null);
+    try {
+      const result = await runHFInference(testingModel, inferenceInput.trim());
+      setInferenceOutput(result.error ?? result.output);
+    } catch (err) {
+      setInferenceOutput(err instanceof Error ? err.message : 'Inference failed');
+    } finally {
+      setInferenceLoading(false);
+    }
+  }, [testingModel, inferenceInput, inferenceLoading]);
+
+  const handleOpenSpace = useCallback((space: HFSpaceInfo) => {
+    // Open in a new browser tab (full SafePanelPlugin integration is future work)
+    window.open(space.embedUrl, '_blank', 'noopener');
+  }, []);
+
+  const handleCloneSpace = useCallback(async (space: HFSpaceInfo) => {
+    try {
+      await createRepoSandbox(space.id, undefined, undefined, 'huggingface');
+    } catch {
+      // Error handled inside createRepoSandbox
+    }
+  }, []);
+
+  return (
+    <div className="flex-1 overflow-y-auto flex flex-col">
+      {/* Search bar */}
+      <div className="px-3 py-2 border-b border-[#2a2a35] flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 px-2 py-1 bg-[#1a1a24] border border-[#2a2a35] rounded">
+            <Search className="w-3.5 h-3.5 text-[#6b6b75] flex-shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder={subTab === 'spaces' ? 'Search HF Spaces...' : 'Search HF models...'}
+              className="flex-1 bg-transparent text-xs text-[#e5e5e5] placeholder-[#6b6b75] outline-none"
+              spellCheck={false}
+            />
+          </div>
+          <button
+            onClick={handleSearch}
+            disabled={loading || !searchQuery.trim()}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-[#e5c07b]/15 text-[#e5c07b] hover:bg-[#e5c07b]/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+            Search
+          </button>
+        </div>
+      </div>
+
+      {/* Sub-tabs: Spaces | Models */}
+      <div className="flex items-center gap-1 px-3 py-1 border-b border-[#2a2a35]/50 flex-shrink-0">
+        <button
+          onClick={() => setSubTab('spaces')}
+          className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
+            subTab === 'spaces' ? 'bg-[#c678dd]/15 text-[#c678dd]' : 'text-[#6b6b75] hover:text-[#e5e5e5]'
+          }`}
+        >
+          Spaces
+        </button>
+        <button
+          onClick={() => setSubTab('models')}
+          className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
+            subTab === 'models' ? 'bg-[#e5c07b]/15 text-[#e5c07b]' : 'text-[#6b6b75] hover:text-[#e5e5e5]'
+          }`}
+        >
+          Models
+        </button>
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Empty state */}
+        {subTab === 'spaces' && spaces.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-48 text-[#6b6b75] gap-2">
+            <Sparkles className="w-8 h-8 opacity-50" />
+            <span className="text-xs">Search HuggingFace Spaces</span>
+            <span className="text-[10px] opacity-60">Gradio & Streamlit apps you can open as panels</span>
+          </div>
+        )}
+
+        {subTab === 'models' && models.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-48 text-[#6b6b75] gap-2">
+            <Bot className="w-8 h-8 opacity-50" />
+            <span className="text-xs">Search HuggingFace Models</span>
+            <span className="text-[10px] opacity-60">Try: llama, mistral, qwen, whisper, stable-diffusion</span>
+          </div>
+        )}
+
+        {/* Space results */}
+        {subTab === 'spaces' && spaces.map((space) => (
+          <HFSpaceCard
+            key={space.id}
+            space={space}
+            onOpenPanel={() => handleOpenSpace(space)}
+            onClone={() => handleCloneSpace(space)}
+          />
+        ))}
+
+        {/* Model results */}
+        {subTab === 'models' && models.map((model) => (
+          <HFModelCard
+            key={model.modelId}
+            model={model}
+            onTest={() => {
+              setTestingModel(model.modelId);
+              setInferenceOutput(null);
+              setInferenceInput('');
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Inference tester panel (slides up when testing a model) */}
+      {testingModel && (
+        <div className="border-t border-[#2a2a35] bg-[#111118] flex-shrink-0">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#2a2a35]/50">
+            <span className="text-[10px] font-medium text-[#e5c07b] truncate">{testingModel}</span>
+            <button
+              onClick={() => { setTestingModel(null); setInferenceOutput(null); }}
+              className="text-[10px] text-[#6b6b75] hover:text-[#e5e5e5]"
+            >
+              Close
+            </button>
+          </div>
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={inferenceInput}
+                onChange={(e) => setInferenceInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleInference()}
+                placeholder="Enter text to test inference..."
+                className="flex-1 px-2 py-1 bg-[#1a1a24] border border-[#2a2a35] rounded text-xs text-[#e5e5e5] placeholder-[#6b6b75] outline-none"
+                spellCheck={false}
+              />
+              <button
+                onClick={handleInference}
+                disabled={inferenceLoading || !inferenceInput.trim()}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-[#e5c07b]/15 text-[#e5c07b] hover:bg-[#e5c07b]/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+              >
+                {inferenceLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+              </button>
+            </div>
+            {inferenceOutput && (
+              <pre className="mt-2 text-[10px] text-[#abb2bf] bg-[#1a1a24] rounded p-2 border border-[#2a2a35] max-h-32 overflow-y-auto whitespace-pre-wrap font-mono">
+                {inferenceOutput}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ExtensionsPanel — main export
 // ---------------------------------------------------------------------------
 export function ExtensionsPanel() {
   const [extensions, setExtensions] = useState<Extension[]>(getExtensions);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'installed' | 'available'>('all');
-  const [tab, setTab] = useState<'marketplace' | 'github'>('marketplace');
+  const [tab, setTab] = useState<'marketplace' | 'github' | 'huggingface'>('marketplace');
 
   const filtered = useMemo(() => {
     let exts = extensions;
@@ -409,11 +710,11 @@ export function ExtensionsPanel() {
         <span className="text-[10px] text-[#6b6b75] ml-auto">{counts.installed} active</span>
       </div>
 
-      {/* Main tabs: Marketplace | From GitHub */}
+      {/* Main tabs: Marketplace | From GitHub | HuggingFace */}
       <div className="flex items-center gap-0 border-b border-[#2a2a35] flex-shrink-0">
         <button
           onClick={() => setTab('marketplace')}
-          className={`flex-1 px-3 py-1.5 text-[10px] font-medium transition-colors border-b-2 ${
+          className={`flex-1 px-2 py-1.5 text-[10px] font-medium transition-colors border-b-2 ${
             tab === 'marketplace' ? 'border-[#22c55e] text-[#e5e5e5]' : 'border-transparent text-[#6b6b75] hover:text-[#e5e5e5]'
           }`}
         >
@@ -421,16 +722,27 @@ export function ExtensionsPanel() {
         </button>
         <button
           onClick={() => setTab('github')}
-          className={`flex-1 px-3 py-1.5 text-[10px] font-medium transition-colors border-b-2 flex items-center justify-center gap-1.5 ${
+          className={`flex-1 px-2 py-1.5 text-[10px] font-medium transition-colors border-b-2 flex items-center justify-center gap-1 ${
             tab === 'github' ? 'border-[#c678dd] text-[#e5e5e5]' : 'border-transparent text-[#6b6b75] hover:text-[#e5e5e5]'
           }`}
         >
-          <GitBranch className="w-3 h-3" /> From GitHub
+          <GitBranch className="w-3 h-3" /> GitHub
+        </button>
+        <button
+          onClick={() => setTab('huggingface')}
+          className={`flex-1 px-2 py-1.5 text-[10px] font-medium transition-colors border-b-2 flex items-center justify-center gap-1 ${
+            tab === 'huggingface' ? 'border-[#e5c07b] text-[#e5e5e5]' : 'border-transparent text-[#6b6b75] hover:text-[#e5e5e5]'
+          }`}
+        >
+          <Sparkles className="w-3 h-3" /> HuggingFace
         </button>
       </div>
 
       {/* GitHub tab */}
       {tab === 'github' && <GitHubTab />}
+
+      {/* HuggingFace tab */}
+      {tab === 'huggingface' && <HuggingFaceTab />}
 
       {/* Marketplace tab */}
       {tab === 'marketplace' && (
