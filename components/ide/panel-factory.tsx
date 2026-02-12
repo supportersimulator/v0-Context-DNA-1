@@ -298,10 +298,11 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   },
   openhands: {
     label: 'OpenHands',
-    description: 'AI coding agent interface',
+    description: 'AI coding agent swarm — DeepSeek workers + ContextDNA tools',
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 150,
+    icon: 'Bot',
   },
   editor: {
     label: 'Editor',

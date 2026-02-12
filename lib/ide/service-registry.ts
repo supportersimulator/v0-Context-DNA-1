@@ -30,6 +30,7 @@ const SERVICE_URLS: Record<string, { base: string; env?: string }> = {
   nodered:        { base: 'http://127.0.0.1:1880',  env: 'NEXT_PUBLIC_NODERED_API' },
   nodered_agent:  { base: 'http://127.0.0.1:8000',  env: 'NEXT_PUBLIC_NODERED_AGENT_API' },
   desktop_commander: { base: '/api/mcp',              env: 'NEXT_PUBLIC_MCP_API' },
+  openhands:         { base: 'http://127.0.0.1:3000',  env: 'NEXT_PUBLIC_OPENHANDS_URL' },
 };
 
 const WS_ENDPOINTS: Record<string, { service: string; path: string }> = {
@@ -167,6 +168,10 @@ export const PANEL_ENDPOINTS: Record<string, PanelEndpoints> = {
     rest: () => `${getServiceUrl('nodered_agent')}/health`,
     services: ['nodered', 'nodered_agent'],
   },
+  openhands: {
+    rest: () => `${getServiceUrl('openhands')}/api/options/models`,
+    services: ['openhands'],
+  },
 };
 
 /**
@@ -243,6 +248,14 @@ export const DEFAULT_SERVICES: ServiceDefinition[] = [
     id: 'synaptic-chat',
     name: 'Synaptic Chat',
     healthUrl: 'http://127.0.0.1:8888/health',
+    pollInterval: 60_000,
+    critical: false,
+    timeout: 5_000,
+  },
+  {
+    id: 'openhands',
+    name: 'OpenHands Agent',
+    healthUrl: 'http://127.0.0.1:3000/api/options/models',
     pollInterval: 60_000,
     critical: false,
     timeout: 5_000,
