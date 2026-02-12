@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TabId, Tab } from '@/lib/types';
 import { DEFAULT_TABS } from '@/lib/types';
 import { TabList } from './TabList';
@@ -13,12 +13,24 @@ import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
 import { InstallWizardView } from './views/install-wizard-view';
 import { SynapticSplitView } from './views/synaptic-split-view';
+import { CustomPageView } from './views/custom-page-view';
 // Voice is now integrated into SynapticChatView - no separate view needed
 import { WelcomeModal } from './welcome-modal';
 import { VoiceWakeOverlay } from '../auth/voice-wake-overlay';
 import { cn } from '@/lib/utils';
-import { Syringe, Brain, LayoutDashboard } from 'lucide-react';
+import { Syringe, Brain, LayoutDashboard, Plus, X } from 'lucide-react';
 import { getStoredUsername } from '@/lib/auth/session';
+import type { CustomPage, PanelWire } from '@/lib/custom-pages';
+import {
+  loadCustomPages,
+  saveCustomPages,
+  createCustomPage,
+  loadPanelWires,
+  savePanelWires,
+  addWire,
+  removeWire,
+  removeWiresForPage,
+} from '@/lib/custom-pages';
 
 const FIRST_TIME_KEY = 'contextdna_first_visit_completed';
 const VOICE_VERIFIED_KEY = 'synaptic_voice_verified';
@@ -31,6 +43,98 @@ export default function DashboardShell() {
   const [previousTab, setPreviousTab] = useState<TabId>('synaptic');
   const [showWelcome, setShowWelcome] = useState(false);
   const [voiceVerified, setVoiceVerified] = useState<boolean | null>(null);
+
+  // ── Custom Pages ──
+  const [customPages, setCustomPages] = useState<CustomPage[]>([]);
+  const [activeCustomPageId, setActiveCustomPageId] = useState<string | null>(null);
+  const [showNewPageDialog, setShowNewPageDialog] = useState(false);
+  const [newPageName, setNewPageName] = useState('');
+  const [contextMenuPageId, setContextMenuPageId] = useState<string | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const newPageInputRef = useRef<HTMLInputElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── Panel Wires (cross-page connections) ──
+  const [panelWires, setPanelWires] = useState<PanelWire[]>([]);
+
+  // Load custom pages + wires from localStorage on mount
+  useEffect(() => {
+    setCustomPages(loadCustomPages());
+    setPanelWires(loadPanelWires());
+  }, []);
+
+  // Persist custom pages on change
+  useEffect(() => {
+    if (customPages.length > 0 || loadCustomPages().length > 0) {
+      saveCustomPages(customPages);
+    }
+  }, [customPages]);
+
+  // Persist wires on change
+  useEffect(() => {
+    if (panelWires.length > 0 || loadPanelWires().length > 0) {
+      savePanelWires(panelWires);
+    }
+  }, [panelWires]);
+
+  // Focus input when dialog opens
+  useEffect(() => {
+    if (showNewPageDialog) {
+      setTimeout(() => newPageInputRef.current?.focus(), 50);
+    }
+  }, [showNewPageDialog]);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenuPageId) return;
+    const handle = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenuPageId(null);
+        setContextMenuPos(null);
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [contextMenuPageId]);
+
+  // Create new custom page
+  const handleCreatePage = useCallback(() => {
+    if (!newPageName.trim()) return;
+    const page = createCustomPage(newPageName);
+    setCustomPages((prev) => [...prev, page]);
+    setActiveCustomPageId(page.id);
+    setFocusMode(false);
+    setNewPageName('');
+    setShowNewPageDialog(false);
+  }, [newPageName]);
+
+  // Delete custom page
+  const handleDeletePage = useCallback((pageId: string) => {
+    setCustomPages((prev) => prev.filter((p) => p.id !== pageId));
+    // Clean up any wires associated with this page
+    setPanelWires((prev) => removeWiresForPage(prev, pageId));
+    if (activeCustomPageId === pageId) {
+      setActiveCustomPageId(null);
+      setActiveTab('injection');
+      setFocusMode(true);
+    }
+    setContextMenuPageId(null);
+    setContextMenuPos(null);
+  }, [activeCustomPageId]);
+
+  // Update custom page (panel add/remove)
+  const handleUpdatePage = useCallback((updated: CustomPage) => {
+    setCustomPages((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  }, []);
+
+  // Wire management
+  const handleAddWire = useCallback((wire: PanelWire) => {
+    setPanelWires((prev) => addWire(prev, wire));
+  }, []);
+
+  const handleRemoveWire = useCallback((wireId: string) => {
+    setPanelWires((prev) => removeWire(prev, wireId));
+  }, []);
 
   // Check voice verification status on mount
   // Web (production): Always require voice verification when server is reachable
@@ -94,8 +198,9 @@ export default function DashboardShell() {
   const handleTabChange = useCallback((tabId: string) => {
     // Cast string back to TabId since TabList uses string generically
     const id = tabId as TabId;
-    if (activeTab === id) return;
+    if (activeTab === id && !activeCustomPageId) return;
 
+    setActiveCustomPageId(null);
     if (id === 'injection') {
       setPreviousTab(activeTab);
       setFocusMode(true);
@@ -104,7 +209,7 @@ export default function DashboardShell() {
       setFocusMode(false);
       setActiveTab(id);
     }
-  }, [activeTab]);
+  }, [activeTab, activeCustomPageId]);
 
   const handleTabsReorder = (newTabs: Tab[]) => {
     setTabs(newTabs);
@@ -189,6 +294,7 @@ export default function DashboardShell() {
       // ⌘1 = Live Dashboard (3-panel injection focus mode)
       if (isMod && e.key === '1') {
         e.preventDefault();
+        setActiveCustomPageId(null);
         if (!focusMode) {
           const current = activeTab;
           setPreviousTab(current === 'injection' ? 'synaptic' : current);
@@ -201,6 +307,7 @@ export default function DashboardShell() {
       // ⌘2 = Synaptic Cowork Chat
       if (isMod && e.key === '2') {
         e.preventDefault();
+        setActiveCustomPageId(null);
         if (focusMode) setFocusMode(false);
         setActiveTab('synaptic');
         return;
@@ -209,6 +316,7 @@ export default function DashboardShell() {
       // ⌘3 = Home Overview dashboard
       if (isMod && e.key === '3') {
         e.preventDefault();
+        setActiveCustomPageId(null);
         if (focusMode) setFocusMode(false);
         setActiveTab('home');
         return;
@@ -217,6 +325,7 @@ export default function DashboardShell() {
       // ⌘4 = Professor view
       if (isMod && e.key === '4') {
         e.preventDefault();
+        setActiveCustomPageId(null);
         if (focusMode) setFocusMode(false);
         setActiveTab('professor');
         return;
@@ -225,6 +334,7 @@ export default function DashboardShell() {
       // ⌘I = Toggle focus mode (legacy shortcut)
       if (isMod && (e.key === 'i' || e.code === 'KeyI')) {
         e.preventDefault();
+        setActiveCustomPageId(null);
         if (focusMode) {
           exitFocusMode();
         } else {
@@ -242,6 +352,23 @@ export default function DashboardShell() {
   }, [focusMode, activeTab, exitFocusMode]);
 
   const renderView = () => {
+    // Custom page takes priority when active
+    if (activeCustomPageId) {
+      const page = customPages.find((p) => p.id === activeCustomPageId);
+      if (page) {
+        return (
+          <CustomPageView
+            page={page}
+            onUpdate={handleUpdatePage}
+            allPages={customPages}
+            wires={panelWires}
+            onAddWire={handleAddWire}
+            onRemoveWire={handleRemoveWire}
+          />
+        );
+      }
+    }
+
     switch (activeTab) {
       case 'home':
         return <HomeView />;
@@ -302,12 +429,13 @@ export default function DashboardShell() {
             {/* Dashboard Button */}
             <button
               onClick={() => {
+                setActiveCustomPageId(null);
                 if (focusMode) setFocusMode(false);
                 setActiveTab('home');
               }}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                !focusMode && activeTab === 'home'
+                !focusMode && !activeCustomPageId && activeTab === 'home'
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "text-muted-foreground hover:text-foreground hover:bg-background/50"
               )}
@@ -320,12 +448,13 @@ export default function DashboardShell() {
             {/* Synaptic Button - Main View (default after login) */}
             <button
               onClick={() => {
+                setActiveCustomPageId(null);
                 if (focusMode) setFocusMode(false);
                 setActiveTab('synaptic');
               }}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                !focusMode && activeTab === 'synaptic'
+                !focusMode && !activeCustomPageId && activeTab === 'synaptic'
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "text-muted-foreground hover:text-foreground hover:bg-background/50"
               )}
@@ -338,6 +467,7 @@ export default function DashboardShell() {
             {/* Live View Button */}
             <button
               onClick={() => {
+                setActiveCustomPageId(null);
                 if (!focusMode) {
                   setPreviousTab(activeTab === 'injection' ? 'synaptic' : activeTab);
                   setActiveTab('injection');
@@ -346,7 +476,7 @@ export default function DashboardShell() {
               }}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                focusMode
+                focusMode && !activeCustomPageId
                   ? "bg-primary text-primary-foreground shadow-[0_0_10px_rgba(34,197,94,0.4)]"
                   : "text-muted-foreground hover:text-foreground hover:bg-background/50"
               )}
@@ -355,6 +485,93 @@ export default function DashboardShell() {
               <Syringe className="w-3.5 h-3.5" />
               <span>Live View</span>
             </button>
+          </div>
+
+          {/* ── Custom Page Buttons + [+] Add Button ── */}
+          <div className="flex items-center gap-0.5 ml-1">
+            {/* Custom page buttons */}
+            {customPages.map((page) => (
+              <button
+                key={page.id}
+                onClick={() => {
+                  setActiveCustomPageId(page.id);
+                  setFocusMode(false);
+                  setActiveTab('injection'); // keep injection as base
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenuPageId(page.id);
+                  setContextMenuPos({ x: e.clientX, y: e.clientY });
+                }}
+                className={cn(
+                  "flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all max-w-[120px]",
+                  activeCustomPageId === page.id
+                    ? "bg-primary/20 text-primary border border-primary/30"
+                    : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                )}
+                title={`${page.name} (right-click to delete)`}
+              >
+                <span className="truncate">{page.name}</span>
+              </button>
+            ))}
+
+            {/* [+] Add new page button (up to 30) */}
+            {customPages.length < 30 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowNewPageDialog(!showNewPageDialog)}
+                  className={cn(
+                    "flex items-center justify-center w-7 h-7 rounded-md transition-all",
+                    "text-muted-foreground hover:text-foreground hover:bg-background/50",
+                    showNewPageDialog && "bg-background/50 text-foreground"
+                  )}
+                  title="Add custom page"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+
+                {/* New page naming dialog */}
+                {showNewPageDialog && (
+                  <div className="absolute z-50 top-full left-0 mt-1 w-56 bg-popover border border-border rounded-lg shadow-xl p-3">
+                    <p className="text-xs text-muted-foreground mb-2">Name your new page</p>
+                    <input
+                      ref={newPageInputRef}
+                      type="text"
+                      value={newPageName}
+                      onChange={(e) => setNewPageName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreatePage();
+                        if (e.key === 'Escape') {
+                          setShowNewPageDialog(false);
+                          setNewPageName('');
+                        }
+                      }}
+                      placeholder="e.g. App Dev, Robotics..."
+                      maxLength={24}
+                      className="w-full px-2.5 py-1.5 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary mb-2"
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setShowNewPageDialog(false);
+                          setNewPageName('');
+                        }}
+                        className="px-2.5 py-1 text-xs rounded-md hover:bg-accent"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleCreatePage}
+                        disabled={!newPageName.trim()}
+                        className="px-2.5 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Create
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -377,9 +594,14 @@ export default function DashboardShell() {
       {/* Main content */}
       <main className={cn(
         "flex-1 overflow-auto transition-all duration-300",
-        focusMode && "bg-background/95"
+        focusMode && !activeCustomPageId && "bg-background/95"
       )}>
-        {focusMode ? (
+        {activeCustomPageId ? (
+          // Custom page: full-height canvas
+          <div className="h-full">
+            {renderView()}
+          </div>
+        ) : focusMode ? (
           // Focus mode: full-screen injection view
           <div className="h-full">
             <InjectionFocusView onClose={exitFocusMode} />
@@ -395,6 +617,23 @@ export default function DashboardShell() {
           </div>
         )}
       </main>
+
+      {/* Right-click context menu for custom pages */}
+      {contextMenuPageId && contextMenuPos && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-[999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[140px]"
+          style={{ left: contextMenuPos.x, top: contextMenuPos.y }}
+        >
+          <button
+            onClick={() => handleDeletePage(contextMenuPageId)}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+            Delete Page
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -27,6 +27,8 @@ const SERVICE_URLS: Record<string, { base: string; env?: string }> = {
   django_backend: { base: 'http://127.0.0.1:8000',  env: 'NEXT_PUBLIC_DJANGO_API' },
   synaptic_chat:  { base: 'http://127.0.0.1:8888',  env: 'NEXT_PUBLIC_SYNAPTIC_API' },
   redis:          { base: 'redis://127.0.0.1:6379' },
+  nodered:        { base: 'http://127.0.0.1:1880',  env: 'NEXT_PUBLIC_NODERED_API' },
+  nodered_agent:  { base: 'http://127.0.0.1:8000',  env: 'NEXT_PUBLIC_NODERED_AGENT_API' },
 };
 
 const WS_ENDPOINTS: Record<string, { service: string; path: string }> = {
@@ -157,6 +159,10 @@ export const PANEL_ENDPOINTS: Record<string, PanelEndpoints> = {
   'llm-orchestration': {
     rest: () => `${getServiceUrl('local_llm')}/v1/models`,
     services: ['local_llm'],
+  },
+  'node-red': {
+    rest: () => `${getServiceUrl('nodered_agent')}/health`,
+    services: ['nodered', 'nodered_agent'],
   },
 };
 

@@ -57,6 +57,8 @@ import { SwarmControllerPanel } from '@/components/ide/panels/swarm-controller-p
 import { TodayLearningsPanel } from '@/components/ide/panels/today-learnings-panel';
 import { SettingsPanel } from '@/components/ide/panels/settings-panel';
 import { NotificationsPanel } from '@/components/ide/panels/notifications-panel';
+import { FrontendPreviewPanel } from '@/components/ide/panels/frontend-preview-panel';
+import { NodeRedPanel } from '@/components/ide/panels/node-red-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -459,6 +461,22 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     minHeight: 150,
     icon: 'Bell',
     position: 'bottom',
+  },
+  'frontend-preview': {
+    label: 'Preview',
+    description: 'Device frame preview for web and mobile apps (iOS, Android, Desktop)',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 350,
+    minHeight: 300,
+    icon: 'Monitor',
+  },
+  'node-red': {
+    label: 'Node-RED',
+    description: 'Visual event-driven flow monitor (Node-RED + FastAPI + PostgreSQL)',
+    pages: ['dashboard', 'synaptic', 'live'],
+    minWidth: 300,
+    minHeight: 200,
+    icon: 'Workflow',
   },
 };
 
@@ -922,6 +940,22 @@ function NotificationsPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function FrontendPreviewPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="frontend-preview">
+      <FrontendPreviewPanel />
+    </PanelWrapper>
+  );
+}
+
+function NodeRedPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="node-red">
+      <NodeRedPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -981,6 +1015,8 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'today-learnings': TodayLearningsPanelView,
   settings: SettingsPanelView,
   notifications: NotificationsPanelView,
+  'frontend-preview': FrontendPreviewPanelView,
+  'node-red': NodeRedPanelView,
 };
 
 /**
