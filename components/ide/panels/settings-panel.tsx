@@ -42,6 +42,14 @@ import {
   Key,
   Zap,
   ArrowRightLeft,
+  AlertTriangle,
+  Terminal,
+  FileSearch,
+  FilePen,
+  Search,
+  Activity,
+  Skull,
+  Power,
 } from 'lucide-react';
 import { useSetting } from '@/lib/ide/settings-store';
 import {
@@ -52,6 +60,13 @@ import {
   type ProviderId,
 } from '@/lib/ide/model-catalog';
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import {
+  type SafetyTier,
+  TIER_LABELS,
+  TIER_DESCRIPTIONS,
+  TIER_PERMISSIONS,
+  type TierPermissions,
+} from '@/lib/ide/permission-guard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -709,6 +724,247 @@ function ApiKeysSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Security Section — permission tiers, MCP status, nuclear reset
+// ---------------------------------------------------------------------------
+
+const ALL_TIERS: SafetyTier[] = ['full', 'standard', 'limited', 'locked'];
+
+const TIER_COLORS: Record<SafetyTier, { border: string; bg: string; text: string }> = {
+  full:     { border: 'border-[#ef4444]/40', bg: 'bg-[#ef4444]/10', text: 'text-[#ef4444]' },
+  standard: { border: 'border-[#22c55e]/40', bg: 'bg-[#22c55e]/10', text: 'text-[#22c55e]' },
+  limited:  { border: 'border-[#e5c07b]/40', bg: 'bg-[#e5c07b]/10', text: 'text-[#e5c07b]' },
+  locked:   { border: 'border-[#6b6b75]/40', bg: 'bg-[#6b6b75]/10', text: 'text-[#6b6b75]' },
+};
+
+const PERM_LABELS: Record<keyof TierPermissions, { label: string; icon: typeof FileSearch }> = {
+  readFiles:    { label: 'Read Files',    icon: FileSearch },
+  writeFiles:   { label: 'Write Files',   icon: FilePen },
+  editFiles:    { label: 'Edit Files',    icon: FilePen },
+  searchFiles:  { label: 'Search',        icon: Search },
+  execCommand:  { label: 'Terminal',      icon: Terminal },
+  listProcesses:{ label: 'List Procs',    icon: Activity },
+  killProcess:  { label: 'Kill Process',  icon: Skull },
+  getConfig:    { label: 'Read Config',   icon: Settings },
+  setConfig:    { label: 'Write Config',  icon: Settings },
+};
+
+function TierSelector({
+  label,
+  value,
+  onChange,
+  description,
+}: {
+  label: string;
+  value: SafetyTier;
+  onChange: (tier: SafetyTier) => void;
+  description: string;
+}) {
+  return (
+    <div>
+      <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1">{label}</div>
+      <div className="flex items-center gap-1.5">
+        {ALL_TIERS.map((tier) => {
+          const active = value === tier;
+          const c = TIER_COLORS[tier];
+          return (
+            <button
+              key={tier}
+              onClick={() => onChange(tier)}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${
+                active
+                  ? `${c.border} ${c.bg} ${c.text}`
+                  : 'border-[#2a2a35] text-[#6b6b75] hover:text-[#e5e5e5]'
+              }`}
+            >
+              {TIER_LABELS[tier].split(' ')[0]}
+            </button>
+          );
+        })}
+      </div>
+      <div className="text-[9px] text-[#4a4a55] mt-1">{description}</div>
+    </div>
+  );
+}
+
+function SecuritySection() {
+  const [userTier, setUserTier] = useSetting('security.permissionTier');
+  const [synapticTier, setSynapticTier] = useSetting('security.synapticTier');
+  const [confirmDestructive] = useSetting('security.confirmDestructive');
+  const [mcpConnected, setMcpConnected] = useState(false);
+  const [nuclearArmed, setNuclearArmed] = useState(false);
+  const [nuclearTimer, setNuclearTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  // MCP health check
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch('/api/mcp/health', { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          setMcpConnected(data.connected === true);
+        } else {
+          setMcpConnected(false);
+        }
+      } catch {
+        setMcpConnected(false);
+      }
+    };
+    check();
+    const interval = setInterval(check, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Ensure synaptic tier never exceeds user tier
+  const tierOrder: SafetyTier[] = ['locked', 'limited', 'standard', 'full'];
+  const userTierIdx = tierOrder.indexOf(userTier);
+  useEffect(() => {
+    const synIdx = tierOrder.indexOf(synapticTier);
+    if (synIdx > userTierIdx) {
+      setSynapticTier(userTier);
+    }
+  }, [userTier]);
+
+  // Nuclear Reset — double-click pattern
+  const handleNuclearClick = useCallback(() => {
+    if (!nuclearArmed) {
+      setNuclearArmed(true);
+      const timer = setTimeout(() => setNuclearArmed(false), 3000);
+      setNuclearTimer(timer);
+      return;
+    }
+    // Armed + clicked again → execute
+    if (nuclearTimer) clearTimeout(nuclearTimer);
+    setNuclearArmed(false);
+
+    // Execute reset
+    setUserTier('locked');
+    setSynapticTier('locked');
+    fetch('/api/mcp/shutdown', { method: 'POST' }).catch(() => {});
+    setMcpConnected(false);
+  }, [nuclearArmed, nuclearTimer, setUserTier, setSynapticTier]);
+
+  // Permission matrix for current user tier
+  const perms = TIER_PERMISSIONS[userTier];
+
+  return (
+    <Section
+      title="Security & Permissions"
+      icon={<Shield className="w-3.5 h-3.5" />}
+      defaultOpen={true}
+      badge={
+        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${TIER_COLORS[userTier].bg} ${TIER_COLORS[userTier].text}`}>
+          {TIER_LABELS[userTier]}
+        </span>
+      }
+    >
+      <div className="px-3 py-2 space-y-3">
+        {/* MCP Connection Status */}
+        <div className="flex items-center gap-2 text-[10px]">
+          <StatusDot status={mcpConnected ? 'healthy' : 'offline'} />
+          <span className="text-[#6b6b75]">MCP</span>
+          <span className={mcpConnected ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
+            {mcpConnected ? 'DesktopCommander connected' : 'Disconnected'}
+          </span>
+          {userTier === 'locked' && (
+            <span className="text-[9px] px-1 rounded bg-[#6b6b75]/15 text-[#6b6b75]">blocked by tier</span>
+          )}
+        </div>
+
+        {/* User Tier */}
+        <TierSelector
+          label="Your Permission Tier"
+          value={userTier}
+          onChange={setUserTier}
+          description={TIER_DESCRIPTIONS[userTier]}
+        />
+
+        {/* Synaptic Tier */}
+        <div className="pt-1.5 border-t border-[#2a2a35]/30">
+          <TierSelector
+            label="Synaptic (Local LLM) Tier"
+            value={synapticTier}
+            onChange={(tier) => {
+              // Synaptic can never exceed user tier
+              const idx = tierOrder.indexOf(tier);
+              if (idx <= userTierIdx) setSynapticTier(tier);
+            }}
+            description={`Synaptic operates at ${TIER_LABELS[synapticTier]} level (cannot exceed your tier)`}
+          />
+          {tierOrder.indexOf(synapticTier) > userTierIdx && (
+            <div className="flex items-center gap-1 mt-1 text-[9px] text-[#e5c07b]">
+              <AlertTriangle className="w-3 h-3" />
+              Synaptic tier automatically capped to your tier
+            </div>
+          )}
+        </div>
+
+        {/* Permission Matrix */}
+        <div className="pt-1.5 border-t border-[#2a2a35]/30">
+          <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1.5">Permission Matrix</div>
+          <div className="grid grid-cols-3 gap-1">
+            {(Object.entries(PERM_LABELS) as Array<[keyof TierPermissions, { label: string; icon: typeof FileSearch }]>).map(
+              ([key, meta]) => {
+                const allowed = perms[key];
+                const Icon = meta.icon;
+                return (
+                  <div
+                    key={key}
+                    className={`flex items-center gap-1 text-[9px] px-1.5 py-1 rounded ${
+                      allowed
+                        ? 'bg-[#22c55e]/5 text-[#22c55e]'
+                        : 'bg-[#ef4444]/5 text-[#ef4444]/60'
+                    }`}
+                  >
+                    {allowed ? (
+                      <CheckCircle2 className="w-2.5 h-2.5 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="w-2.5 h-2.5 flex-shrink-0" />
+                    )}
+                    <span className="truncate">{meta.label}</span>
+                  </div>
+                );
+              },
+            )}
+          </div>
+        </div>
+
+        {/* Confirmation flag */}
+        <div className="flex items-center gap-2 text-[10px] pt-1.5 border-t border-[#2a2a35]/30">
+          <Lock className="w-3 h-3 text-[#22c55e]" />
+          <span className="text-[#6b6b75]">Destructive confirmations</span>
+          <span className="text-[#22c55e] text-[9px]">
+            {confirmDestructive ? 'Always required' : 'Disabled (not recommended)'}
+          </span>
+        </div>
+
+        {/* Nuclear Reset */}
+        <div className="pt-2 border-t border-[#2a2a35]/30">
+          <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1.5">Emergency</div>
+          <button
+            onClick={handleNuclearClick}
+            className={`flex items-center justify-center gap-1.5 w-full px-3 py-2 text-[10px] font-medium rounded border transition-all ${
+              nuclearArmed
+                ? 'bg-[#ef4444]/20 border-[#ef4444]/60 text-[#ef4444] animate-pulse'
+                : 'bg-[#ef4444]/5 border-[#ef4444]/20 text-[#ef4444]/70 hover:bg-[#ef4444]/10 hover:border-[#ef4444]/40'
+            }`}
+          >
+            <Power className="w-3.5 h-3.5" />
+            {nuclearArmed
+              ? 'Click again to confirm Nuclear Reset'
+              : 'Nuclear Reset — Lock Everything Down'}
+          </button>
+          <div className="text-[9px] text-[#4a4a55] mt-1 text-center">
+            {nuclearArmed
+              ? 'Both tiers will be set to Locked. MCP will disconnect. 3s window.'
+              : 'Disconnects MCP, locks all permissions. Your data and panels are preserved.'}
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SettingsPanel -- main export
 // ---------------------------------------------------------------------------
 
@@ -832,6 +1088,9 @@ export function SettingsPanel() {
             </div>
           </div>
         </Section>
+
+        {/* ---- Section: Security & Permissions ---- */}
+        <SecuritySection />
 
         {/* ---- Section: System Status ---- */}
         <Section

@@ -20,6 +20,8 @@ import {
   Send,
 } from 'lucide-react';
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import { getNodeREDBridge, type FlowTemplate, type NodeRedMessage, type BridgeState } from '@/lib/ide/nodered-bridge';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 
 // =============================================================================
 // Node-RED Flow Monitor Panel
@@ -56,7 +58,7 @@ interface FlowEvent {
   [key: string]: unknown;
 }
 
-type TabId = 'editor' | 'events' | 'setup';
+type TabId = 'editor' | 'events' | 'templates' | 'debug' | 'setup';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -562,6 +564,160 @@ function EventLogTab({ agentHealth }: { agentHealth: ServiceHealth }) {
 // ---------------------------------------------------------------------------
 // Setup Tab
 // ---------------------------------------------------------------------------
+// Templates Tab — Flow template browser with Deploy button
+// ---------------------------------------------------------------------------
+
+function TemplatesTab() {
+  const templates = getNodeREDBridge().getTemplates();
+
+  const categoryColors: Record<string, string> = {
+    evidence: 'text-[#22c55e] bg-[#22c55e]/10 border-[#22c55e]/30',
+    injection: 'text-[#818cf8] bg-[#818cf8]/10 border-[#818cf8]/30',
+    scheduler: 'text-[#e5c07b] bg-[#e5c07b]/10 border-[#e5c07b]/30',
+    custom: 'text-[#8888aa] bg-[#8888aa]/10 border-[#8888aa]/30',
+  };
+
+  return (
+    <div className="flex-1 overflow-auto p-3 space-y-2">
+      <div className="text-[10px] text-[#6b6b75] uppercase tracking-wider font-semibold mb-2">
+        Context DNA Flow Templates
+      </div>
+      {templates.map((tpl) => (
+        <div
+          key={tpl.id}
+          className="border border-[#2a2a3a] rounded-lg p-3 hover:border-[#818cf8]/50 transition-colors"
+        >
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded border ${categoryColors[tpl.category] ?? categoryColors.custom}`}>
+              {tpl.category}
+            </span>
+            <span className="text-xs font-medium text-[#cccccc]">{tpl.name}</span>
+          </div>
+          <p className="text-[11px] text-[#8888aa] mb-2">{tpl.description}</p>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[#6b6b75]">
+              {(tpl.flow as any)?.nodes?.length ?? 0} nodes
+            </span>
+            <button
+              className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded bg-[#818cf8]/20 text-[#818cf8] text-[10px] font-medium hover:bg-[#818cf8]/30 transition-colors"
+              onClick={() => {
+                // Future: deploy template to Node-RED
+                try {
+                  getCapabilityBus().emit('nodered.flow.deploy', {
+                    flowId: tpl.id,
+                    source: 'templates-tab',
+                  });
+                } catch { /* bus not ready */ }
+              }}
+            >
+              <Play className="w-3 h-3" />
+              Deploy
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live Debug Tab — Real-time Node-RED debug messages via CapabilityBus
+// ---------------------------------------------------------------------------
+
+function LiveDebugTab() {
+  const [messages, setMessages] = useState<{ nodeId: string; message: string; timestamp: number }[]>([]);
+  const [bridgeState, setBridgeState] = useState<BridgeState>('disconnected');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const bridge = getNodeREDBridge();
+    setBridgeState(bridge.getState());
+
+    // Connect if not connected
+    bridge.connect();
+
+    // Load existing debug messages
+    const existing = bridge.getDebugMessages().map((m) => ({
+      nodeId: (m.data as any)?.id ?? 'unknown',
+      message: typeof m.data === 'string' ? m.data : JSON.stringify(m.data),
+      timestamp: Date.now(),
+    }));
+    setMessages(existing.slice(-50));
+
+    // Subscribe to new debug messages via CapabilityBus
+    const bus = getCapabilityBus();
+    const sub = bus.on('nodered.debug', (data) => {
+      setMessages((prev) => {
+        const next = [...prev, data].slice(-100);
+        return next;
+      });
+    });
+
+    // Subscribe to bridge state changes
+    const stateSub = bridge.onStateChange((state) => {
+      setBridgeState(state);
+    });
+
+    return () => {
+      sub.dispose();
+      stateSub();
+    };
+  }, []);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const stateColor = bridgeState === 'connected' ? 'text-[#22c55e]' : bridgeState === 'connecting' ? 'text-[#e5c07b]' : 'text-[#ef4444]';
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Connection status bar */}
+      <div className="flex items-center gap-2 px-3 py-1 border-b border-[#2a2a3a] flex-shrink-0">
+        <span className={`w-1.5 h-1.5 rounded-full ${bridgeState === 'connected' ? 'bg-[#22c55e]' : bridgeState === 'connecting' ? 'bg-[#e5c07b] animate-pulse' : 'bg-[#ef4444]'}`} />
+        <span className={`text-[10px] ${stateColor}`}>
+          {bridgeState === 'connected' ? 'Connected to Node-RED' : bridgeState === 'connecting' ? 'Connecting...' : 'Disconnected'}
+        </span>
+        <span className="text-[10px] text-[#6b6b75] ml-auto">{messages.length} messages</span>
+        <button
+          onClick={() => setMessages([])}
+          className="text-[10px] text-[#6b6b75] hover:text-[#ef4444] transition-colors"
+          title="Clear"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* Debug message stream */}
+      <div ref={scrollRef} className="flex-1 overflow-auto p-1 font-mono text-[10px] space-y-0.5">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-[#6b6b75] gap-2">
+            <Send className="w-6 h-6 opacity-40" />
+            <span className="text-xs">No debug messages yet</span>
+            <span className="text-[10px]">Add debug nodes in Node-RED to see output here</span>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            className="flex items-start gap-2 px-2 py-0.5 rounded hover:bg-[#1a1a24]/50"
+          >
+            <span className="text-[#6b6b75] flex-shrink-0 w-[50px] text-right">
+              {new Date(msg.timestamp).toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+            <span className="text-[#818cf8] flex-shrink-0">[{msg.nodeId.slice(0, 8)}]</span>
+            <span className="text-[#cccccc] break-all">{msg.message}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 function SetupTab() {
   return (
@@ -703,6 +859,16 @@ export function NodeRedPanel() {
       icon: <Zap className="w-3.5 h-3.5" />,
     },
     {
+      id: 'templates',
+      label: 'Templates',
+      icon: <Copy className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'debug',
+      label: 'Live Debug',
+      icon: <Send className="w-3.5 h-3.5" />,
+    },
+    {
       id: 'setup',
       label: 'Setup',
       icon: <Server className="w-3.5 h-3.5" />,
@@ -751,6 +917,8 @@ export function NodeRedPanel() {
           <FlowEditorTab nodeRedHealth={nodeRedHealth} />
         )}
         {activeTab === 'events' && <EventLogTab agentHealth={agentHealth} />}
+        {activeTab === 'templates' && <TemplatesTab />}
+        {activeTab === 'debug' && <LiveDebugTab />}
         {activeTab === 'setup' && <SetupTab />}
       </div>
     </div>

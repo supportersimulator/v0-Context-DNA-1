@@ -33,6 +33,9 @@ export { WandBProvider } from './wandb-provider';
 // VCS
 export { GitLabProvider } from './gitlab-provider';
 
+// System
+export { MCPClientBridge } from '../mcp-client-bridge';
+
 // ---------------------------------------------------------------------------
 // ALL_PROVIDERS — convenience array for bulk registration
 // ---------------------------------------------------------------------------
@@ -49,6 +52,7 @@ import { SentryProvider } from './sentry-provider';
 import { KaggleProvider } from './kaggle-provider';
 import { WandBProvider } from './wandb-provider';
 import { GitLabProvider } from './gitlab-provider';
+import { MCPClientBridge } from '../mcp-client-bridge';
 import type { IntegrationProvider } from '../integration-manifest';
 
 export const ALL_PROVIDERS: IntegrationProvider[] = [
@@ -64,4 +68,5 @@ export const ALL_PROVIDERS: IntegrationProvider[] = [
   KaggleProvider,
   WandBProvider,
   GitLabProvider,
+  MCPClientBridge,
 ];

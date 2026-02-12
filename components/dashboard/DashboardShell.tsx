@@ -18,7 +18,9 @@ import { CustomPageView } from './views/custom-page-view';
 import { WelcomeModal } from './welcome-modal';
 import { VoiceWakeOverlay } from '../auth/voice-wake-overlay';
 import { cn } from '@/lib/utils';
-import { Syringe, Brain, LayoutDashboard, Plus, X } from 'lucide-react';
+import { Syringe, Brain, LayoutDashboard, Plus, X, Layers } from 'lucide-react';
+import { getWorkspaceManager, useWorkspaceSlot } from '@/lib/ide/workspace';
+import { getEventBus } from '@/lib/ide/event-bus';
 import { getStoredUsername } from '@/lib/auth/session';
 import type { CustomPage, PanelWire } from '@/lib/custom-pages';
 import {
@@ -57,10 +59,26 @@ export default function DashboardShell() {
   // ── Panel Wires (cross-page connections) ──
   const [panelWires, setPanelWires] = useState<PanelWire[]>([]);
 
+  // ── Workspace Manager ──
+  const workspaceSlot = useWorkspaceSlot();
+
   // Load custom pages + wires from localStorage on mount
   useEffect(() => {
     setCustomPages(loadCustomPages());
     setPanelWires(loadPanelWires());
+  }, []);
+
+  // Wire workspace auto-save to editor events
+  useEffect(() => {
+    const bus = getEventBus();
+    const mgr = getWorkspaceManager();
+    const handler = () => mgr.scheduleSave();
+    const subs = [
+      (bus as any).on('editor:file-opened', handler),
+      (bus as any).on('editor:file-closed', handler),
+      (bus as any).on('editor:active-changed', handler),
+    ];
+    return () => { subs.forEach((s: any) => s?.dispose?.()); };
   }, []);
 
   // Persist custom pages on change
@@ -588,6 +606,25 @@ export default function DashboardShell() {
             onTabClose={handleTabClose}
             onTabAdd={handleTabAdd}
           />
+        </div>
+
+        {/* 4. Workspace Indicator (Far Right — title bar level) */}
+        <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+          {[1, 2, 3].map((slot) => (
+            <button
+              key={slot}
+              onClick={() => getWorkspaceManager().switchTo(slot)}
+              className={cn(
+                "w-6 h-6 rounded text-[11px] font-mono font-bold transition-all",
+                workspaceSlot === slot
+                  ? "bg-primary/20 text-primary border border-primary/40"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50 border border-transparent"
+              )}
+              title={`Workspace ${slot}`}
+            >
+              {slot}
+            </button>
+          ))}
         </div>
       </div>
 

@@ -19,6 +19,8 @@ import {
   X,
 } from 'lucide-react';
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import { getEditorStore } from '@/lib/ide/editor-store';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,6 +252,15 @@ export function DebugPanel() {
               className={`flex items-center gap-2 w-full text-left px-4 py-0.5 text-[11px] hover:bg-[#1a1a24]/50 ${
                 frame.isActive ? 'bg-[#22c55e]/5' : ''
               }`}
+              onClick={() => {
+                getEditorStore().openFile(frame.file, '');
+                getCapabilityBus().emit('file.open', {
+                  path: frame.file,
+                  line: frame.line,
+                  column: frame.column,
+                  source: 'debug-panel',
+                });
+              }}
             >
               <Layers className="w-3 h-3 text-[#6b6b75] flex-shrink-0" />
               <span className={`font-mono ${frame.isActive ? 'text-[#22c55e]' : 'text-[#e5e5e5]'}`}>

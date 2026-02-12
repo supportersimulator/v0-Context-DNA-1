@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   GitBranch,
   GitCommit,
@@ -13,6 +13,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import { getEditorStore } from '@/lib/ide/editor-store';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,8 +75,14 @@ const POLL_INTERVAL = 10_000;
 // FileRow
 // ---------------------------------------------------------------------------
 function FileRow({ file }: { file: GitFileStatus }) {
+  const handleClick = useCallback(() => {
+    getEditorStore().openFile(file.path, '');
+    getCapabilityBus().emit('file.open', { path: file.path, source: 'git-panel' });
+  }, [file.path]);
+
   return (
     <button
+      onClick={handleClick}
       className="flex items-center gap-2 w-full text-left px-3 py-1 hover:bg-[#1a1a24] transition-colors group"
       title={file.path}
     >

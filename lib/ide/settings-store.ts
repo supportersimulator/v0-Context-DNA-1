@@ -63,6 +63,14 @@ export interface IDESettings {
 
   // Keyboard
   'keyboard.customBindings': Record<string, string>;
+
+  // Security — MCP Permission Tiers
+  'security.permissionTier': 'full' | 'standard' | 'limited' | 'locked';
+  'security.synapticTier': 'full' | 'standard' | 'limited' | 'locked';
+  'security.confirmDestructive': boolean;
+  'security.auditRetention': number;
+  'security.mcpAllowedDirs': string[];
+  'security.mcpBlockedCmds': string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +117,13 @@ export const SETTING_DEFAULTS: Readonly<IDESettings> = {
   'providers.envKeys': {},
 
   'keyboard.customBindings': {},
+
+  'security.permissionTier': 'standard' as const,
+  'security.synapticTier': 'limited' as const,
+  'security.confirmDestructive': true,
+  'security.auditRetention': 30,
+  'security.mcpAllowedDirs': [] as string[],
+  'security.mcpBlockedCmds': [] as string[],
 };
 
 // ---------------------------------------------------------------------------
@@ -134,6 +149,7 @@ export const SETTING_CATEGORIES = [
   'Editor',
   'Explorer',
   'AI',
+  'Security',
   'Notifications',
   'Backend',
   'Performance',
@@ -333,6 +349,41 @@ export const SETTING_METADATA: SettingMeta[] = [
     description: 'Only mount panels when they become visible',
     category: 'Performance',
     type: 'boolean',
+  },
+
+  // Security
+  {
+    key: 'security.permissionTier',
+    label: 'Permission Tier',
+    description: 'Controls what DesktopCommander MCP actions are allowed for user-initiated operations',
+    category: 'Security',
+    type: 'enum',
+    enumValues: ['full', 'standard', 'limited', 'locked'],
+  },
+  {
+    key: 'security.synapticTier',
+    label: 'Synaptic Permission Tier',
+    description: 'Controls what MCP actions the local LLM (Synaptic) can perform via chat',
+    category: 'Security',
+    type: 'enum',
+    enumValues: ['full', 'standard', 'limited', 'locked'],
+  },
+  {
+    key: 'security.confirmDestructive',
+    label: 'Confirm Destructive Actions',
+    description: 'Always show confirmation dialog for destructive operations (cannot be disabled)',
+    category: 'Security',
+    type: 'boolean',
+  },
+  {
+    key: 'security.auditRetention',
+    label: 'Audit Log Retention (days)',
+    description: 'How many days to keep MCP action audit logs',
+    category: 'Security',
+    type: 'number',
+    min: 1,
+    max: 365,
+    step: 1,
   },
 
   // Keyboard

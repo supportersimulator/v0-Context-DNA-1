@@ -13,6 +13,8 @@ import {
   CircleX,
 } from 'lucide-react';
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import { getEditorStore } from '@/lib/ide/editor-store';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -233,6 +235,15 @@ export function ProblemsPanel() {
                 key={`${group.path}-${idx}`}
                 className="flex items-start gap-2 w-full text-left pl-7 pr-2 py-1 hover:bg-[#1a1a24]/50 text-[11px] group"
                 title={`${diag.file}:${diag.line}:${diag.column}`}
+                onClick={() => {
+                  getEditorStore().openFile(diag.file, '');
+                  getCapabilityBus().emit('file.open', {
+                    path: diag.file,
+                    line: diag.line,
+                    column: diag.column,
+                    source: 'problems-panel',
+                  });
+                }}
               >
                 {severityIcon(diag.severity)}
                 <span className={`flex-1 ${severityColor(diag.severity)}`}>

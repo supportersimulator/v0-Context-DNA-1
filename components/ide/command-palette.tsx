@@ -209,6 +209,10 @@ export function createDefaultCommands(actions: {
   toggleLibrarian?: () => void;
   toggleSettings?: () => void;
   toggleNotifications?: () => void;
+  toggleNodeRed?: () => void;
+  deployNodeRedFlows?: () => void;
+  showEvidencePipeline?: () => void;
+  toggleScheduler?: () => void;
 }): Command[] {
   const noop = () => {};
   return [
@@ -534,6 +538,37 @@ export function createDefaultCommands(actions: {
       category: 'System',
       icon: <Mic className="w-4 h-4" />,
       action: actions.toggleVoiceChat ?? noop,
+    },
+
+    // Context DNA — Node-RED + Pipeline
+    {
+      id: 'view:toggle-nodered',
+      label: 'Toggle Node-RED Flow Editor',
+      category: 'View',
+      shortcut: 'Cmd+Shift+N',
+      icon: <Network className="w-4 h-4" />,
+      action: actions.toggleNodeRed ?? noop,
+    },
+    {
+      id: 'system:deploy-nodered-flows',
+      label: 'Deploy Node-RED Flows',
+      category: 'System',
+      icon: <Activity className="w-4 h-4" />,
+      action: actions.deployNodeRedFlows ?? noop,
+    },
+    {
+      id: 'view:show-evidence-pipeline',
+      label: 'Show Evidence Pipeline',
+      category: 'View',
+      icon: <FlaskConical className="w-4 h-4" />,
+      action: actions.showEvidencePipeline ?? noop,
+    },
+    {
+      id: 'view:toggle-scheduler',
+      label: 'Toggle Scheduler Panel',
+      category: 'View',
+      icon: <Clock className="w-4 h-4" />,
+      action: actions.toggleScheduler ?? noop,
     },
   ];
 }

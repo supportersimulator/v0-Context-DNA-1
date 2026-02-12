@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { X, Code2 } from 'lucide-react';
 import {
@@ -10,6 +10,7 @@ import {
   type EditorFile,
 } from '@/lib/ide/editor-store';
 import { useSettings, useSettingsVersion } from '@/lib/ide/settings-store';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 import { BreadcrumbBar } from './breadcrumb-bar';
 
 // ---------------------------------------------------------------------------
@@ -171,9 +172,28 @@ export function CodeEditorPanel() {
   const openFiles = useOpenFiles();
   const activeFile = useActiveFile();
   const settings = useSettings();
+  const monacoRef = useRef<any>(null);
 
   // Force re-render when settings change
   useSettingsVersion();
+
+  // Subscribe to file.open events from other panels (git, problems, debug)
+  useEffect(() => {
+    const bus = getCapabilityBus();
+    const sub = bus.on('file.open', (data) => {
+      // Open the file tab
+      store.openFile(data.path, '');
+
+      // If line specified, scroll Monaco to that line
+      if (data.line && monacoRef.current) {
+        const editor = monacoRef.current;
+        editor.revealLineInCenter(data.line);
+        editor.setPosition({ lineNumber: data.line, column: data.column ?? 1 });
+        editor.focus();
+      }
+    });
+    return () => sub.dispose();
+  }, [store]);
 
   // Read editor settings from settings store
   const fontSize = settings.get('appearance.fontSize') as number;
@@ -227,6 +247,7 @@ export function CodeEditorPanel() {
           value={activeFile.content}
           theme="vs-dark"
           onChange={handleEditorChange}
+          onMount={(editor) => { monacoRef.current = editor; }}
           options={{
             fontSize,
             tabSize,

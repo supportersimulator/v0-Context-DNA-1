@@ -114,7 +114,11 @@ class EditorStore {
       this.emitBus('editor:file-opened' as any, { path });
     }
 
+    const previous = this.activeFilePath;
     this.activeFilePath = path;
+    if (previous !== path) {
+      this.emitBus('editor:active-changed' as any, { path, previous });
+    }
     this.bump();
     this.persistToStorage();
   }
@@ -145,7 +149,9 @@ class EditorStore {
   setActiveFile(path: string): void {
     if (!this.files.has(path)) return;
     if (this.activeFilePath === path) return;
+    const previous = this.activeFilePath;
     this.activeFilePath = path;
+    this.emitBus('editor:active-changed' as any, { path, previous });
     this.bump();
   }
 

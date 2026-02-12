@@ -20,9 +20,13 @@ import type { Disposable } from './event-bus';
 import type {
   CapabilityEvents,
   CapabilityEventType,
+  IntegrationAction,
   SharedEntities,
   EntityType,
 } from './integration-manifest';
+import { checkPermission } from './permission-guard';
+import { getAuditLogger } from './audit-logger';
+import { getMCPActionMeta } from './mcp-client-bridge';
 
 // ---------------------------------------------------------------------------
 // Handler types
@@ -77,6 +81,18 @@ export class CapabilityBus {
   private eventLog: Array<{ event: string; data: unknown; timestamp: number }> = [];
   private maxLog = 100;
   private disposed = false;
+
+  // Confirmation callback — set by ConfirmationProvider (React)
+  private confirmationCallback?: (
+    request: ActionRequest,
+    action: IntegrationAction,
+  ) => Promise<boolean>;
+
+  setConfirmationCallback(
+    cb: (request: ActionRequest, action: IntegrationAction) => Promise<boolean>,
+  ): void {
+    this.confirmationCallback = cb;
+  }
 
   // -----------------------------------------------------------------------
   // Event subscription
@@ -160,10 +176,11 @@ export class CapabilityBus {
   }
 
   async dispatchAction(request: Omit<ActionRequest, 'id' | 'timestamp'>): Promise<ActionResult> {
+    const startMs = Date.now();
     const fullRequest: ActionRequest = {
       ...request,
       id: `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: Date.now(),
+      timestamp: startMs,
     };
 
     const key = `${request.targetProvider}:${request.actionId}`;
@@ -178,13 +195,122 @@ export class CapabilityBus {
       };
     }
 
+    // --- Permission Guard (Layer 1: IDE-level safety tiers) ---
+    if (request.targetProvider === 'desktop-commander') {
+      const actionMeta = getMCPActionMeta(request.actionId);
+      const destructive = actionMeta?.destructive ?? false;
+      const check = checkPermission(request.actionId, request.sourcePanel, destructive);
+
+      // DENIED by tier
+      if (!check.allowed) {
+        const auditEntry = {
+          action: request.actionId,
+          provider: request.targetProvider,
+          sourcePanel: request.sourcePanel,
+          outcome: 'denied' as const,
+          reason: check.reason,
+          params: request.params,
+        };
+        getAuditLogger().log(auditEntry);
+
+        this.emit('mcp.action.denied' as any, {
+          action: request.actionId,
+          tier: check.tier,
+          source: request.sourcePanel,
+          reason: check.reason || 'Blocked by safety tier',
+        });
+
+        return {
+          requestId: fullRequest.id,
+          ok: false,
+          error: check.reason,
+          timestamp: Date.now(),
+        };
+      }
+
+      // CONFIRMATION required for destructive actions
+      if (check.requiresConfirmation && actionMeta) {
+        if (!this.confirmationCallback) {
+          // No UI callback registered — block by default
+          getAuditLogger().log({
+            action: request.actionId,
+            provider: request.targetProvider,
+            sourcePanel: request.sourcePanel,
+            outcome: 'denied' as const,
+            reason: 'Destructive action requires confirmation dialog (not available)',
+            params: request.params,
+          });
+          return {
+            requestId: fullRequest.id,
+            ok: false,
+            error: 'Destructive action requires confirmation (dialog not available)',
+            timestamp: Date.now(),
+          };
+        }
+
+        const confirmed = await this.confirmationCallback(fullRequest, actionMeta);
+        if (!confirmed) {
+          getAuditLogger().log({
+            action: request.actionId,
+            provider: request.targetProvider,
+            sourcePanel: request.sourcePanel,
+            outcome: 'cancelled' as const,
+            reason: 'User cancelled confirmation',
+            params: request.params,
+          });
+          return {
+            requestId: fullRequest.id,
+            ok: false,
+            error: 'Cancelled by user',
+            timestamp: Date.now(),
+          };
+        }
+
+        this.emit('mcp.action.confirmed' as any, {
+          action: request.actionId,
+          source: request.sourcePanel,
+        });
+      }
+    }
+    // --- End Permission Guard ---
+
     try {
-      return await handler(fullRequest);
+      const result = await handler(fullRequest);
+
+      // Audit log for MCP actions
+      if (request.targetProvider === 'desktop-commander') {
+        getAuditLogger().log({
+          action: request.actionId,
+          provider: request.targetProvider,
+          sourcePanel: request.sourcePanel,
+          outcome: result.ok ? 'success' : 'error',
+          error: result.error,
+          params: request.params,
+          durationMs: Date.now() - startMs,
+        });
+      }
+
+      return result;
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Action failed';
+
+      // Audit log for MCP failures
+      if (request.targetProvider === 'desktop-commander') {
+        getAuditLogger().log({
+          action: request.actionId,
+          provider: request.targetProvider,
+          sourcePanel: request.sourcePanel,
+          outcome: 'error',
+          error: errorMsg,
+          params: request.params,
+          durationMs: Date.now() - startMs,
+        });
+      }
+
       return {
         requestId: fullRequest.id,
         ok: false,
-        error: err instanceof Error ? err.message : 'Action failed',
+        error: errorMsg,
         timestamp: Date.now(),
       };
     }

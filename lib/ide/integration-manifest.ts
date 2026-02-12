@@ -30,7 +30,8 @@ export type IntegrationCategory =
   | 'project'      // Linear, Jira, PagerDuty
   | 'vcs'          // GitHub, GitLab, Bitbucket
   | 'testing'      // API Tester, Cypress, Playwright
-  | 'preview';     // Frontend Preview, Browser DevTools
+  | 'preview'      // Frontend Preview, Browser DevTools
+  | 'system';      // Desktop Commander, OS integration
 
 // ---------------------------------------------------------------------------
 // Auth Strategies
@@ -57,6 +58,8 @@ export interface SharedEntities {
   endpoint: { url: string; method: string; status?: number };
   incident: { id: string; severity: 'critical' | 'high' | 'medium' | 'low'; title: string };
   device:   { name: string; platform: 'ios' | 'android' | 'web'; width: number; height: number; scale: number };
+  flow:     { id: string; name: string; nodeCount: number; lastDeployed?: number };
+  process:  { pid: number; name: string; cpu: number; memory: number };
 }
 
 export type EntityType = keyof SharedEntities;
@@ -115,6 +118,68 @@ export interface CapabilityEvents {
   'preview.device.changed': { device: SharedEntities['device'] };
   'preview.orientation.changed': { orientation: 'portrait' | 'landscape' };
   'preview.url.changed': { url: string };
+
+  // -------------------------------------------------------------------------
+  // File Navigation — cross-panel file open / reveal / diff
+  // -------------------------------------------------------------------------
+  'file.open':    { path: string; line?: number; column?: number; preview?: boolean; source: string };
+  'file.diff':    { leftPath: string; rightPath: string; title?: string; source: string };
+  'file.reveal':  { path: string; source: string };
+  'file.save':    { path: string; content: string; source: string };
+  'file.close':   { path: string; source: string };
+
+  // Diagnostics
+  'diagnostics.updated': { path: string; diagnostics: { severity: string; message: string; line: number; column: number; source: string; code?: string }[] };
+  'diagnostics.cleared': { path?: string; source: string };
+
+  // -------------------------------------------------------------------------
+  // Node-RED — flow editor + runtime events
+  // -------------------------------------------------------------------------
+  'nodered.connected':        { url: string };
+  'nodered.disconnected':     { reason: string };
+  'nodered.flow.deployed':    { flowId: string; nodeCount: number; timestamp: number };
+  'nodered.flow.deploy':      { flowId: string; source: string };
+  'nodered.message.received': { nodeId: string; topic: string; payload: unknown };
+  'nodered.error':            { nodeId?: string; message: string; timestamp: number };
+  'nodered.debug':            { nodeId: string; message: string; timestamp: number };
+  'nodered.inject':           { nodeId: string; source: string };
+
+  // -------------------------------------------------------------------------
+  // Evidence Pipeline — claim → quarantine → promotion
+  // -------------------------------------------------------------------------
+  'evidence.item.quarantined': { itemId: string; itemType: string; notes: string };
+  'evidence.item.promoted':    { itemId: string; confidence: number; effectSize: number };
+  'evidence.item.rejected':    { itemId: string; reason: string };
+  'evidence.stats.updated':    { claims: number; quarantine: number; outcomes: number; injections: number };
+
+  // -------------------------------------------------------------------------
+  // Injection — webhook assembly pipeline
+  // -------------------------------------------------------------------------
+  'injection.started':          { injectionId: string; timestamp: number };
+  'injection.section.complete': { injectionId: string; sectionId: number; durationMs: number };
+  'injection.complete':         { injectionId: string; totalMs: number; sectionCount: number; payloadHash: string };
+
+  // -------------------------------------------------------------------------
+  // Scheduler — job lifecycle events
+  // -------------------------------------------------------------------------
+  'scheduler.job.started':   { jobName: string; timestamp: number };
+  'scheduler.job.completed': { jobName: string; durationMs: number; result?: string };
+  'scheduler.job.failed':    { jobName: string; error: string; timestamp: number };
+
+  // -------------------------------------------------------------------------
+  // Workspace — project lifecycle
+  // -------------------------------------------------------------------------
+  'workspace.opened': { name: string; rootPath: string };
+  'workspace.closed': { name: string };
+
+  // -------------------------------------------------------------------------
+  // MCP / Desktop Commander — system access events
+  // -------------------------------------------------------------------------
+  'mcp.connected':        { provider: string; url: string };
+  'mcp.disconnected':     { provider: string; reason: string };
+  'mcp.action.denied':    { action: string; tier: string; source: string; reason: string };
+  'mcp.action.confirmed': { action: string; source: string };
+  'mcp.nuclear.reset':    { timestamp: number; cleared: string[]; preserved: string[] };
 }
 
 export type CapabilityEventType = keyof CapabilityEvents;

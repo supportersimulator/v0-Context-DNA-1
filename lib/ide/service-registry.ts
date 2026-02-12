@@ -29,6 +29,7 @@ const SERVICE_URLS: Record<string, { base: string; env?: string }> = {
   redis:          { base: 'redis://127.0.0.1:6379' },
   nodered:        { base: 'http://127.0.0.1:1880',  env: 'NEXT_PUBLIC_NODERED_API' },
   nodered_agent:  { base: 'http://127.0.0.1:8000',  env: 'NEXT_PUBLIC_NODERED_AGENT_API' },
+  desktop_commander: { base: '/api/mcp',              env: 'NEXT_PUBLIC_MCP_API' },
 };
 
 const WS_ENDPOINTS: Record<string, { service: string; path: string }> = {
@@ -38,6 +39,8 @@ const WS_ENDPOINTS: Record<string, { service: string; path: string }> = {
   badges_ws:        { service: 'helper_agent',  path: '/ws/badges' },
   synaptic_voice_ws:{ service: 'synaptic_chat', path: '/voice' },
   synaptic_chat_ws: { service: 'synaptic_chat', path: '/ws/chat' },
+  nodered_ws:       { service: 'nodered',       path: '/comms' },
+  nodered_debug:    { service: 'nodered',       path: '/debug' },
 };
 
 /**

@@ -637,6 +637,60 @@ export const DEFAULT_BINDINGS: KeyBindingDef[] = [
     category: 'View',
     when: '!inputFocus',
   },
+
+  // -- File operations --------------------------------------------------------
+  {
+    id: 'editor.closeTab',
+    key: 'cmd+w',
+    command: 'Close Active Tab',
+    category: 'View',
+    when: '!inputFocus',
+  },
+
+  // -- Node-RED / Context DNA -------------------------------------------------
+  {
+    id: 'view.toggleNodeRed',
+    key: 'cmd+shift+n',
+    command: 'Toggle Node-RED',
+    category: 'View',
+    when: '!inputFocus',
+  },
+  {
+    id: 'view.toggleInjectionViewer',
+    key: 'cmd+shift+i',
+    command: 'Toggle Injection Viewer',
+    category: 'View',
+    when: '!inputFocus',
+  },
+
+  // -- Debug ------------------------------------------------------------------
+  {
+    id: 'debug.start',
+    key: 'f5',
+    command: 'Start/Continue Debug',
+    category: 'Debug',
+    when: '!inputFocus',
+  },
+  {
+    id: 'debug.toggleBreakpoint',
+    key: 'f9',
+    command: 'Toggle Breakpoint',
+    category: 'Debug',
+  },
+  {
+    id: 'debug.stepOver',
+    key: 'f10',
+    command: 'Step Over',
+    category: 'Debug',
+    when: '!inputFocus',
+  },
+  {
+    id: 'debug.stepInto',
+    key: 'f11',
+    command: 'Step Into',
+    category: 'Debug',
+    when: '!inputFocus',
+  },
 ];
 
 // =============================================================================
