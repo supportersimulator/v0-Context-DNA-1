@@ -52,7 +52,7 @@ const STRATEGY_LABELS: Record<DegradationStrategy, string> = {
 // ServiceStatusDot — tiny colored indicator dot with optional pulse
 // ---------------------------------------------------------------------------
 
-function ServiceStatusDot({
+export function ServiceStatusDot({
   status,
   size = 8,
 }: {

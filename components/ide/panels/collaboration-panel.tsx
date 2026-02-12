@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -136,7 +137,7 @@ export function CollaborationPanel() {
   useEffect(() => {
     const fetchState = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/collaboration/state', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/collaboration/state', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getServiceWsUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // useRealtimePanels — EventBus for real-time panel data from Context DNA
@@ -13,7 +14,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 //   useEffect(() => subscribe('injection', (data) => setPayload(data)), []);
 // ---------------------------------------------------------------------------
 
-const CONTEXTDNA_WS_URL = 'ws://127.0.0.1:8029/ws/events';
+const CONTEXTDNA_WS_URL = getServiceWsUrl('events_ws');
 const WS_RECONNECT_DELAY = 5_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 

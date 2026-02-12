@@ -16,6 +16,7 @@ import {
   WifiOff,
   Circle,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,7 +105,7 @@ export function ContextBusPanel() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/context-bus/status', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/context-bus/status', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -122,7 +123,7 @@ export function ContextBusPanel() {
   useEffect(() => {
     const fetchDbs = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/context-bus/databases', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/context-bus/databases', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -138,7 +139,7 @@ export function ContextBusPanel() {
     const newMode = mode === 'lite' ? 'heavy' : 'lite';
     setMode(newMode);
     try {
-      await fetch('http://127.0.0.1:8029/api/context-bus/mode', {
+      await fetch(getServiceUrl('helper_agent') + '/api/context-bus/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: newMode }),

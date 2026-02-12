@@ -11,6 +11,7 @@ import {
   Rows2,
   RefreshCw,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // Dynamic import for Monaco DiffEditor (SSR disabled)
 const DiffEditor = dynamic(
@@ -156,7 +157,7 @@ export function DiffViewerPanel() {
   // Fetch diff files from backend (falls back to mock)
   const fetchFiles = useCallback(async () => {
     try {
-      const res = await fetch('http://127.0.0.1:3456/api/git/diff/files', {
+      const res = await fetch(getServiceUrl('memory_api') + '/api/git/diff/files', {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -174,7 +175,7 @@ export function DiffViewerPanel() {
   const fetchDiffContent = useCallback(async (path: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`http://127.0.0.1:3456/api/git/diff/content?path=${encodeURIComponent(path)}`, {
+      const res = await fetch(`${getServiceUrl('memory_api')}/api/git/diff/content?path=${encodeURIComponent(path)}`, {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

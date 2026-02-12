@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { ActivityBadge } from '@/components/ide/activity-bar';
+import { getServiceUrl, getServiceWsUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // useRealtimeBadges — WebSocket-powered Activity Bar badge counts
@@ -16,8 +17,8 @@ import type { ActivityBadge } from '@/components/ide/activity-bar';
 // Falls back to HTTP polling if WebSocket unavailable.
 // ---------------------------------------------------------------------------
 
-const CONTEXTDNA_WS_URL = 'ws://127.0.0.1:8029/ws/badges';
-const CONTEXTDNA_HTTP_URL = 'http://127.0.0.1:8029/api/badges';
+const CONTEXTDNA_WS_URL = getServiceWsUrl('badges_ws');
+const CONTEXTDNA_HTTP_URL = `${getServiceUrl('helper_agent')}/api/badges`;
 const POLL_INTERVAL = 15_000;
 const WS_RECONNECT_DELAY = 5_000;
 

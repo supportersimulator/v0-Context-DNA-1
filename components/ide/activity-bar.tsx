@@ -35,8 +35,10 @@ import {
   Trophy,
   Package,
   Activity,
+  CircleDot,
 } from 'lucide-react';
 import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
+import { PANEL_METADATA, IDE_PANEL_METADATA, type PanelMeta } from './panel-factory';
 
 // ---------------------------------------------------------------------------
 // Activity Bar — VS Code-style narrow icon strip
@@ -68,7 +70,7 @@ export interface ActivityBarProps {
 }
 
 // ---------------------------------------------------------------------------
-// Icon definitions — top section (panels) and bottom section (utilities)
+// Icon definitions — generated from PanelMeta (single source of truth)
 // ---------------------------------------------------------------------------
 
 interface ActivityIconDef {
@@ -82,177 +84,35 @@ interface ActivityIconDef {
   isExplorerToggle?: boolean;
 }
 
-const TOP_ICONS: ActivityIconDef[] = [
-  {
-    id: 'explorer',
-    icon: FolderOpen,
-    label: 'Explorer',
-    isExplorerToggle: true,
-  },
-  {
-    id: 'editor',
-    icon: Code2,
-    label: 'Editor',
-  },
-  {
-    id: 'search',
-    icon: Search,
-    label: 'Search',
-  },
-  {
-    id: 'git',
-    icon: GitBranch,
-    label: 'Source Control',
-  },
-  {
-    id: 'diff',
-    icon: Diff,
-    label: 'Diff Viewer',
-  },
-  {
-    id: 'problems',
-    icon: AlertCircle,
-    label: 'Problems',
-  },
-  {
-    id: 'health',
-    icon: Bug,
-    label: 'Health & Debug',
-  },
-  {
-    id: 'synaptic',
-    icon: Brain,
-    label: 'Synaptic Chat',
-  },
-  {
-    id: 'injection',
-    icon: Syringe,
-    label: 'Injection / Live View',
-  },
-  {
-    id: 'swarm',
-    icon: Workflow,
-    label: 'Swarm Controller',
-  },
-  {
-    id: 'harmonizer',
-    icon: Shield,
-    label: 'Harmonizer',
-  },
-  {
-    id: 'evidence',
-    icon: FlaskConical,
-    label: 'Evidence Pipeline',
-  },
-  {
-    id: 'memory',
-    icon: BookOpen,
-    label: 'Memory Explorer',
-  },
-  {
-    id: 'timeline',
-    icon: Clock,
-    label: 'Session Timeline',
-  },
-  {
-    id: 'terminal',
-    icon: Terminal,
-    label: 'Terminal',
-  },
-  {
-    id: 'debug',
-    icon: Bug,
-    label: 'Debug',
-  },
-  {
-    id: 'extensions',
-    icon: Puzzle,
-    label: 'Extensions',
-  },
-  {
-    id: 'collaboration',
-    icon: Users,
-    label: 'Collaboration',
-  },
-  {
-    id: 'minimap',
-    icon: Map,
-    label: 'Minimap',
-  },
-  {
-    id: 'context-bus',
-    icon: Radio,
-    label: 'ContextBus',
-  },
-  {
-    id: 'sync',
-    icon: ArrowLeftRight,
-    label: 'Bidirectional Sync',
-  },
-  {
-    id: 'injection-viewer',
-    icon: Eye,
-    label: 'Injection Viewer',
-  },
-  {
-    id: 'epistemic',
-    icon: Scale,
-    label: 'Epistemic Sustainability',
-  },
-  {
-    id: 'llm-orchestration',
-    icon: Cpu,
-    label: 'LLM Orchestration',
-  },
-  {
-    id: 'agents',
-    icon: Bot,
-    label: 'Agent Tasks',
-  },
-  {
-    id: 'librarian',
-    icon: Library,
-    label: 'Repo Librarian',
-  },
-  {
-    id: 'benchmark-consent',
-    icon: GitCompare,
-    label: 'Compare Configs',
-  },
-  {
-    id: 'integrations',
-    icon: Plug,
-    label: 'Integrations',
-  },
-  {
-    id: 'leaderboard',
-    icon: Trophy,
-    label: 'Leaderboard',
-  },
-  {
-    id: 'config-packs',
-    icon: Package,
-    label: 'Config Packs',
-  },
-  {
-    id: 'bottleneck',
-    icon: Activity,
-    label: 'Bottleneck Analysis',
-  },
-];
+/** Map PanelMeta icon strings to Lucide components (tree-shake safe) */
+const ICON_MAP: Record<string, LucideIcon> = {
+  FolderOpen, Search, GitBranch, Bug, Brain, Syringe, Terminal,
+  Settings, Bell, Workflow, Shield, FlaskConical, Code2, Diff,
+  AlertCircle, BookOpen, Clock, Puzzle, Users, Map, Radio,
+  ArrowLeftRight, Eye, Scale, Cpu, Bot, Library, GitCompare,
+  Plug, Trophy, Package, Activity, CircleDot,
+};
 
-const BOTTOM_ICONS: ActivityIconDef[] = [
-  {
-    id: 'settings',
-    icon: Settings,
-    label: 'Settings / Install Wizard',
-  },
-  {
-    id: 'notifications',
-    icon: Bell,
-    label: 'Notifications',
-  },
-];
+function resolveIcon(name: string): LucideIcon {
+  return ICON_MAP[name] ?? CircleDot;
+}
+
+/** Build icon arrays from PanelMeta — always includes all panels (web + IDE) */
+const ALL_META: Record<string, PanelMeta> = { ...PANEL_METADATA, ...IDE_PANEL_METADATA };
+
+function buildIconDefs(position: 'top' | 'bottom'): ActivityIconDef[] {
+  return Object.entries(ALL_META)
+    .filter(([, m]) => m.icon && (position === 'bottom' ? m.position === 'bottom' : m.position !== 'bottom'))
+    .map(([id, m]) => ({
+      id,
+      icon: resolveIcon(m.icon!),
+      label: m.label,
+      ...(m.isExplorerToggle ? { isExplorerToggle: true } : {}),
+    }));
+}
+
+const TOP_ICONS: ActivityIconDef[] = buildIconDefs('top');
+const BOTTOM_ICONS: ActivityIconDef[] = buildIconDefs('bottom');
 
 // ---------------------------------------------------------------------------
 // Tooltip component — appears on hover next to icon

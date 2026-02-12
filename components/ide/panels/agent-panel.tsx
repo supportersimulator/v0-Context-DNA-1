@@ -18,6 +18,15 @@ import {
   Key,
   Zap,
 } from 'lucide-react';
+import { useSetting } from '@/lib/ide/settings-store';
+import { getServiceUrl } from '@/lib/ide/service-registry';
+import {
+  MODEL_CATALOG,
+  PROVIDERS,
+  getEnabledModels,
+  groupByProvider,
+  getModel,
+} from '@/lib/ide/model-catalog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,8 +66,8 @@ interface AgentOutput {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const AGENT_API = 'http://127.0.0.1:8029';
-const AGENT_WS = 'ws://127.0.0.1:8029/ws/agents';
+const AGENT_API = getServiceUrl('helper_agent');
+const AGENT_WS = getServiceUrl('helper_agent').replace('http://', 'ws://') + '/ws/agents';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,8 +127,14 @@ export function AgentPanel() {
   const [approvals, setApprovals] = useState<ToolApproval[]>([]);
   const [output, setOutput] = useState<AgentOutput[]>([]);
   const [taskInput, setTaskInput] = useState('');
-  const [model, setModel] = useState<'opus' | 'sonnet' | 'haiku'>('sonnet');
-  const [mode, setMode] = useState<AgentMode>('subscription');
+  const [model, setModel] = useState('anthropic/sonnet');
+  const [primaryMode] = useSetting('agents.primaryMode');
+  const [autoFallback] = useSetting('agents.autoFallback');
+  const [mode, setMode] = useState<AgentMode>(primaryMode);
+  const [enabledModels] = useSetting('models.enabled');
+
+  // Sync mode with primaryMode setting when it changes
+  useEffect(() => { setMode(primaryMode); }, [primaryMode]);
   const [sessionPersistence, setSessionPersistence] = useState(true);
   const [connected, setConnected] = useState(false);
   const outputEndRef = useRef<HTMLDivElement>(null);
@@ -197,17 +212,22 @@ export function AgentPanel() {
     };
   }, []);
 
-  // Spawn a new task
+  // Spawn a new task (with auto-fallback)
   const submitTask = useCallback(async () => {
     if (!taskInput.trim()) return;
-    try {
+
+    const selectedModel = getModel(model);
+    const canFallback = autoFallback && selectedModel?.supportsSubscription && selectedModel?.supportsApi;
+    const fallbackMode: AgentMode = mode === 'subscription' ? 'api' : 'subscription';
+
+    const trySpawn = async (useMode: AgentMode): Promise<boolean> => {
       const res = await fetch(`${AGENT_API}/api/agents/spawn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           task: taskInput.trim(),
           model,
-          mode,
+          mode: useMode,
           inject_context: true,
           session_persistence: sessionPersistence,
         }),
@@ -218,13 +238,40 @@ export function AgentPanel() {
         setOutput((prev) => [...prev, {
           agentId: data.session_id,
           type: 'text',
-          content: `Spawned ${mode} session ${data.session_id} (${model})`,
+          content: `Spawned ${useMode} session ${data.session_id} (${model})`,
           timestamp: Date.now(),
         }]);
+        return true;
       }
-    } catch { /* ignore */ }
+      return false;
+    };
+
+    try {
+      const ok = await trySpawn(mode);
+      if (!ok && canFallback) {
+        setOutput((prev) => [...prev, {
+          agentId: 'system',
+          type: 'text',
+          content: `Primary mode (${mode}) failed — falling back to ${fallbackMode}...`,
+          timestamp: Date.now(),
+        }]);
+        await trySpawn(fallbackMode);
+      }
+    } catch {
+      if (canFallback) {
+        try {
+          setOutput((prev) => [...prev, {
+            agentId: 'system',
+            type: 'text',
+            content: `Primary mode (${mode}) failed — falling back to ${fallbackMode}...`,
+            timestamp: Date.now(),
+          }]);
+          await trySpawn(fallbackMode);
+        } catch { /* both failed */ }
+      }
+    }
     setTaskInput('');
-  }, [taskInput, model, mode]);
+  }, [taskInput, model, mode, autoFallback, sessionPersistence]);
 
   // Resume a crashed session
   const resumeSession = useCallback(async (session: AgentSession) => {
@@ -305,15 +352,32 @@ export function AgentPanel() {
                 <option value="subscription">Subscription (Pro/Max)</option>
                 <option value="api">API Key</option>
               </select>
-              {/* Model selector */}
+              {/* Model selector — catalog-driven, grouped by provider */}
               <select
                 value={model}
-                onChange={(e) => setModel(e.target.value as 'opus' | 'sonnet' | 'haiku')}
+                onChange={(e) => {
+                  const m = getModel(e.target.value);
+                  setModel(e.target.value);
+                  if (m && !m.supportsSubscription) setMode('api');
+                }}
                 className="text-[10px] px-2 py-1 bg-[#1a1a24] border border-[#2a2a35] rounded text-[#e5e5e5] focus:outline-none"
               >
-                <option value="opus">Opus</option>
-                <option value="sonnet">Sonnet</option>
-                <option value="haiku">Haiku</option>
+                {(() => {
+                  const active = getEnabledModels(enabledModels);
+                  const grouped = groupByProvider(active);
+                  return Object.entries(grouped).map(([pid, models]) => {
+                    const provider = PROVIDERS.find((p) => p.id === pid);
+                    return (
+                      <optgroup key={pid} label={provider?.name ?? pid}>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.displayName}{!m.supportsSubscription ? ` ($${m.costPerMInput}/M)` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  });
+                })()}
               </select>
               <button
                 onClick={submitTask}
@@ -329,17 +393,17 @@ export function AgentPanel() {
                 <Users className="w-3 h-3" /> Swarm
               </button>
             </div>
-            {/* Mode indicator + persistence toggle */}
+            {/* Mode indicator + fallback + persistence toggle */}
             <div className="flex items-center gap-1.5 text-[9px] text-[#6b6b75]">
               {mode === 'subscription' ? (
                 <>
                   <Zap className="w-3 h-3 text-[#22c55e]" />
-                  <span>Using Claude subscription (no API cost)</span>
+                  <span>Subscription{autoFallback ? ' → API fallback' : ''}</span>
                 </>
               ) : (
                 <>
                   <Key className="w-3 h-3 text-[#e5c07b]" />
-                  <span>Using API key (pay-per-token)</span>
+                  <span>API{autoFallback && getModel(model)?.supportsSubscription ? ' → Sub fallback' : ''}</span>
                 </>
               )}
               <span className="mx-1 text-[#2a2a35]">|</span>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { getEventBus } from './event-bus';
+import { getServiceUrl } from './service-registry';
 
 // ---------------------------------------------------------------------------
 // IDESettings — every setting in the system, strongly typed
@@ -48,6 +49,18 @@ export interface IDESettings {
   'performance.animations': boolean;
   'performance.lazyPanels': boolean;
 
+  // Models & Providers
+  'models.enabled': Record<string, boolean>;
+  'models.defaultModel': string;
+  'providers.baseUrls': Record<string, string>;
+
+  // Agent execution
+  'agents.primaryMode': 'subscription' | 'api';
+  'agents.autoFallback': boolean;
+
+  // Custom env var names per provider (e.g., user has DS_KEY instead of DEEPSEEK_API_KEY)
+  'providers.envKeys': Record<string, string>;
+
   // Keyboard
   'keyboard.customBindings': Record<string, string>;
 }
@@ -81,11 +94,19 @@ export const SETTING_DEFAULTS: Readonly<IDESettings> = {
   'notifications.sound': false,
   'notifications.autoHideSeconds': 5,
 
-  'backend.apiUrl': 'http://127.0.0.1:3456',
+  'backend.apiUrl': getServiceUrl('memory_api') || 'http://127.0.0.1:3456',
   'backend.wsUrl': '',
 
   'performance.animations': true,
   'performance.lazyPanels': true,
+
+  'models.enabled': {},
+  'models.defaultModel': 'anthropic/sonnet',
+  'providers.baseUrls': {},
+
+  'agents.primaryMode': 'subscription',
+  'agents.autoFallback': true,
+  'providers.envKeys': {},
 
   'keyboard.customBindings': {},
 };

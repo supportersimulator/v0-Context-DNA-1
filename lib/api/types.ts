@@ -10,7 +10,7 @@
 export const API_BASE = {
   memory: process.env.NEXT_PUBLIC_MEMORY_API || 'http://127.0.0.1:3456',
   helper: process.env.NEXT_PUBLIC_HELPER_API || 'http://127.0.0.1:8080',
-  llm: process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5043',
+  llm: process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5044',
 } as const;
 
 const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';

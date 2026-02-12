@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,7 +56,7 @@ export interface LLMStatus {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_LLM_URL = 'http://127.0.0.1:5044';
+const DEFAULT_LLM_URL = getServiceUrl('local_llm') || 'http://127.0.0.1:5044';
 const HEALTH_POLL_MS = 30_000;
 const RENDER_THROTTLE_MS = 50;
 

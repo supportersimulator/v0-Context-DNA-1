@@ -22,6 +22,7 @@ import {
   Loader2,
   Zap,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,7 +158,7 @@ export function SyncPanel() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/sync/status', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/sync/status', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -176,7 +177,7 @@ export function SyncPanel() {
   const triggerSync = useCallback(async () => {
     setSyncing(true);
     try {
-      await fetch('http://127.0.0.1:8029/api/sync/trigger', {
+      await fetch(getServiceUrl('helper_agent') + '/api/sync/trigger', {
         method: 'POST',
         signal: AbortSignal.timeout(10000),
       });
@@ -187,7 +188,7 @@ export function SyncPanel() {
   const triggerHistorian = useCallback(async () => {
     setHistorian((prev) => ({ ...prev, collecting: true }));
     try {
-      const res = await fetch('http://127.0.0.1:8029/api/historian/collect', {
+      const res = await fetch(getServiceUrl('helper_agent') + '/api/historian/collect', {
         method: 'POST',
         signal: AbortSignal.timeout(30000),
       });

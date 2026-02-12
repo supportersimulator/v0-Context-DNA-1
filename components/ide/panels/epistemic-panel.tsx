@@ -15,6 +15,7 @@ import {
   BarChart3,
   Eye,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,7 +131,7 @@ export function EpistemicPanel() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/evidence/epistemic', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/evidence/epistemic', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {

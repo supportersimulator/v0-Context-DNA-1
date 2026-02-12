@@ -21,6 +21,7 @@ import {
   Timer,
   BarChart3,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -225,7 +226,7 @@ export function SwarmControllerPanel() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/swarm/controller', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/swarm/controller', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -253,7 +254,7 @@ export function SwarmControllerPanel() {
       agents: prev.agents.map((a) => a.gated ? { ...a, gated: false, status: 'running' as AgentStatus } : a),
     }));
     try {
-      await fetch('http://127.0.0.1:8029/api/swarm/gate/override', {
+      await fetch(getServiceUrl('helper_agent') + '/api/swarm/gate/override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'force_open' }),

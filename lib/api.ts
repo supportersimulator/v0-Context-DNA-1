@@ -435,7 +435,7 @@ export function subscribeToInjections(
 // =============================================================================
 
 const OLLAMA_API = process.env.NEXT_PUBLIC_OLLAMA_API || 'http://127.0.0.1:11434';
-const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5043';
+const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5044';
 
 // Import types
 import type {

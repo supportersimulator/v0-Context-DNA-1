@@ -37,7 +37,21 @@ import {
   Globe,
   Lock,
   UserCheck,
+  Bot,
+  Save,
+  Key,
+  Zap,
+  ArrowRightLeft,
 } from 'lucide-react';
+import { useSetting } from '@/lib/ide/settings-store';
+import {
+  MODEL_CATALOG,
+  PROVIDERS,
+  getEnabledModels,
+  groupByProvider,
+  type ProviderId,
+} from '@/lib/ide/model-catalog';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,7 +200,7 @@ function getMockData(): SettingsData {
       plistPath: '~/Library/LaunchAgents/com.contextdna.recovery.plist',
     },
     services: [
-      { name: 'agent_service', port: 8029, status: 'healthy', latencyMs: 12 },
+      { name: 'agent_service', port: 8080, status: 'healthy', latencyMs: 12 },
       { name: 'vllm-mlx', port: 5044, status: 'healthy', latencyMs: 45 },
       { name: 'PostgreSQL (context_dna)', port: 5432, status: 'healthy', latencyMs: 3 },
       { name: 'PostgreSQL (acontext)', port: 15432, status: 'healthy', latencyMs: 4 },
@@ -399,6 +413,302 @@ function DeviceIcon({ type }: { type: 'desktop' | 'mobile' | 'tablet' }) {
 }
 
 // ---------------------------------------------------------------------------
+// Agent Execution Section — primary mode + auto-fallback
+// ---------------------------------------------------------------------------
+
+function AgentExecutionSection() {
+  const [primaryMode, setPrimaryMode] = useSetting('agents.primaryMode');
+  const [autoFallback, setAutoFallback] = useSetting('agents.autoFallback');
+  const fallbackMode = primaryMode === 'subscription' ? 'api' : 'subscription';
+
+  return (
+    <Section
+      title="Agent Execution"
+      icon={<Zap className="w-3.5 h-3.5" />}
+      defaultOpen={false}
+      badge={
+        <span className="text-[9px] text-[#6b6b75]">
+          {primaryMode === 'subscription' ? 'Sub' : 'API'}{autoFallback ? ' + fallback' : ''}
+        </span>
+      }
+    >
+      <div className="px-3 py-2 space-y-2.5">
+        {/* Primary mode */}
+        <div>
+          <div className="text-[9px] text-[#6b6b75] uppercase tracking-wider mb-1">Primary Mode</div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPrimaryMode('subscription')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${
+                primaryMode === 'subscription'
+                  ? 'border-[#22c55e]/40 bg-[#22c55e]/10 text-[#22c55e]'
+                  : 'border-[#2a2a35] text-[#6b6b75] hover:text-[#e5e5e5]'
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              Subscription
+            </button>
+            <button
+              onClick={() => setPrimaryMode('api')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${
+                primaryMode === 'api'
+                  ? 'border-[#e5c07b]/40 bg-[#e5c07b]/10 text-[#e5c07b]'
+                  : 'border-[#2a2a35] text-[#6b6b75] hover:text-[#e5e5e5]'
+              }`}
+            >
+              <Key className="w-3 h-3" />
+              API Key
+            </button>
+          </div>
+          <div className="text-[9px] text-[#4a4a55] mt-1">
+            {primaryMode === 'subscription'
+              ? 'Uses Claude Pro/Max subscription via CLI (no per-token cost)'
+              : 'Uses API key with pay-per-token pricing'}
+          </div>
+        </div>
+
+        {/* Auto-fallback toggle */}
+        <div className="flex items-center gap-2 pt-1.5 border-t border-[#2a2a35]/30">
+          <button
+            onClick={() => setAutoFallback(!autoFallback)}
+            className="flex items-center"
+          >
+            <span className={`w-5 h-2.5 rounded-full transition-colors inline-flex items-center ${autoFallback ? 'bg-[#3b82f6]/30' : 'bg-[#6b6b75]/30'}`}>
+              <span className={`w-2 h-2 rounded-full transition-all ${autoFallback ? 'bg-[#3b82f6] translate-x-2.5' : 'bg-[#6b6b75] translate-x-0.5'}`} />
+            </span>
+          </button>
+          <div className="flex-1">
+            <div className="text-[10px] text-[#e5e5e5]">Auto-Fallback</div>
+            <div className="text-[9px] text-[#4a4a55]">
+              {autoFallback
+                ? `If ${primaryMode} fails → auto-retry with ${fallbackMode}`
+                : 'No fallback — only the selected mode is used'}
+            </div>
+          </div>
+          {autoFallback && (
+            <ArrowRightLeft className="w-3 h-3 text-[#3b82f6]" />
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Models Section — toggle models on/off, grouped by provider (Cursor-style)
+// ---------------------------------------------------------------------------
+
+const AGENT_API = getServiceUrl('helper_agent');
+
+function ModelsSection() {
+  const [enabledModels, setEnabledModels] = useSetting('models.enabled');
+  const grouped = groupByProvider(MODEL_CATALOG);
+  const [keyStatus, setKeyStatus] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    fetch(`${AGENT_API}/api/agents/config/api-keys`, { signal: AbortSignal.timeout(3000) })
+      .then((r) => r.ok ? r.json() : {})
+      .then((data) => {
+        const status: Record<string, boolean> = {};
+        for (const [provider, info] of Object.entries(data as Record<string, { configured: boolean }>)) {
+          status[provider] = info.configured;
+        }
+        setKeyStatus(status);
+      })
+      .catch(() => {});
+  }, []);
+
+  const toggle = (modelId: string) => {
+    const current = enabledModels[modelId] ?? MODEL_CATALOG.find((m) => m.id === modelId)?.defaultEnabled ?? false;
+    setEnabledModels({ ...enabledModels, [modelId]: !current });
+  };
+
+  const isEnabled = (modelId: string) =>
+    enabledModels[modelId] ?? MODEL_CATALOG.find((m) => m.id === modelId)?.defaultEnabled ?? false;
+
+  const enabledCount = MODEL_CATALOG.filter((m) => isEnabled(m.id)).length;
+
+  return (
+    <Section
+      title="Models"
+      icon={<Bot className="w-3.5 h-3.5" />}
+      defaultOpen={false}
+      badge={<span className="text-[9px] text-[#6b6b75]">{enabledCount} active</span>}
+    >
+      <div className="py-0.5">
+        {PROVIDERS.map((provider) => {
+          const models = grouped[provider.id];
+          if (!models?.length) return null;
+          return (
+            <div key={provider.id} className="mb-1">
+              <div className="flex items-center gap-1.5 px-3 py-0.5">
+                <StatusDot status={keyStatus[provider.id] ? 'healthy' : provider.id === 'anthropic' ? 'healthy' : 'unknown'} />
+                <span className="text-[9px] uppercase tracking-wider font-semibold text-[#6b6b75]">
+                  {provider.name}
+                </span>
+              </div>
+              {models.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-center gap-2 px-3 py-0.5 hover:bg-[#1a1a24]/50 transition-colors"
+                >
+                  <button
+                    onClick={() => toggle(m.id)}
+                    className="flex items-center"
+                  >
+                    <span className={`w-5 h-2.5 rounded-full transition-colors inline-flex items-center ${isEnabled(m.id) ? 'bg-[#22c55e]/30' : 'bg-[#6b6b75]/30'}`}>
+                      <span className={`w-2 h-2 rounded-full transition-all ${isEnabled(m.id) ? 'bg-[#22c55e] translate-x-2.5' : 'bg-[#6b6b75] translate-x-0.5'}`} />
+                    </span>
+                  </button>
+                  <span className={`text-[10px] flex-1 ${isEnabled(m.id) ? 'text-[#e5e5e5]' : 'text-[#6b6b75]'}`}>
+                    {m.displayName}
+                  </span>
+                  {m.supportsSubscription && (
+                    <span className="text-[8px] px-1 rounded bg-[#22c55e]/10 text-[#22c55e]">sub</span>
+                  )}
+                  <span className="text-[9px] text-[#4a4a55] font-mono">
+                    ${m.costPerMInput}/M
+                  </span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// API Keys Section — per-provider key inputs with masked display
+// ---------------------------------------------------------------------------
+
+function ApiKeysSection() {
+  const [keys, setKeys] = useState<Record<string, string>>({});
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [keyStatus, setKeyStatus] = useState<Record<string, { configured: boolean; masked: string }>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [baseUrls, setBaseUrls] = useSetting('providers.baseUrls');
+  const [customEnvKeys, setCustomEnvKeys] = useSetting('providers.envKeys');
+
+  const fetchStatus = useCallback(() => {
+    fetch(`${AGENT_API}/api/agents/config/api-keys`, { signal: AbortSignal.timeout(3000) })
+      .then((r) => r.ok ? r.json() : {})
+      .then((data) => setKeyStatus(data as Record<string, { configured: boolean; masked: string }>))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  const saveKey = async (providerId: string) => {
+    const key = keys[providerId];
+    if (!key?.trim()) return;
+    setSaving(providerId);
+    try {
+      const body: Record<string, string> = { provider: providerId, api_key: key.trim() };
+      const provider = PROVIDERS.find((p) => p.id === providerId);
+      if (provider?.baseUrlConfigurable && baseUrls[providerId]) {
+        body.base_url = baseUrls[providerId];
+      }
+      // Send custom env var name if user overrode it
+      const envKeyOverride = customEnvKeys[providerId];
+      if (envKeyOverride) {
+        body.env_key = envKeyOverride;
+      }
+      await fetch(`${AGENT_API}/api/agents/config/api-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(5000),
+      });
+      setKeys((prev) => ({ ...prev, [providerId]: '' }));
+      fetchStatus();
+    } catch { /* ignore */ }
+    setSaving(null);
+  };
+
+  const getEnvKeyName = (providerId: string) =>
+    customEnvKeys[providerId] || PROVIDERS.find((p) => p.id === providerId)?.envKey || '';
+
+  return (
+    <Section
+      title="API Keys"
+      icon={<Key className="w-3.5 h-3.5" />}
+      defaultOpen={false}
+    >
+      <div className="py-0.5 space-y-1.5">
+        {PROVIDERS.map((provider) => (
+          <div key={provider.id} className="px-3">
+            <div className="flex items-center gap-2 py-0.5">
+              <StatusDot status={keyStatus[provider.id]?.configured ? 'healthy' : 'unknown'} />
+              <span className="text-[10px] text-[#e5c07b] font-medium w-20">{provider.name}</span>
+              <span className="text-[9px] font-mono text-[#4a4a55] flex-1 truncate">
+                {keyStatus[provider.id]?.configured
+                  ? keyStatus[provider.id].masked + '\u2022'.repeat(16)
+                  : 'Not configured'}
+              </span>
+            </div>
+            {/* Env var name (editable) */}
+            <div className="flex items-center gap-1 ml-5 mb-0.5">
+              <span className="text-[8px] text-[#4a4a55]">env:</span>
+              <input
+                type="text"
+                value={getEnvKeyName(provider.id)}
+                onChange={(e) => setCustomEnvKeys({ ...customEnvKeys, [provider.id]: e.target.value })}
+                className="px-1 py-0 text-[9px] font-mono bg-transparent border-b border-[#2a2a35]/50 text-[#6b6b75] focus:outline-none focus:border-[#3b82f6]/50 focus:text-[#e5e5e5] w-40"
+                title="Environment variable name — edit if your system uses a different name"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 ml-5">
+              <input
+                type={revealed[provider.id] ? 'text' : 'password'}
+                placeholder={`Enter ${getEnvKeyName(provider.id)}`}
+                value={keys[provider.id] || ''}
+                onChange={(e) => setKeys((prev) => ({ ...prev, [provider.id]: e.target.value }))}
+                className="flex-1 px-1.5 py-0.5 text-[10px] font-mono bg-[#111118] border border-[#2a2a35] rounded text-[#e5e5e5] placeholder-[#4a4a55] focus:outline-none focus:border-[#3b82f6]/50"
+              />
+              <button
+                onClick={() => setRevealed((prev) => ({ ...prev, [provider.id]: !prev[provider.id] }))}
+                className="p-0.5 rounded hover:bg-[#2a2a35]"
+              >
+                {revealed[provider.id]
+                  ? <EyeOff className="w-3 h-3 text-[#6b6b75]" />
+                  : <Eye className="w-3 h-3 text-[#6b6b75]" />}
+              </button>
+              <button
+                onClick={() => saveKey(provider.id)}
+                disabled={!keys[provider.id]?.trim() || saving === provider.id}
+                className="p-0.5 rounded hover:bg-[#22c55e]/15 disabled:opacity-30"
+                title="Save key"
+              >
+                {saving === provider.id
+                  ? <Loader2 className="w-3 h-3 text-[#22c55e] animate-spin" />
+                  : <Save className="w-3 h-3 text-[#22c55e]" />}
+              </button>
+            </div>
+            {provider.baseUrlConfigurable && (
+              <div className="flex items-center gap-1.5 ml-5 mt-0.5">
+                <span className="text-[9px] text-[#6b6b75] w-14">Base URL</span>
+                <input
+                  type="text"
+                  placeholder={provider.defaultBaseUrl}
+                  value={baseUrls[provider.id] || ''}
+                  onChange={(e) => setBaseUrls({ ...baseUrls, [provider.id]: e.target.value })}
+                  className="flex-1 px-1.5 py-0.5 text-[10px] font-mono bg-[#111118] border border-[#2a2a35] rounded text-[#6b6b75] placeholder-[#4a4a55] focus:outline-none focus:border-[#3b82f6]/50"
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="px-4 py-1.5 text-[9px] text-[#4a4a55] italic">
+        Keys stored server-side in .env (never in browser)
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SettingsPanel -- main export
 // ---------------------------------------------------------------------------
 
@@ -411,7 +721,7 @@ export function SettingsPanel() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/settings/status', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/settings/status', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -431,7 +741,7 @@ export function SettingsPanel() {
   const handleRefresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:8029/api/settings/status', {
+      const res = await fetch(getServiceUrl('helper_agent') + '/api/settings/status', {
         signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
@@ -942,6 +1252,15 @@ export function SettingsPanel() {
             </div>
           )}
         </Section>
+
+        {/* ---- Section: Agent Execution ---- */}
+        <AgentExecutionSection />
+
+        {/* ---- Section: Models ---- */}
+        <ModelsSection />
+
+        {/* ---- Section: API Keys ---- */}
+        <ApiKeysSection />
 
         {/* ---- Section: Environment Variables ---- */}
         <Section

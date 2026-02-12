@@ -27,6 +27,7 @@ import {
   Eye,
   Database,
 } from 'lucide-react';
+import { getServiceUrl, getServiceWsUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -293,7 +294,7 @@ export function NotificationsPanel() {
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:8029/api/notifications', {
+      const res = await fetch(getServiceUrl('helper_agent') + '/api/notifications', {
         signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -319,7 +320,7 @@ export function NotificationsPanel() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const ws = new WebSocket('ws://127.0.0.1:8029/ws/events');
+      const ws = new WebSocket(getServiceWsUrl('events_ws'));
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
@@ -368,7 +369,7 @@ export function NotificationsPanel() {
   const approveAction = useCallback(async (id: string) => {
     setActionItems((prev) => prev.filter((a) => a.id !== id));
     try {
-      await fetch(`http://127.0.0.1:8029/api/notifications/actions/${id}/approve`, {
+      await fetch(`${getServiceUrl('helper_agent')}/api/notifications/actions/${id}/approve`, {
         method: 'POST',
         signal: AbortSignal.timeout(3000),
       });
@@ -378,7 +379,7 @@ export function NotificationsPanel() {
   const denyAction = useCallback(async (id: string) => {
     setActionItems((prev) => prev.filter((a) => a.id !== id));
     try {
-      await fetch(`http://127.0.0.1:8029/api/notifications/actions/${id}/deny`, {
+      await fetch(`${getServiceUrl('helper_agent')}/api/notifications/actions/${id}/deny`, {
         method: 'POST',
         signal: AbortSignal.timeout(3000),
       });

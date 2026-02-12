@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import type { DockviewApi, DockviewGroupPanel, IDockviewHeaderActionsProps } from 'dockview';
 import { getAllPanelMetadata } from './panel-factory';
+import { ServiceStatusDot } from './offline-indicator';
+import { useServiceHealth } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +39,8 @@ export interface PanelHeaderProps {
   onMinimizeToggle?: (minimized: boolean) => void;
   /** Called when the close button is clicked */
   onClose?: () => void;
+  /** Service ID from service-registry. Shows health StatusDot when provided. */
+  serviceId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +55,10 @@ export function PanelHeader({
   onStickyToggle,
   onMinimizeToggle,
   onClose,
+  serviceId,
 }: PanelHeaderProps) {
+  // Always call hook (React rules); pass empty string when no serviceId
+  const serviceHealth = useServiceHealth(serviceId ?? '');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [sticky, setSticky] = useState(isSticky);
@@ -96,9 +103,12 @@ export function PanelHeader({
   if (minimized) {
     return (
       <div className="flex items-center justify-between h-[30px] px-2 bg-[#111118] border-b border-[#2a2a35] select-none">
-        <span className="text-xs font-medium text-[#e5e5e5] truncate">
-          {title}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {serviceId && <ServiceStatusDot status={serviceHealth.status} size={6} />}
+          <span className="text-xs font-medium text-[#e5e5e5] truncate">
+            {title}
+          </span>
+        </div>
         <div className="flex items-center gap-0.5">
           {/* Sticky */}
           <button
@@ -153,9 +163,12 @@ export function PanelHeader({
   // ====================================================================
   return (
     <div className="flex items-center justify-between h-9 px-3 bg-[#111118] border-b border-[#2a2a35] select-none">
-      <span className="text-sm font-medium text-[#e5e5e5] truncate">
-        {title}
-      </span>
+      <div className="flex items-center gap-1.5 min-w-0">
+        {serviceId && <ServiceStatusDot status={serviceHealth.status} size={6} />}
+        <span className="text-sm font-medium text-[#e5e5e5] truncate">
+          {title}
+        </span>
+      </div>
 
       <div className="flex items-center gap-0.5">
         {/* Sticky */}

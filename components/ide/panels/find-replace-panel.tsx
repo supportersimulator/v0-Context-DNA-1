@@ -13,6 +13,7 @@ import {
   Regex,
   WholeWord,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,7 +74,7 @@ export function FindReplacePanel() {
         ...(excludePattern && { exclude: excludePattern }),
       });
 
-      const res = await fetch(`http://127.0.0.1:3456/api/search/files?${params}`, {
+      const res = await fetch(`${getServiceUrl('memory_api')}/api/search/files?${params}`, {
         signal: AbortSignal.timeout(10000),
       });
 

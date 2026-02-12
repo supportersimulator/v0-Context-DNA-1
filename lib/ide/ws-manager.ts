@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import { getServiceUrl } from './service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,7 +85,8 @@ function getDefaultWSUrl(): string {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
   if (isLocal) {
-    return 'ws://127.0.0.1:3456/ws';
+    const memoryBase = getServiceUrl('memory_api');
+    return memoryBase.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
   }
   return `${wsProtocol}//${window.location.host}/api/ws`;
 }

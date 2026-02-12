@@ -2,6 +2,171 @@
 
 import { useState, useEffect, useRef } from 'react';
 
+// =============================================================================
+// SERVICE URL RESOLUTION — Single Source of Truth (TypeScript)
+//
+// Mirrors scripts/contextdna-services.yaml + memory/service_registry.py
+// Panels call getServiceUrl() instead of hardcoding URLs.
+//
+// RULES:
+//   1. No panel component may construct a URL — use getServiceUrl()
+//   2. No hardcoded 127.0.0.1:PORT anywhere outside this file
+//   3. Environment variables override defaults (NEXT_PUBLIC_*)
+//   4. WebSocket URLs derived from HTTP URLs automatically
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Service URL catalog — matches contextdna-services.yaml
+// ---------------------------------------------------------------------------
+
+const SERVICE_URLS: Record<string, { base: string; env?: string }> = {
+  helper_agent:   { base: 'http://127.0.0.1:8080',  env: 'NEXT_PUBLIC_HELPER_API' },
+  local_llm:      { base: 'http://127.0.0.1:5044',  env: 'NEXT_PUBLIC_LOCAL_LLM_API' },
+  memory_api:     { base: 'http://127.0.0.1:3456',  env: 'NEXT_PUBLIC_MEMORY_API' },
+  admin_dashboard:{ base: 'http://127.0.0.1:3000' },
+  django_backend: { base: 'http://127.0.0.1:8000',  env: 'NEXT_PUBLIC_DJANGO_API' },
+  synaptic_chat:  { base: 'http://127.0.0.1:8888',  env: 'NEXT_PUBLIC_SYNAPTIC_API' },
+  redis:          { base: 'redis://127.0.0.1:6379' },
+};
+
+const WS_ENDPOINTS: Record<string, { service: string; path: string }> = {
+  injection_ws:     { service: 'helper_agent',  path: '/ws/injections' },
+  events_ws:        { service: 'helper_agent',  path: '/ws/events' },
+  agent_task_ws:    { service: 'helper_agent',  path: '/ws/agent-tasks' },
+  badges_ws:        { service: 'helper_agent',  path: '/ws/badges' },
+  synaptic_voice_ws:{ service: 'synaptic_chat', path: '/voice' },
+  synaptic_chat_ws: { service: 'synaptic_chat', path: '/ws/chat' },
+};
+
+/**
+ * Get the base URL for a named service.
+ *
+ * @example
+ *   getServiceUrl('helper_agent')   // "http://127.0.0.1:8080"
+ *   getServiceUrl('synaptic_chat')  // "http://127.0.0.1:8888"
+ */
+export function getServiceUrl(name: string): string {
+  const entry = SERVICE_URLS[name];
+  if (!entry) {
+    console.warn(`[ServiceRegistry] Unknown service: ${name}`);
+    return '';
+  }
+  // Environment override takes precedence
+  if (entry.env && typeof process !== 'undefined') {
+    const envVal = process.env[entry.env];
+    if (envVal) return envVal;
+  }
+  return entry.base;
+}
+
+/**
+ * Get a WebSocket URL for a named endpoint.
+ *
+ * @example
+ *   getServiceWsUrl('injection_ws')      // "ws://127.0.0.1:8080/ws/injections"
+ *   getServiceWsUrl('synaptic_voice_ws') // "ws://127.0.0.1:8888/voice"
+ */
+export function getServiceWsUrl(name: string): string {
+  const ws = WS_ENDPOINTS[name];
+  if (!ws) {
+    console.warn(`[ServiceRegistry] Unknown WebSocket: ${name}`);
+    return '';
+  }
+  const base = getServiceUrl(ws.service);
+  const wsBase = base.replace('https://', 'wss://').replace('http://', 'ws://');
+  return `${wsBase}${ws.path}`;
+}
+
+/**
+ * List all service names.
+ */
+export function listServiceNames(): string[] {
+  return Object.keys(SERVICE_URLS);
+}
+
+/**
+ * List all WebSocket endpoint names.
+ */
+export function listWsEndpointNames(): string[] {
+  return Object.keys(WS_ENDPOINTS);
+}
+
+// ---------------------------------------------------------------------------
+// Panel endpoint map — every panel declares its service dependencies here
+// ---------------------------------------------------------------------------
+
+export interface PanelEndpoints {
+  rest?: () => string;
+  ws?: () => string;
+  /** Services this panel requires (for health status display) */
+  services: string[];
+}
+
+export const PANEL_ENDPOINTS: Record<string, PanelEndpoints> = {
+  'injection-viewer': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/injection/latest`,
+    ws: () => `${getServiceWsUrl('injection_ws')}?client_id=injection-panel`,
+    services: ['helper_agent'],
+  },
+  'today-learnings': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/learnings`,
+    services: ['helper_agent'],
+  },
+  'agent-panel': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/agents`,
+    ws: () => getServiceWsUrl('agent_task_ws'),
+    services: ['helper_agent'],
+  },
+  'synaptic-chat': {
+    ws: () => getServiceWsUrl('synaptic_chat_ws'),
+    services: ['synaptic_chat'],
+  },
+  'voice-mode': {
+    ws: () => getServiceWsUrl('synaptic_voice_ws'),
+    services: ['synaptic_chat'],
+  },
+  'evidence-pipeline': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/evidence/stats`,
+    services: ['helper_agent'],
+  },
+  'health-dashboard': {
+    rest: () => `${getServiceUrl('helper_agent')}/health`,
+    ws: () => getServiceWsUrl('events_ws'),
+    services: ['helper_agent'],
+  },
+  'session-historian': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/sessions`,
+    services: ['helper_agent'],
+  },
+  'settings': {
+    rest: () => `${getServiceUrl('helper_agent')}/config`,
+    services: ['helper_agent'],
+  },
+  'watchdog': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/watchdog`,
+    services: ['helper_agent'],
+  },
+  'scheduler': {
+    rest: () => `${getServiceUrl('helper_agent')}/api/scheduler`,
+    services: ['helper_agent'],
+  },
+  'professor': {
+    rest: () => `${getServiceUrl('helper_agent')}/consult/unified`,
+    services: ['helper_agent'],
+  },
+  'llm-orchestration': {
+    rest: () => `${getServiceUrl('local_llm')}/v1/models`,
+    services: ['local_llm'],
+  },
+};
+
+/**
+ * Get the endpoint config for a panel, or undefined if not registered.
+ */
+export function getPanelEndpoints(panelId: string): PanelEndpoints | undefined {
+  return PANEL_ENDPOINTS[panelId];
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -42,8 +207,16 @@ type StatusChangeHandler = (status: ServiceStatus) => void;
 
 export const DEFAULT_SERVICES: ServiceDefinition[] = [
   {
+    id: 'helper-agent',
+    name: 'Agent Service',
+    healthUrl: 'http://127.0.0.1:8080/health',
+    pollInterval: 30_000,
+    critical: true,
+    timeout: 5_000,
+  },
+  {
     id: 'context-dna',
-    name: 'Context DNA',
+    name: 'Context DNA API',
     healthUrl: 'http://127.0.0.1:3456/api/health',
     pollInterval: 30_000,
     critical: true,
@@ -52,17 +225,17 @@ export const DEFAULT_SERVICES: ServiceDefinition[] = [
   {
     id: 'vllm-mlx',
     name: 'Local LLM (Qwen3)',
-    healthUrl: 'http://127.0.0.1:5044/health',
+    healthUrl: 'http://127.0.0.1:5044/v1/models',
     pollInterval: 60_000,
     critical: false,
     timeout: 5_000,
   },
   {
-    id: 'agent-service',
-    name: 'Agent Service',
-    healthUrl: 'http://127.0.0.1:3456/api/health',
-    pollInterval: 30_000,
-    critical: true,
+    id: 'synaptic-chat',
+    name: 'Synaptic Chat',
+    healthUrl: 'http://127.0.0.1:8888/health',
+    pollInterval: 60_000,
+    critical: false,
     timeout: 5_000,
   },
 ];

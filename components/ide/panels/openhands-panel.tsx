@@ -9,7 +9,7 @@ import { Bot, ExternalLink } from 'lucide-react';
 // Phase 2: Native ContextDNA tool integration (API-based)
 // ---------------------------------------------------------------------------
 
-const OPENHANDS_URL = process.env.NEXT_PUBLIC_OPENHANDS_URL || 'http://localhost:3001';
+const OPENHANDS_URL = process.env.NEXT_PUBLIC_OPENHANDS_URL || 'http://127.0.0.1:3001';
 
 export function OpenHandsPanel() {
   return (

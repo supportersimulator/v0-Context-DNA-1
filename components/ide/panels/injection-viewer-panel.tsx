@@ -19,6 +19,7 @@ import {
   Radio,
   Circle,
 } from 'lucide-react';
+import { getServiceUrl, getServiceWsUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,38 +140,78 @@ export function InjectionViewerPanel() {
   const [live, setLive] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Transform backend injection data to frontend InjectionPayload format
+  const transformInjection = useCallback((raw: Record<string, unknown>): InjectionPayload | null => {
+    if (!raw || !raw.id) return null;
+    const analysis = (raw.analysis || {}) as Record<string, unknown>;
+    const sections = (raw.sections || []) as Array<Record<string, unknown>>;
+
+    // Parse timestamp to epoch ms
+    let ts = Date.now();
+    if (typeof raw.timestamp === 'number') {
+      ts = raw.timestamp;
+    } else if (typeof raw.timestamp === 'string') {
+      const parsed = new Date(raw.timestamp).getTime();
+      if (!isNaN(parsed)) ts = parsed;
+    }
+
+    return {
+      hash: String(raw.id || '').replace('inj_', '').slice(0, 8),
+      timestamp: ts,
+      totalTokens: sections.reduce((sum, s) => sum + (Number(s.tokens) || 0), 0),
+      totalTimingMs: Number(analysis.generation_time_ms) || 0,
+      abVariant: String(analysis.ab_variant || 'control'),
+      sections: sections.length > 0
+        ? sections.map((s) => ({
+            id: Number(s.id) ?? 0,
+            name: String(s.name || ''),
+            tokens: Number(s.tokens) || 0,
+            timingMs: Number(s.timingMs) || 0,
+            freshness: (['realtime', 'idle', 'cached', 'stale'].includes(String(s.freshness))
+              ? String(s.freshness) as SectionData['freshness']
+              : 'cached'),
+            content: String(s.content || ''),
+          }))
+        : getMockPayload().sections,  // fallback to mock if no sections yet
+    };
+  }, []);
+
   // Fetch latest injection
   useEffect(() => {
     const fetchLatest = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/injection/latest', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/injection/latest', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.hash) setPayload(data);
+          // Backend wraps in { found, injection }
+          const injection = data.injection || data;
+          const transformed = transformInjection(injection);
+          if (transformed) setPayload(transformed);
         }
       } catch { /* keep mock */ }
     };
     fetchLatest();
     const interval = setInterval(fetchLatest, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [transformInjection]);
 
-  // WebSocket for live updates
+  // WebSocket for live injection updates
   useEffect(() => {
     if (!live || typeof window === 'undefined') return;
     try {
-      const ws = new WebSocket('ws://127.0.0.1:8029/ws/events');
+      const ws = new WebSocket(getServiceWsUrl('injection_ws') + '?client_id=injection-panel');
       wsRef.current = ws;
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'subscribe', channels: ['injection'] }));
-      };
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.channel === 'injection' && msg.data?.hash) {
-            setPayload(msg.data);
+          // Handle both direct injection data and event-wrapped data
+          const injection = msg.data || msg.injection || msg;
+          if (injection.id || injection.event === 'injection_complete') {
+            const injData = injection.data || injection;
+            const transformed = transformInjection(injData);
+            if (transformed) setPayload(transformed);
           }
         } catch { /* ignore */ }
       };
@@ -178,7 +219,7 @@ export function InjectionViewerPanel() {
       ws.onclose = () => { wsRef.current = null; };
       return () => { ws.onclose = null; ws.close(); };
     } catch { /* no WS */ }
-  }, [live]);
+  }, [live, transformInjection]);
 
   const timeAgo = (ms: number) => {
     const sec = Math.floor((Date.now() - ms) / 1000);

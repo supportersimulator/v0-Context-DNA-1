@@ -21,6 +21,7 @@ import {
   EyeOff,
   Settings,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,8 +179,8 @@ export function LLMOrchestrationPanel() {
     const fetchData = async () => {
       try {
         const [serverRes, statusRes] = await Promise.all([
-          fetch('http://127.0.0.1:5044/health', { signal: AbortSignal.timeout(3000) }).catch(() => null),
-          fetch('http://127.0.0.1:8029/api/llm/status', { signal: AbortSignal.timeout(3000) }).catch(() => null),
+          fetch(getServiceUrl('local_llm') + '/health', { signal: AbortSignal.timeout(3000) }).catch(() => null),
+          fetch(getServiceUrl('helper_agent') + '/api/llm/status', { signal: AbortSignal.timeout(3000) }).catch(() => null),
         ]);
         if (statusRes?.ok) {
           const json = await statusRes.json();
@@ -209,7 +210,7 @@ export function LLMOrchestrationPanel() {
       },
     }));
     try {
-      await fetch('http://127.0.0.1:8029/api/llm/watchdog/toggle', {
+      await fetch(getServiceUrl('helper_agent') + '/api/llm/watchdog/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ watchdogId }),
@@ -229,7 +230,7 @@ export function LLMOrchestrationPanel() {
       },
     }));
     try {
-      await fetch('http://127.0.0.1:8029/api/llm/watchdog/indicator', {
+      await fetch(getServiceUrl('helper_agent') + '/api/llm/watchdog/indicator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ indicatorId }),

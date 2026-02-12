@@ -5,6 +5,7 @@ import { Terminal as TerminalIcon } from 'lucide-react';
 import { PanelTabBar, type PanelTab } from '../panel-tabs';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Electron Shell bridge
@@ -141,7 +142,7 @@ function createXTermSession(
 // ---------------------------------------------------------------------------
 // Web mode: command input that posts to backend API
 // ---------------------------------------------------------------------------
-const HELPER_API = process.env.NEXT_PUBLIC_HELPER_API || 'http://127.0.0.1:8080';
+const HELPER_API = getServiceUrl('helper_agent');
 
 interface WebTermLine {
   type: 'input' | 'output' | 'error';

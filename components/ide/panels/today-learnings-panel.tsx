@@ -16,6 +16,7 @@ import {
   Search,
   Circle,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -409,7 +410,7 @@ export function TodayLearningsPanel() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/learnings', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/learnings', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {

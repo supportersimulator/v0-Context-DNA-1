@@ -27,6 +27,7 @@ import {
   Award,
   X,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,7 +61,7 @@ type CategoryFilter = 'all' | MemoryItem['category'];
 // Constants
 // ---------------------------------------------------------------------------
 
-const API_BASE = process.env.NEXT_PUBLIC_MEMORY_API || 'http://127.0.0.1:3456';
+const API_BASE = getServiceUrl('memory_api');
 const REFRESH_INTERVAL = 30_000;
 const DEBOUNCE_MS = 300;
 

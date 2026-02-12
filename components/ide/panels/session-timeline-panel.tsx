@@ -22,6 +22,7 @@ import {
   Timer,
   TrendingUp,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -229,7 +230,7 @@ const MOCK_STATS: SessionStats = {
 // API
 // ---------------------------------------------------------------------------
 
-const HISTORY_URL = 'http://127.0.0.1:3456/api/session/history';
+const HISTORY_URL = getServiceUrl('memory_api') + '/api/session/history';
 const POLL_INTERVAL = 60_000;
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import {
   Activity,
   CheckCircle2,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,7 +163,7 @@ export function LibrarianPanel() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/librarian/status', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/librarian/status', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
@@ -183,7 +184,7 @@ export function LibrarianPanel() {
     if (!query.trim()) return;
     setSearching(true);
     try {
-      const res = await fetch('http://127.0.0.1:8029/api/librarian/query', {
+      const res = await fetch(getServiceUrl('helper_agent') + '/api/librarian/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim(), intent }),

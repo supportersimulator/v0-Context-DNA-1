@@ -12,6 +12,7 @@ import {
   RefreshCw,
   CircleX,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,7 +70,7 @@ export function ProblemsPanel() {
   const fetchDiagnostics = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:3456/api/diagnostics', {
+      const res = await fetch(getServiceUrl('memory_api') + '/api/diagnostics', {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

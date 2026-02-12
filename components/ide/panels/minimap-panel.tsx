@@ -10,6 +10,7 @@ import {
   Circle,
   ArrowRight,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +90,7 @@ export function MinimapPanel() {
     // Fetch from backend or use mock
     const fetchNodes = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8029/api/codebase/graph', {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/codebase/graph', {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {

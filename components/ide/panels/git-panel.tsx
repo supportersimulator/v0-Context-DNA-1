@@ -12,6 +12,7 @@ import {
   FileX,
   AlertCircle,
 } from 'lucide-react';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +66,7 @@ function statusIcon(status: GitFileStatus['status']) {
   }
 }
 
-const API_URL = 'http://127.0.0.1:3456/api/git/status';
+const API_URL = getServiceUrl('memory_api') + '/api/git/status';
 const POLL_INTERVAL = 10_000;
 
 // ---------------------------------------------------------------------------

@@ -72,6 +72,12 @@ export interface PanelMeta {
   minWidth?: number;
   /** Minimum height (px) before panel collapses to placeholder. Default: 80 */
   minHeight?: number;
+  /** Lucide icon name for Activity Bar (e.g. 'Brain', 'Syringe'). Omit to hide from bar. */
+  icon?: string;
+  /** Activity Bar section: 'top' (default) or 'bottom' */
+  position?: 'top' | 'bottom';
+  /** If true, toggles explorer sidebar instead of a dockview panel */
+  isExplorerToggle?: boolean;
 }
 
 export const PANEL_METADATA: Record<string, PanelMeta> = {
@@ -109,6 +115,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 200,
     minHeight: 100,
+    icon: 'Search',
   },
   health: {
     label: 'Health',
@@ -116,6 +123,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 180,
     minHeight: 100,
+    icon: 'Bug',
   },
   models: {
     label: 'Models',
@@ -137,6 +145,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Brain',
   },
   injection: {
     label: 'Injection',
@@ -144,6 +153,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 100,
+    icon: 'Syringe',
   },
   learnings: {
     label: 'Learnings',
@@ -172,6 +182,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 150,
+    icon: 'Workflow',
   },
   harmonizer: {
     label: 'Harmonizer',
@@ -179,6 +190,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Shield',
   },
   evidence: {
     label: 'Evidence',
@@ -186,6 +198,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'FlaskConical',
   },
   memory: {
     label: 'Memory',
@@ -193,6 +206,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'BookOpen',
   },
   timeline: {
     label: 'Timeline',
@@ -200,6 +214,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Clock',
   },
   'benchmark-consent': {
     label: 'Compare Configs',
@@ -207,6 +222,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 200,
     minHeight: 150,
+    icon: 'GitCompare',
   },
   integrations: {
     label: 'Integrations',
@@ -214,6 +230,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 220,
     minHeight: 150,
+    icon: 'Plug',
   },
   leaderboard: {
     label: 'Leaderboard',
@@ -221,6 +238,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 300,
     minHeight: 200,
+    icon: 'Trophy',
   },
   'config-packs': {
     label: 'Config Packs',
@@ -228,6 +246,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 250,
     minHeight: 150,
+    icon: 'Package',
   },
   bottleneck: {
     label: 'Bottleneck',
@@ -235,6 +254,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 220,
     minHeight: 120,
+    icon: 'Activity',
   },
   'config-summary': {
     label: 'Config Summary',
@@ -256,6 +276,8 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'FolderOpen',
+    isExplorerToggle: true,
   },
   docker: {
     label: 'Docker',
@@ -270,6 +292,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 100,
+    icon: 'Terminal',
   },
   openhands: {
     label: 'OpenHands',
@@ -284,6 +307,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 300,
     minHeight: 150,
+    icon: 'Code2',
   },
   git: {
     label: 'Source Control',
@@ -291,6 +315,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'GitBranch',
   },
   diff: {
     label: 'Diff Viewer',
@@ -298,6 +323,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 300,
     minHeight: 150,
+    icon: 'Diff',
   },
   'find-replace': {
     label: 'Find & Replace',
@@ -312,6 +338,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 100,
+    icon: 'AlertCircle',
   },
   debug: {
     label: 'Debug',
@@ -319,6 +346,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 150,
+    icon: 'Bug',
   },
   extensions: {
     label: 'Extensions',
@@ -326,6 +354,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Puzzle',
   },
   collaboration: {
     label: 'Collaboration',
@@ -333,6 +362,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 150,
+    icon: 'Users',
   },
   minimap: {
     label: 'Minimap',
@@ -340,6 +370,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 200,
+    icon: 'Map',
   },
   'context-bus': {
     label: 'ContextBus',
@@ -347,6 +378,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Radio',
   },
   sync: {
     label: 'Sync',
@@ -354,6 +386,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'ArrowLeftRight',
   },
   'injection-viewer': {
     label: 'Injection Viewer',
@@ -361,6 +394,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 150,
+    icon: 'Eye',
   },
   epistemic: {
     label: 'Epistemic',
@@ -368,6 +402,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 150,
+    icon: 'Scale',
   },
   'llm-orchestration': {
     label: 'LLM',
@@ -375,6 +410,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Cpu',
   },
   agents: {
     label: 'Agents',
@@ -382,6 +418,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 150,
+    icon: 'Bot',
   },
   librarian: {
     label: 'Librarian',
@@ -389,6 +426,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 200,
     minHeight: 120,
+    icon: 'Library',
   },
   'swarm-controller': {
     label: 'Swarm Controller',
@@ -410,6 +448,8 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 280,
     minHeight: 200,
+    icon: 'Settings',
+    position: 'bottom',
   },
   notifications: {
     label: 'Notifications',
@@ -417,6 +457,8 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard', 'synaptic', 'live'],
     minWidth: 250,
     minHeight: 150,
+    icon: 'Bell',
+    position: 'bottom',
   },
 };
 

@@ -23,6 +23,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import type { BenchmarkSnapshot } from '@/lib/cache/config-cache';
+import { getServiceUrl } from '@/lib/ide/service-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1098,7 +1099,7 @@ export interface UseBenchmarkRunnerReturn {
   error: string | null;
 }
 
-const DEFAULT_ENDPOINT = 'http://127.0.0.1:5044/v1';
+const DEFAULT_ENDPOINT = (getServiceUrl('local_llm') || 'http://127.0.0.1:5044') + '/v1';
 
 export function useBenchmarkRunner(): UseBenchmarkRunnerReturn {
   const [running, setRunning] = useState(false);
