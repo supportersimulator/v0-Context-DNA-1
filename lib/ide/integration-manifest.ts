@@ -31,7 +31,9 @@ export type IntegrationCategory =
   | 'vcs'          // GitHub, GitLab, Bitbucket
   | 'testing'      // API Tester, Cypress, Playwright
   | 'preview'      // Frontend Preview, Browser DevTools
-  | 'system';      // Desktop Commander, OS integration
+  | 'system'        // Desktop Commander, OS integration, Homebrew, LaunchAgent
+  | 'automation'    // Node-RED, flow-based tools
+  | 'ide';          // VS Code Bridge, editor integrations
 
 // ---------------------------------------------------------------------------
 // Auth Strategies
@@ -180,6 +182,51 @@ export interface CapabilityEvents {
   'mcp.action.denied':    { action: string; tier: string; source: string; reason: string };
   'mcp.action.confirmed': { action: string; source: string };
   'mcp.nuclear.reset':    { timestamp: number; cleared: string[]; preserved: string[] };
+
+  // -------------------------------------------------------------------------
+  // HuggingFace — models, spaces, datasets
+  // -------------------------------------------------------------------------
+  'space.deployed':       { name: string; sdk: string; url: string };
+
+  // -------------------------------------------------------------------------
+  // LM Studio — local LLM management
+  // -------------------------------------------------------------------------
+  'model.loaded':         { modelId: string; contextLength: number };
+  'model.unloaded':       { modelId: string };
+
+  // -------------------------------------------------------------------------
+  // OpenRouter — multi-model inference
+  // -------------------------------------------------------------------------
+  'inference.completed':  { model: string; tokensUsed: number; durationMs: number };
+
+  // -------------------------------------------------------------------------
+  // Homebrew — macOS package management
+  // -------------------------------------------------------------------------
+  'package.installed':    { name: string; version: string; type: 'formula' | 'cask' };
+  'service.started':      { name: string; pid?: number };
+  'service.stopped':      { name: string };
+
+  // -------------------------------------------------------------------------
+  // System Monitor — OS resource alerts
+  // -------------------------------------------------------------------------
+  'system.high_cpu':      { loadavg: number; threshold: number };
+  'system.low_disk':      { availablePercent: number; path: string };
+  'system.high_memory':   { usedPercent: number; totalMB: number };
+
+  // -------------------------------------------------------------------------
+  // VS Code Bridge — IDE integration
+  // -------------------------------------------------------------------------
+  'file.changed':         { uri: string; type: 'created' | 'changed' | 'deleted' };
+  'diagnostic.updated':   { uri: string; count: number; maxSeverity: string };
+  'test.completed':       { testId: string; passed: boolean; duration: number };
+  'git.status.changed':   { branch: string; staged: number; modified: number; untracked: number };
+
+  // -------------------------------------------------------------------------
+  // LaunchAgent Manager — macOS service lifecycle
+  // -------------------------------------------------------------------------
+  'service.loaded':       { label: string; pid?: number };
+  'service.unloaded':     { label: string };
+  'service.error':        { label: string; exitCode: number; error?: string };
 }
 
 export type CapabilityEventType = keyof CapabilityEvents;

@@ -4,23 +4,22 @@ import { DockviewShell } from "@/components/ide/dockview-shell"
 import { AuthWrapper } from "@/components/auth-wrapper"
 import { ChatProvider } from "@/lib/contexts/chat-context"
 import { ResponsiveProvider } from "@/lib/contexts/responsive-context"
+import { PageProvider } from "@/lib/contexts/page-context"
 
 /**
  * /workspace route — DockView IDE (Explorer, Editor, Terminal, Diff).
  *
- * This is the primary workspace. Default landing page.
- * Renders the full DockviewShell with the "synaptic" tab
- * (which shows SynapticSplitView — the main working view).
- *
- * TODO (Phase 2): Add Agent Switcher bar above Editor,
- * Explorer panel sidebar, background agent badges.
+ * PageProvider declares this as 'workspace' so IDE-specific panels
+ * (terminal, git, docker, code editor) appear in the activity bar.
  */
 export default function WorkspacePage() {
   return (
     <AuthWrapper>
       <ResponsiveProvider>
         <ChatProvider>
-          <DockviewShell initialTab="synaptic" />
+          <PageProvider page="workspace">
+            <DockviewShell initialTab="synaptic" />
+          </PageProvider>
         </ChatProvider>
       </ResponsiveProvider>
     </AuthWrapper>

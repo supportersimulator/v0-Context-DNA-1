@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   FolderOpen,
@@ -38,7 +38,9 @@ import {
   CircleDot,
 } from 'lucide-react';
 import { ActivityBarBadge, type BadgeVariant } from './activity-bar-badge';
-import { PANEL_METADATA, IDE_PANEL_METADATA, type PanelMeta } from './panel-factory';
+import { PANEL_METADATA, IDE_PANEL_METADATA, type PanelMeta, type ParentPage } from './panel-factory';
+import { useCurrentPage } from '@/lib/contexts/page-context';
+import { getAgentManager, type AgentState } from '@/lib/agents/agent-manager';
 
 // ---------------------------------------------------------------------------
 // Activity Bar — VS Code-style narrow icon strip
@@ -100,9 +102,9 @@ function resolveIcon(name: string): LucideIcon {
 /** Build icon arrays from PanelMeta — always includes all panels (web + IDE) */
 const ALL_META: Record<string, PanelMeta> = { ...PANEL_METADATA, ...IDE_PANEL_METADATA };
 
-function buildIconDefs(position: 'top' | 'bottom'): ActivityIconDef[] {
+function buildIconDefs(position: 'top' | 'bottom', page: ParentPage): ActivityIconDef[] {
   return Object.entries(ALL_META)
-    .filter(([, m]) => m.icon && (position === 'bottom' ? m.position === 'bottom' : m.position !== 'bottom'))
+    .filter(([, m]) => m.icon && m.pages.includes(page) && (position === 'bottom' ? m.position === 'bottom' : m.position !== 'bottom'))
     .map(([id, m]) => ({
       id,
       icon: resolveIcon(m.icon!),
@@ -110,9 +112,6 @@ function buildIconDefs(position: 'top' | 'bottom'): ActivityIconDef[] {
       ...(m.isExplorerToggle ? { isExplorerToggle: true } : {}),
     }));
 }
-
-const TOP_ICONS: ActivityIconDef[] = buildIconDefs('top');
-const BOTTOM_ICONS: ActivityIconDef[] = buildIconDefs('bottom');
 
 // ---------------------------------------------------------------------------
 // Tooltip component — appears on hover next to icon
@@ -221,6 +220,37 @@ export function ActivityBar({
   badges = {},
   side = 'left',
 }: ActivityBarProps) {
+  const page = useCurrentPage();
+  const topIcons = useMemo(() => buildIconDefs('top', page), [page]);
+  const bottomIcons = useMemo(() => buildIconDefs('bottom', page), [page]);
+
+  // -- Agent status badges (subscribe to AgentManager) --
+  const [agentBadges, setAgentBadges] = useState<Record<string, ActivityBadge>>({});
+
+  useEffect(() => {
+    const manager = getAgentManager();
+    const update = (agents: ReadonlyMap<string, AgentState>) => {
+      const newBadges: Record<string, ActivityBadge> = {};
+      let errorCount = 0;
+      let hasWorking = false;
+      for (const [, state] of agents) {
+        if (state.status === 'error') errorCount++;
+        if (state.status === 'working') hasWorking = true;
+      }
+      if (errorCount > 0) {
+        newBadges['code-editor'] = { count: errorCount, variant: 'error' };
+      } else if (hasWorking) {
+        newBadges['code-editor'] = { count: 0, dot: true, variant: 'success' };
+      }
+      setAgentBadges(newBadges);
+    };
+    update(manager.getAll());
+    return manager.subscribe(update);
+  }, []);
+
+  // Merge agent-derived badges with prop badges (prop takes priority)
+  const mergedBadges = useMemo(() => ({ ...agentBadges, ...badges }), [agentBadges, badges]);
+
   const handleClick = useCallback(
     (def: ActivityIconDef) => {
       if (def.isExplorerToggle) {
@@ -257,14 +287,14 @@ export function ActivityBar({
     >
       {/* ---- Top section: panel toggle icons ---- */}
       <div className="flex flex-col items-center pt-1">
-        {TOP_ICONS.map((def) => (
+        {topIcons.map((def) => (
           <ActivityIconButton
             key={def.id}
             def={def}
             isActive={isActive(def)}
             side={side}
             onClick={() => handleClick(def)}
-            badge={badges[def.id]}
+            badge={mergedBadges[def.id]}
           />
         ))}
       </div>
@@ -277,14 +307,14 @@ export function ActivityBar({
 
       {/* ---- Bottom section: settings & notifications ---- */}
       <div className="flex flex-col items-center pb-1">
-        {BOTTOM_ICONS.map((def) => (
+        {bottomIcons.map((def) => (
           <ActivityIconButton
             key={def.id}
             def={def}
             isActive={isActive(def)}
             side={side}
             onClick={() => handleClick(def)}
-            badge={badges[def.id]}
+            badge={mergedBadges[def.id]}
           />
         ))}
       </div>

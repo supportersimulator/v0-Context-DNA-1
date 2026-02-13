@@ -19,6 +19,8 @@ This document specifies the Integration Provider system, CapabilityBus, and pane
 9. [MCP Compatibility Layer (Future)](#9-mcp-compatibility-layer-future)
 10. [Safety & Consent Model](#10-safety--consent-model)
 11. [Eval-First Engineering](#11-eval-first-engineering)
+12. [License Audit & Compliance](#12-license-audit--compliance)
+13. [Integration Code Patterns (Per Provider)](#13-integration-code-patterns-per-provider) — 20 providers (13.1–13.21) + auth summary (13.22)
 
 ---
 
@@ -59,7 +61,7 @@ Every integration MUST implement `IntegrationProvider`. This is not a guideline 
           +----------------+----------------+
           |                |                |
      +--------+      +--------+      +--------+
-     | EAS    |      | Vercel |      | Sentry |  ... 12 providers
+     | EAS    |      | Vercel |      | Sentry |  ... 20 providers
      +--------+      +--------+      +--------+
 ```
 
@@ -1241,7 +1243,7 @@ if (action.destructive) {
 await provider.executeAction(action.id, params);
 ```
 
-Currently destructive actions across all 12 providers:
+Currently destructive actions across all 20 providers:
 
 | Provider | Action | Risk |
 |----------|--------|------|
@@ -1352,7 +1354,7 @@ No exceptions leak to callers. No `undefined` returns. The `ok` boolean discrimi
 
 ### 11.4 Provider Status Matrix
 
-All 12 providers across 4 possible states:
+All 20 providers across 4 possible states:
 
 | Provider | Auth Type | Status When Token Missing | Status When Token Valid | Status When Service Down |
 |----------|-----------|--------------------------|----------------------|------------------------|
@@ -1396,22 +1398,624 @@ This dashboard queries `checkProviderStatus()` for all registered providers and 
 
 ---
 
+## 12. License Audit & Compliance
+
+### 12.1 License Risk Matrix
+
+All 20 providers use the **THIN WRAPPER** pattern (native `fetch()` calls to REST APIs). Zero third-party SDKs are imported. This means **zero additional license obligations** from provider integrations.
+
+| # | Provider | API Type | Base URL | SDK Imported | License Risk | Notes |
+|---|----------|----------|----------|-------------|-------------|-------|
+| 1 | EAS | Proprietary SaaS | `api.expo.dev/v2` | None | GREEN | Expo ecosystem; fetch-only |
+| 2 | App Store Connect | Proprietary SaaS | `api.appstoreconnect.apple.com/v1` | None | GREEN | Apple JWT auth; fetch-only |
+| 3 | Docker Hub | Proprietary SaaS | `hub.docker.com/v2` | None | GREEN | Docker registry API; fetch-only |
+| 4 | Ollama | Open Source (MIT) | `127.0.0.1:11434` | None | GREEN | Local REST API; MIT-licensed server |
+| 5 | Vercel | Proprietary SaaS | `api.vercel.com` | None | GREEN | No `@vercel/sdk`; fetch-only |
+| 6 | npm Registry | Proprietary SaaS | `registry.npmjs.org` | None | GREEN | Public registry API; fetch-only |
+| 7 | Sentry | Proprietary SaaS | `sentry.io/api/0` | None | GREEN | No `@sentry/node`; fetch-only |
+| 8 | GitHub Actions | Proprietary SaaS | `api.github.com` | None | GREEN | No `octokit`; fetch-only |
+| 9 | StackBlitz | Proprietary SaaS | (client-side) | None | GREEN | No auth; stub implementation |
+| 10 | Kaggle | Proprietary SaaS | `kaggle.com/api/v1` | None | GREEN | Public API; fetch-only |
+| 11 | W&B | Proprietary SaaS | `api.wandb.ai` | None | GREEN | GraphQL capable; fetch-only |
+| 12 | GitLab | Proprietary SaaS | `gitlab.com/api/v4` | None | GREEN | Custom `PRIVATE-TOKEN` header |
+| 13 | HuggingFace | Open Platform | `huggingface.co/api` | None | GREEN | Public API + iframe; fetch-only |
+| 14 | Node-RED | Open Source (Apache-2.0) | `127.0.0.1:1880` | None | GREEN | iframe to local instance; no bundling |
+| 15 | LM Studio | Proprietary (free) | `127.0.0.1:1234` | None | GREEN | OpenAI-compatible local REST; fetch-only |
+| 16 | OpenRouter | Proprietary SaaS | `openrouter.ai/api/v1` | None | GREEN | OpenAI-compatible REST; fetch-only |
+| 17 | Homebrew | Open Source (BSD-2) | CLI subprocess | None | GREEN | CLI invocation; no library import |
+| 18 | System Monitor | OS Built-in | Node.js `os`/`process` | None | GREEN | Built-in Node.js APIs only |
+| 19 | VS Code Bridge | WebSocket | `ws://127.0.0.1:8765` | None | GREEN | WebSocket client; no VS Code SDK bundled |
+| 20 | LaunchAgent Manager | OS Built-in | CLI subprocess | None | GREEN | launchctl/plutil; macOS built-in |
+
+### 12.2 Why Zero License Risk
+
+```typescript
+// Every provider file imports ONLY from our own codebase:
+import type { IntegrationProvider, CapabilityEventType } from '../integration-manifest';
+
+// All external calls use native fetch():
+const res = await fetch(`${BASE_URL}/endpoint`, {
+  headers: { Authorization: `Bearer ${process.env.TOKEN}` },
+});
+```
+
+No `npm install` of vendor packages. No transitive dependency chains. No copyleft obligations.
+
+### 12.3 Compliance Rules
+
+1. **Never embed vendor SDKs** — always use direct `fetch()` to REST APIs
+2. **If SDK embedding becomes necessary**, check license BEFORE importing:
+   - GREEN: MIT, ISC, BSD-2/3, Apache-2.0 (safe for commercial use)
+   - YELLOW: MPL-2.0 (modified files must stay MPL), LGPL (dynamic linking OK)
+   - RED: GPL, AGPL, SSPL (copyleft, viral — **never import**)
+3. **Vendor API T&Cs** are separate from code licensing — each SaaS API has its own terms of service
+4. **Node-RED** (Apache-2.0) is loaded via iframe, not code import — our code has zero Apache-2.0 obligation
+
+### 12.4 Electron Distribution Notes
+
+For Electron/ASAR packaging:
+- `@vercel/analytics` (MPL-2.0): **Remove from Electron build** (web-only, no-op in desktop)
+- `class-variance-authority` (Apache-2.0): Include NOTICE file in `LICENSES/` folder
+- All 20 provider files: **No additional notices required** (pure fetch wrappers)
+
+---
+
+## 13. Integration Code Patterns (Per Provider)
+
+Each provider follows the same structural pattern. Below are the exact API endpoints, auth headers, and fetch patterns for each.
+
+### 13.1 EAS — Expo Application Services
+
+```typescript
+const BASE_URL = 'https://api.expo.dev/v2';
+
+// Auth
+auth: { type: 'api_key', envKey: 'EXPO_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.EXPO_TOKEN}` }
+
+// Resources
+builds:  GET /builds?platform={ios|android}
+updates: GET /updates?group={groupId}
+
+// Actions
+start_build:     POST /builds      { platform, profile }
+publish_update:  POST /updates     { branch, message }
+
+// Events
+emits:        eas.build.started, eas.build.ready, eas.update.published
+subscribesTo: commit.merged, commit.pushed
+```
+
+### 13.2 App Store Connect
+
+```typescript
+const BASE_URL = 'https://api.appstoreconnect.apple.com/v1';
+
+// Auth (JWT with .p8 key)
+auth: { type: 'jwt', keyFile: '.p8 key' }
+headers: { Authorization: `Bearer ${signedJWT}` }
+
+// Resources
+apps:          GET /apps
+builds:        GET /builds?filter[app]={appId}
+testflight:    GET /betaTesters
+
+// Actions
+submit_testflight:  POST /betaAppReviewSubmissions  { build }
+create_version:     POST /appStoreVersions          { app, platform, versionString }
+
+// Events
+emits:        testflight.submitted, testflight.approved, testflight.feedback, appstore.review.*
+subscribesTo: eas.build.ready
+```
+
+### 13.3 Docker Hub
+
+```typescript
+const BASE_URL = 'https://hub.docker.com/v2';
+
+// Auth
+auth: { type: 'api_key', envKey: 'DOCKER_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.DOCKER_TOKEN}` }
+
+// Resources
+repositories: GET /repositories/{namespace}/
+images:       GET /repositories/{namespace}/{name}/tags/list
+tags:         GET /repositories/{namespace}/{name}/tags/{tag}
+
+// Actions
+push_image:   (handled by Docker CLI, not REST)
+delete_tag:   DELETE /repositories/{namespace}/{name}/tags/{tag}   (destructive: true)
+
+// Events
+emits:        image.pushed
+subscribesTo: build.completed
+```
+
+### 13.4 Ollama (Local LLM)
+
+```typescript
+const BASE_URL = 'http://127.0.0.1:11434';
+
+// Auth (none — local service)
+auth: { type: 'local_socket' }
+
+// Resources
+models:  GET /api/tags        → { models: [{ name, size, digest }] }
+running: GET /api/ps          → { models: [{ name, size }] }
+
+// Actions
+pull_model:    POST /api/pull     { name, stream: false }
+delete_model:  DELETE /api/delete { name }                  (destructive: true)
+run_inference: POST /api/generate { model, prompt, stream: false }
+
+// Detail
+GET /api/show → POST /api/show { name }  (model details)
+
+// Events
+emits:        model.downloaded, model.deployed
+subscribesTo: model.benchmark.completed
+```
+
+### 13.5 Vercel
+
+```typescript
+const BASE_URL = 'https://api.vercel.com';
+
+// Auth
+auth: { type: 'api_key', envKey: 'VERCEL_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}` }
+
+// Resources (endpoint mapping pattern)
+const endpoints = {
+  deployments: '/v6/deployments',
+  projects:    '/v9/projects',
+  domains:     '/v5/domains',
+};
+
+// Auth check
+GET /v2/user
+
+// Actions
+deploy:   POST /v13/deployments  { name, gitSource }
+promote:  POST /v13/deployments/{id}/promote
+rollback: POST /v13/deployments/{id}/rollback   (destructive: true)
+
+// Events
+emits:        deploy.started, deploy.ready, deploy.failed
+subscribesTo: commit.pushed, ci.workflow.completed
+```
+
+### 13.6 npm Registry
+
+```typescript
+const BASE_URL = 'https://registry.npmjs.org';
+
+// Auth
+auth: { type: 'api_key', envKey: 'NPM_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.NPM_TOKEN}` }
+
+// Resources
+packages:        GET /-/v1/search?text={query}&size={limit}
+versions:        GET /{package-name}
+vulnerabilities: POST /-/npm/v1/security/audits
+
+// Auth check
+GET /-/whoami
+
+// Actions
+install_package: (local npm CLI operation)
+audit_deps:      POST /-/npm/v1/security/audits
+update_package:  (local npm CLI operation)
+
+// Events
+emits:        package.published
+subscribesTo: (none)
+```
+
+### 13.7 Sentry
+
+```typescript
+const BASE_URL = 'https://sentry.io/api/0';
+
+// Auth
+auth: { type: 'api_key', envKey: 'SENTRY_AUTH_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` }
+
+// Resources (org-scoped)
+issues:   GET /organizations/{org}/issues/
+events:   GET /organizations/{org}/events/
+releases: GET /organizations/{org}/releases/
+
+// Actions
+resolve_issue: PUT /issues/{issueId}/  { status: 'resolved' }
+ignore_issue:  PUT /issues/{issueId}/  { status: 'ignored' }
+assign_issue:  PUT /issues/{issueId}/  { assignedTo: '{user}' }
+
+// Events
+emits:        crash.spike, alert.fired, alert.resolved
+subscribesTo: deploy.ready, eas.build.ready
+```
+
+### 13.8 GitHub Actions
+
+```typescript
+const BASE_URL = 'https://api.github.com';
+
+// Auth
+auth: { type: 'api_key', envKey: 'GITHUB_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
+
+// Resources (repo-scoped)
+workflows: GET /repos/{owner}/{repo}/actions/workflows
+runs:      GET /repos/{owner}/{repo}/actions/runs
+jobs:      GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs
+artifacts: GET /repos/{owner}/{repo}/actions/artifacts
+
+// Actions
+trigger_workflow: POST /repos/{owner}/{repo}/actions/workflows/{id}/dispatches { ref }
+cancel_run:       POST /repos/{owner}/{repo}/actions/runs/{id}/cancel          (destructive: true)
+rerun_job:        POST /repos/{owner}/{repo}/actions/runs/{id}/rerun
+
+// Events
+emits:        ci.workflow.started, ci.workflow.completed, build.completed
+subscribesTo: commit.pushed, pr.opened
+```
+
+### 13.9 StackBlitz
+
+```typescript
+// No API base URL — client-side/iframe-based
+auth: { type: 'none' }
+
+// checkAuth() always returns { ok: true }
+// Resources: projects, templates (stub)
+
+// Actions
+create_sandbox: (StackBlitz SDK — client-side WebContainer)
+fork_repo:      (StackBlitz SDK — opens repo in browser)
+
+// Events: (none emitted, none subscribed)
+```
+
+### 13.10 Kaggle
+
+```typescript
+const BASE_URL = 'https://www.kaggle.com/api/v1';
+
+// Auth
+auth: { type: 'api_key', envKey: 'KAGGLE_KEY' }
+headers: { Authorization: `Bearer ${process.env.KAGGLE_KEY}` }
+
+// Resources
+datasets:     GET /datasets/list?page=1&pageSize={limit}
+notebooks:    GET /kernels/list
+competitions: GET /competitions/list
+
+// Actions
+download_dataset: GET /datasets/download/{owner}/{dataset}
+fork_notebook:    POST /kernels/push
+
+// Events: (none emitted, none subscribed)
+```
+
+### 13.11 Weights & Biases (W&B)
+
+```typescript
+const BASE_URL = 'https://api.wandb.ai';
+
+// Auth
+auth: { type: 'api_key', envKey: 'WANDB_API_KEY' }
+headers: { Authorization: `Bearer ${process.env.WANDB_API_KEY}` }
+
+// Auth check
+GET /api/v1/viewer
+
+// Resources (GraphQL-capable)
+runs:        GraphQL or GET /api/v1/runs
+experiments: GraphQL query
+artifacts:   GraphQL query
+sweeps:      GraphQL query
+
+// Actions
+log_metric:   POST /api/v1/runs/{run}/log  { key, value }
+create_sweep: POST /api/v1/sweeps          { config }
+stop_run:     PATCH /api/v1/runs/{run}     { state: 'finished' }  (destructive: true)
+
+// Events
+emits:        model.benchmark.completed
+subscribesTo: model.deployed
+```
+
+### 13.12 GitLab
+
+```typescript
+const BASE_URL = 'https://gitlab.com/api/v4';
+
+// Auth (SPECIAL: uses PRIVATE-TOKEN header, not Authorization)
+auth: { type: 'api_key', envKey: 'GITLAB_TOKEN', headerName: 'PRIVATE-TOKEN' }
+headers: { 'PRIVATE-TOKEN': process.env.GITLAB_TOKEN }
+
+// Resources
+projects:       GET /projects
+pipelines:      GET /projects/{id}/pipelines
+merge_requests: GET /merge_requests
+issues:         GET /issues
+
+// Actions
+trigger_pipeline: POST /projects/{id}/pipeline    { ref }
+approve_mr:       POST /projects/{id}/merge_requests/{iid}/approve
+create_issue:     POST /projects/{id}/issues       { title, description }
+
+// Events
+emits:        commit.pushed, pr.opened, pr.merged, ci.workflow.started, ci.workflow.completed
+subscribesTo: (none)
+```
+
+### 13.14 HuggingFace
+
+```typescript
+const BASE_URL = 'https://huggingface.co/api';
+
+// Auth
+auth: { type: 'api_key', envKey: 'HF_TOKEN' }
+headers: { Authorization: `Bearer ${process.env.HF_TOKEN}` }
+
+// Auth check
+GET /whoami-v2
+
+// Resources
+models:   GET /models?search={query}&limit={limit}
+spaces:   GET /spaces?search={query}
+datasets: GET /datasets?search={query}
+model:    GET /models/{owner}/{model}
+
+// Actions
+download_model: (handled via git clone, not REST)
+create_space:   POST /repos/create  { type: 'space', name, sdk: 'gradio'|'streamlit' }
+delete_repo:    DELETE /repos/delete { type, name }   (destructive: true)
+
+// Events
+emits:        model.downloaded, space.deployed
+subscribesTo: model.benchmark.completed
+```
+
+### 13.15 Node-RED
+
+```typescript
+const BASE_URL = 'http://127.0.0.1:1880';
+
+// Auth (none — local service, or basic auth if configured)
+auth: { type: 'local_socket' }
+
+// Resources
+flows:    GET /flows          → Flow[]
+nodes:    GET /nodes          → { id, types[] }[]
+settings: GET /settings       → { httpNodeRoot, version }
+
+// Actions
+deploy_flows: POST /flows     { flows: Flow[] }    (full deploy)
+inject_node:  POST /inject/{nodeId}                 (trigger inject node)
+install_node: POST /nodes     { module: 'node-red-contrib-x' }
+
+// Auth check
+GET /settings  → 200 = running
+
+// Events
+emits:        flow.deployed, flow.error
+subscribesTo: (none)
+```
+
+### 13.16 LM Studio
+
+```typescript
+const BASE_URL = 'http://127.0.0.1:1234';
+
+// Auth (none — local service)
+auth: { type: 'local_socket' }
+
+// Resources (OpenAI-compatible API)
+models:  GET /v1/models   → { data: [{ id, object: 'model' }] }
+
+// Actions
+chat:       POST /v1/chat/completions  { model, messages, temperature, stream: false }
+completion: POST /v1/completions       { model, prompt, max_tokens }
+embeddings: POST /v1/embeddings        { model, input }
+
+// Auth check
+GET /v1/models  → 200 = running
+
+// Events
+emits:        model.loaded, model.unloaded
+subscribesTo: model.benchmark.completed
+```
+
+### 13.17 OpenRouter
+
+```typescript
+const BASE_URL = 'https://openrouter.ai/api/v1';
+
+// Auth
+auth: { type: 'api_key', envKey: 'OPENROUTER_API_KEY' }
+headers: {
+  Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+  'HTTP-Referer': 'https://admin.contextdna.io',
+  'X-Title': 'Context DNA'
+}
+
+// Auth check
+GET /auth/key  → { data: { label, usage, limit } }
+
+// Resources (OpenAI-compatible)
+models: GET /models  → { data: [{ id, name, pricing, context_length }] }
+
+// Actions
+chat: POST /chat/completions  { model, messages, temperature }
+
+// Unique: model routing — send to any model via `model` field
+// e.g. model: 'anthropic/claude-3.5-sonnet', 'google/gemini-pro', 'meta-llama/llama-3-70b'
+
+// Events
+emits:        inference.completed
+subscribesTo: (none)
+```
+
+### 13.18 Homebrew
+
+```typescript
+// No REST API — CLI subprocess pattern
+auth: { type: 'none' }
+
+// Resources (via subprocess)
+packages:  exec('brew list --json=v2')        → { formulae: [], casks: [] }
+services:  exec('brew services list --json')  → [{ name, status, user, file }]
+outdated:  exec('brew outdated --json=v2')    → { formulae: [] }
+info:      exec('brew info --json=v2 {name}') → [{ name, versions, homepage }]
+
+// Actions
+install:   exec('brew install {name}')
+uninstall: exec('brew uninstall {name}')      (destructive: true)
+upgrade:   exec('brew upgrade {name}')
+start_svc: exec('brew services start {name}')
+stop_svc:  exec('brew services stop {name}')  (destructive: true)
+
+// Auth check
+exec('brew --version')  → exit 0 = installed
+
+// Events
+emits:        package.installed, service.started, service.stopped
+subscribesTo: (none)
+
+// Note: All exec() calls use child_process.execFile (NOT shell=true)
+// to prevent command injection. Package names validated against /^[a-z0-9@._+-]+$/
+```
+
+### 13.19 System Monitor
+
+```typescript
+// No external API — Node.js built-in + OS APIs
+auth: { type: 'none' }
+
+// Resources (polled every 5s)
+cpu:       os.cpus()                        → { model, speed, times }[]
+memory:    { total: os.totalmem(), free: os.freemem(), used: process.memoryUsage() }
+disk:      fs.statfs('/')                   → { bsize, blocks, bfree, bavail }
+uptime:    os.uptime()                      → seconds
+loadavg:   os.loadavg()                     → [1min, 5min, 15min]
+processes: exec('ps aux --sort=-%mem')      → top processes by memory
+
+// Actions
+kill_process: process.kill(pid, 'SIGTERM')  (destructive: true, requires confirmation)
+
+// Auth check: always { ok: true } — local OS APIs
+
+// Thresholds (configurable)
+high_cpu:    loadavg[0] > os.cpus().length * 0.8
+low_disk:    bavail / blocks < 0.1
+high_memory: (total - free) / total > 0.9
+
+// Events
+emits:        system.high_cpu, system.low_disk, system.high_memory
+subscribesTo: (none)
+```
+
+### 13.20 VS Code Bridge
+
+```typescript
+const BASE_URL = 'ws://127.0.0.1:8765';
+
+// Auth (none — local WebSocket)
+auth: { type: 'local_socket' }
+
+// Connection (WebSocket JSON-RPC)
+const ws = new WebSocket('ws://127.0.0.1:8765');
+ws.send(JSON.stringify({ jsonrpc: '2.0', method, params, id }));
+
+// Resources (request-response over WebSocket)
+extensions:   { method: 'extensions.list' }       → [{ id, name, version, active }]
+diagnostics:  { method: 'diagnostics.get' }       → [{ file, line, message, severity }]
+git_status:   { method: 'git.status' }            → { branch, staged, modified, untracked }
+open_files:   { method: 'editor.openFiles' }      → [{ uri, languageId, isDirty }]
+
+// Actions
+open_file:    { method: 'editor.open', params: { uri, line } }
+run_task:     { method: 'tasks.run', params: { label } }
+run_test:     { method: 'testing.run', params: { testId } }
+show_message: { method: 'window.showMessage', params: { message, type } }
+
+// Auth check
+{ method: 'ping' }  → { result: 'pong' }
+
+// Events (server-push notifications over WebSocket)
+emits:        file.changed, diagnostic.updated, test.completed, git.status.changed
+subscribesTo: deploy.ready, build.completed
+```
+
+### 13.21 LaunchAgent Manager
+
+```typescript
+// No REST API — CLI subprocess pattern (macOS-specific)
+auth: { type: 'none' }
+
+// Resources (via subprocess)
+agents:    exec('launchctl list')             → [{ pid, status, label }]
+agent:     exec('launchctl print gui/{uid}/{label}')  → detailed service info
+plist:     readFile('~/Library/LaunchAgents/{label}.plist')  → XML/JSON config
+logs:      readFile(plist.StandardOutPath)     → recent log output
+
+// Actions
+load:      exec('launchctl load {plistPath}')
+unload:    exec('launchctl unload {plistPath}')          (destructive: true)
+kickstart: exec('launchctl kickstart -k gui/{uid}/{label}')
+bootout:   exec('launchctl bootout gui/{uid}/{label}')   (destructive: true)
+
+// Auth check
+exec('launchctl print gui/$(id -u)')  → exit 0 = launchd available
+
+// Events
+emits:        service.loaded, service.unloaded, service.error
+subscribesTo: (none)
+
+// Note: Only manages ~/Library/LaunchAgents (user scope).
+// System-level /Library/LaunchDaemons requires sudo — OUT OF SCOPE.
+```
+
+### 13.22 Cross-Provider Auth Pattern Summary
+
+| Auth Type | Header Pattern | Providers |
+|-----------|---------------|-----------|
+| `api_key` | `Authorization: Bearer ${TOKEN}` | EAS, Docker Hub, Vercel, npm, Sentry, GitHub Actions, Kaggle, W&B, HuggingFace, OpenRouter |
+| `jwt` | `Authorization: Bearer <signed-jwt>` | App Store Connect |
+| `local_socket` | No auth header (local HTTP/WebSocket) | Ollama, Node-RED, LM Studio, VS Code Bridge |
+| `none` | No auth required | StackBlitz, Homebrew, System Monitor, LaunchAgent Manager |
+| Custom header | `PRIVATE-TOKEN: ${TOKEN}` | GitLab |
+
+---
+
 ## Appendix A: Provider Quick Reference
 
-| # | ID | Name | Category | Auth | Env Key | Panels | Emits | Subscribes |
-|---|-----|------|----------|------|---------|--------|-------|------------|
-| 1 | `eas` | Expo Application Services | appdev | api_key | `EXPO_TOKEN` | eas-build, eas-update | eas.build.started, eas.build.ready, eas.update.published | commit.merged, commit.pushed |
-| 2 | `appstore-connect` | App Store Connect | appdev | jwt | .p8 key | testflight, appstore-review, certificates | testflight.submitted/approved/feedback, appstore.review.* | eas.build.ready |
-| 3 | `docker-hub` | Docker Hub | registry | api_key | `DOCKER_TOKEN` | docker-images, docker-builds | image.pushed | build.completed |
-| 4 | `ollama` | Ollama | compute | local_socket | localhost:11434 | ollama-models, ollama-chat | model.downloaded, model.deployed | model.benchmark.completed |
-| 5 | `vercel` | Vercel | deploy | api_key | `VERCEL_TOKEN` | vercel-deploy, vercel-logs | deploy.started/ready/failed | commit.pushed, ci.workflow.completed |
-| 6 | `npm-registry` | npm Registry | registry | api_key | `NPM_TOKEN` | package-browser, deps-audit | package.published | (none) |
-| 7 | `sentry` | Sentry | observability | api_key | `SENTRY_AUTH_TOKEN` | sentry-crashes, sentry-performance | crash.spike, alert.fired/resolved | deploy.ready, eas.build.ready |
-| 8 | `github-actions` | GitHub Actions | ci | api_key | `GITHUB_TOKEN` | github-actions | ci.workflow.started/completed, build.completed | commit.pushed, pr.opened |
-| 9 | `stackblitz` | StackBlitz | compute | none | (none) | live-sandbox | (none) | (none) |
-| 10 | `kaggle` | Kaggle | ml | api_key | `KAGGLE_KEY` | kaggle-datasets, kaggle-notebooks | (none) | (none) |
-| 11 | `wandb` | Weights & Biases | ml | api_key | `WANDB_API_KEY` | experiment-tracker, metrics-dashboard | model.benchmark.completed | model.deployed |
-| 12 | `gitlab` | GitLab | vcs | api_key | `GITLAB_TOKEN` | gitlab-repos, gitlab-ci | commit.pushed, pr.opened/merged, ci.workflow.* | (none) |
+| # | ID | Name | Category | Auth | Env Key | License | Panels | Emits | Subscribes |
+|---|-----|------|----------|------|---------|---------|--------|-------|------------|
+| 1 | `eas` | Expo Application Services | appdev | api_key | `EXPO_TOKEN` | GREEN | eas-build, eas-update | eas.build.started, eas.build.ready, eas.update.published | commit.merged, commit.pushed |
+| 2 | `appstore-connect` | App Store Connect | appdev | jwt | .p8 key | GREEN | testflight, appstore-review, certificates | testflight.submitted/approved/feedback, appstore.review.* | eas.build.ready |
+| 3 | `docker-hub` | Docker Hub | registry | api_key | `DOCKER_TOKEN` | GREEN | docker-images, docker-builds | image.pushed | build.completed |
+| 4 | `ollama` | Ollama | compute | local_socket | localhost:11434 | GREEN | ollama-models, ollama-chat | model.downloaded, model.deployed | model.benchmark.completed |
+| 5 | `vercel` | Vercel | deploy | api_key | `VERCEL_TOKEN` | GREEN | vercel-deploy, vercel-logs | deploy.started/ready/failed | commit.pushed, ci.workflow.completed |
+| 6 | `npm-registry` | npm Registry | registry | api_key | `NPM_TOKEN` | GREEN | package-browser, deps-audit | package.published | (none) |
+| 7 | `sentry` | Sentry | observability | api_key | `SENTRY_AUTH_TOKEN` | GREEN | sentry-crashes, sentry-performance | crash.spike, alert.fired/resolved | deploy.ready, eas.build.ready |
+| 8 | `github-actions` | GitHub Actions | ci | api_key | `GITHUB_TOKEN` | GREEN | github-actions | ci.workflow.started/completed, build.completed | commit.pushed, pr.opened |
+| 9 | `stackblitz` | StackBlitz | compute | none | (none) | GREEN | live-sandbox | (none) | (none) |
+| 10 | `kaggle` | Kaggle | ml | api_key | `KAGGLE_KEY` | GREEN | kaggle-datasets, kaggle-notebooks | (none) | (none) |
+| 11 | `wandb` | Weights & Biases | ml | api_key | `WANDB_API_KEY` | GREEN | experiment-tracker, metrics-dashboard | model.benchmark.completed | model.deployed |
+| 12 | `gitlab` | GitLab | vcs | api_key | `GITLAB_TOKEN` | GREEN | gitlab-repos, gitlab-ci | commit.pushed, pr.opened/merged, ci.workflow.* | (none) |
+| 13 | `huggingface` | HuggingFace | ml | api_key | `HF_TOKEN` | GREEN | hf-models, hf-spaces, hf-datasets | model.downloaded, space.deployed | model.benchmark.completed |
+| 14 | `nodered` | Node-RED | automation | local_socket | localhost:1880 | GREEN | nodered-flows, nodered-editor | flow.deployed, flow.error | (none) |
+| 15 | `lm-studio` | LM Studio | compute | local_socket | localhost:1234 | GREEN | lm-studio-models, lm-studio-chat | model.loaded, model.unloaded | model.benchmark.completed |
+| 16 | `openrouter` | OpenRouter | compute | api_key | `OPENROUTER_API_KEY` | GREEN | openrouter-models, openrouter-usage | inference.completed | (none) |
+| 17 | `homebrew` | Homebrew | system | none | (none) | GREEN | homebrew-packages, homebrew-services | package.installed, service.started/stopped | (none) |
+| 18 | `system-monitor` | System Monitor | system | none | (none) | GREEN | sys-cpu, sys-memory, sys-disk, sys-processes | system.high_cpu, system.low_disk, system.high_memory | (none) |
+| 19 | `vscode-bridge` | VS Code Bridge | ide | local_socket | ws://127.0.0.1:8765 | GREEN | vscode-extensions, vscode-diagnostics, vscode-git | file.changed, diagnostic.updated, test.completed, git.status.changed | deploy.ready, build.completed |
+| 20 | `launchagent-manager` | LaunchAgent Manager | system | none | (none) | GREEN | launchagent-services, launchagent-logs | service.loaded, service.unloaded, service.error | (none) |
 
 ## Appendix B: Event Flow Diagram
 
@@ -1422,6 +2026,8 @@ graph LR
         CM[commit.merged]
         PO[pr.opened]
         PM[pr.merged]
+        FC[file.changed]
+        GS[git.status.changed]
     end
 
     subgraph CI/CD
@@ -1442,17 +2048,38 @@ graph LR
         DS[deploy.started]
         DR[deploy.ready]
         DF[deploy.failed]
+        FD[flow.deployed]
     end
 
     subgraph Observability
         CS[crash.spike]
         AF[alert.fired]
         AR[alert.resolved]
+        DU[diagnostic.updated]
+        TC[test.completed]
     end
 
     subgraph Registry
         PP[package.published]
         IP[image.pushed]
+        PI[package.installed]
+    end
+
+    subgraph Compute
+        ML[model.loaded]
+        MD[model.downloaded]
+        MU[model.unloaded]
+        IC[inference.completed]
+        SD[space.deployed]
+    end
+
+    subgraph System
+        HC[system.high_cpu]
+        LD[system.low_disk]
+        HM[system.high_memory]
+        SL[service.loaded]
+        SS[service.started]
+        SP[service.stopped]
     end
 
     CP --> CWS
@@ -1460,9 +2087,12 @@ graph LR
     CM --> EBS
     CWC --> DR
     BC --> IP
+    BC --> DR
     EBR --> TFS
     DR --> CS
+    DR --> FC
     AF --> AR
+    MD --> ML
 ```
 
 ## Appendix C: Source File Map
@@ -1485,3 +2115,11 @@ graph LR
 | `lib/ide/providers/kaggle-provider.ts` | Datasets & notebooks | 103 |
 | `lib/ide/providers/wandb-provider.ts` | Experiment tracking | 125 |
 | `lib/ide/providers/gitlab-provider.ts` | VCS & CI pipelines | 128 |
+| `lib/ide/providers/huggingface-provider.ts` | ML models, spaces, datasets | ~120 |
+| `lib/ide/providers/nodered-provider.ts` | Flow-based automation (iframe) | ~110 |
+| `lib/ide/providers/lm-studio-provider.ts` | Local LLM (OpenAI-compatible) | ~100 |
+| `lib/ide/providers/openrouter-provider.ts` | Multi-model routing | ~95 |
+| `lib/ide/providers/homebrew-provider.ts` | macOS package management (CLI) | ~130 |
+| `lib/ide/providers/system-monitor-provider.ts` | OS resource monitoring | ~140 |
+| `lib/ide/providers/vscode-bridge-provider.ts` | IDE integration (WebSocket) | ~150 |
+| `lib/ide/providers/launchagent-manager-provider.ts` | macOS service management (CLI) | ~115 |

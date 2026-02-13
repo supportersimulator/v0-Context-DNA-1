@@ -12,6 +12,7 @@ import {
 import { useSettings, useSettingsVersion } from '@/lib/ide/settings-store';
 import { getCapabilityBus } from '@/lib/ide/capability-bus';
 import { BreadcrumbBar } from './breadcrumb-bar';
+import { AgentSwitcher } from '@/lib/agents/agent-switcher';
 
 // ---------------------------------------------------------------------------
 // Dynamic Monaco import — requires `window`, must skip SSR
@@ -236,38 +237,71 @@ export function CodeEditorPanel() {
         onClose={handleClose}
       />
 
-      {/* Breadcrumb navigation */}
-      <BreadcrumbBar filePath={activeFile.path} />
+      {/* Agent-switched content area */}
+      <AgentSwitcher>
+        {{
+          claude: (
+            <div className="flex flex-col h-full">
+              {/* Breadcrumb navigation */}
+              <BreadcrumbBar filePath={activeFile.path} />
 
-      {/* Monaco editor — fills remaining space */}
-      <div className="flex-1 min-h-0">
-        <MonacoEditor
-          height="100%"
-          language={activeFile.language}
-          value={activeFile.content}
-          theme="vs-dark"
-          onChange={handleEditorChange}
-          onMount={(editor) => { monacoRef.current = editor; }}
-          options={{
-            fontSize,
-            tabSize,
-            wordWrap: wordWrap ? 'on' : 'off',
-            minimap: { enabled: minimap },
-            scrollBeyondLastLine: false,
-            renderLineHighlight: 'gutter',
-            padding: { top: 8 },
-            automaticLayout: true,
-            readOnly: activeFile.isReadOnly,
-            fontFamily:
-              'var(--font-jetbrains), "JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, monospace',
-            fontLigatures: true,
-            smoothScrolling: true,
-            cursorBlinking: 'smooth',
-            cursorSmoothCaretAnimation: 'on',
-            bracketPairColorization: { enabled: true },
-          }}
-        />
-      </div>
+              {/* Monaco editor — fills remaining space */}
+              <div className="flex-1 min-h-0">
+                <MonacoEditor
+                  height="100%"
+                  language={activeFile.language}
+                  value={activeFile.content}
+                  theme="vs-dark"
+                  onChange={handleEditorChange}
+                  onMount={(editor) => { monacoRef.current = editor; }}
+                  options={{
+                    fontSize,
+                    tabSize,
+                    wordWrap: wordWrap ? 'on' : 'off',
+                    minimap: { enabled: minimap },
+                    scrollBeyondLastLine: false,
+                    renderLineHighlight: 'gutter',
+                    padding: { top: 8 },
+                    automaticLayout: true,
+                    readOnly: activeFile.isReadOnly,
+                    fontFamily:
+                      'var(--font-jetbrains), "JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, monospace',
+                    fontLigatures: true,
+                    smoothScrolling: true,
+                    cursorBlinking: 'smooth',
+                    cursorSmoothCaretAnimation: 'on',
+                    bracketPairColorization: { enabled: true },
+                  }}
+                />
+              </div>
+            </div>
+          ),
+
+          synaptic: (
+            <div className="flex flex-col items-center justify-center h-full bg-[#0d0d14] gap-3">
+              <span className="text-2xl font-semibold" style={{ color: '#a78bfa' }}>Synaptic</span>
+              <span className="text-sm text-[#6b6b75]">Local LLM Interface</span>
+              <span className="text-xs text-[#4a4a55]">8th Intelligence &mdash; subconscious pattern engine</span>
+            </div>
+          ),
+
+          openhands: (
+            <div className="flex flex-col items-center justify-center h-full bg-[#0d0d14] gap-3">
+              <span className="text-2xl font-semibold" style={{ color: '#f59e0b' }}>OpenHands</span>
+              <span className="text-sm text-[#6b6b75]">Autonomous Agent</span>
+              <span className="text-xs text-[#4a4a55]">Swarm-capable task execution runtime</span>
+            </div>
+          ),
+
+          deepseek: (
+            <div className="flex flex-col items-center justify-center h-full bg-[#0d0d14] gap-3">
+              <span className="text-2xl font-semibold" style={{ color: '#38bdf8' }}>DeepSeek</span>
+              <span className="text-sm text-[#6b6b75]">Alternative Reasoning</span>
+              <span className="text-xs text-[#4a4a55]">Deep reasoning and chain-of-thought engine</span>
+            </div>
+          ),
+        }}
+      </AgentSwitcher>
     </div>
   );
 }
