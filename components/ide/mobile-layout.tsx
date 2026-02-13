@@ -90,7 +90,7 @@ function getDefaultPanel(page: PageId): string {
   switch (page) {
     case 'dashboard':
       return 'home';
-    case 'synaptic':
+    case 'workspace':
       return 'synaptic';
     case 'live':
       return 'injection';
@@ -487,7 +487,7 @@ function MoreTabButton({
 // MobileLayout — main export
 // ---------------------------------------------------------------------------
 export function MobileLayout() {
-  const [activePage, setActivePage] = useState<PageId>('synaptic');
+  const [activePage, setActivePage] = useState<PageId>('workspace');
   const [activePanel, setActivePanel] = useState<string>('synaptic');
   const [synapticSheetOpen, setSynapticSheetOpen] = useState(false);
   const { state } = useResponsive();
@@ -511,9 +511,9 @@ export function MobileLayout() {
   }, []);
 
   // Show floating Synaptic button on Dashboard and Live pages
-  // (not on Synaptic page since it's the main content there)
+  // (not on Workspace page since Synaptic is the main content there)
   const showSynapticFloat =
-    activePage !== 'synaptic' && activePanel !== 'synaptic';
+    activePage !== 'workspace' && activePanel !== 'synaptic';
 
   // Render the active panel view
   const ActivePanelView = PANEL_VIEWS[activePanel];
@@ -564,18 +564,18 @@ export function MobileLayout() {
               {!isVerySmall && <span>Dashboard</span>}
             </button>
 
-            {/* Synaptic */}
+            {/* Workspace */}
             <button
-              onClick={() => switchPage('synaptic')}
+              onClick={() => switchPage('workspace')}
               className={cn(
                 'flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all',
-                activePage === 'synaptic'
+                activePage === 'workspace'
                   ? 'bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/30'
                   : 'text-[#6b6b75] active:text-[#e5e5e5] active:bg-[#0a0a0f]/50',
               )}
             >
               <Brain className="w-3.5 h-3.5 flex-shrink-0" />
-              {!isVerySmall && <span>Synaptic</span>}
+              {!isVerySmall && <span>Workspace</span>}
             </button>
 
             {/* Live View */}

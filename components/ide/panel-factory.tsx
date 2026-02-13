@@ -64,7 +64,7 @@ import { NodeRedPanel } from '@/components/ide/panels/node-red-panel';
 // Panel metadata: labels, descriptions, page availability, responsive config
 // ---------------------------------------------------------------------------
 
-export type ParentPage = 'dashboard' | 'synaptic' | 'live';
+export type ParentPage = 'dashboard' | 'workspace' | 'live';
 
 export interface PanelMeta {
   label: string;
@@ -86,7 +86,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   'dashboard-shell': {
     label: 'Context DNA',
     description: 'Main application shell (Dashboard / Synaptic / Live View)',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 300,
     minHeight: 200,
   },
@@ -144,7 +144,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   synaptic: {
     label: 'Synaptic',
     description: 'Voice and text chat with Synaptic',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Brain',
@@ -152,7 +152,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   injection: {
     label: 'Injection',
     description: 'Real-time Context DNA injection viewer',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 100,
     icon: 'Syringe',
@@ -160,28 +160,28 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   learnings: {
     label: 'Learnings',
     description: "Today's captured learnings",
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 180,
     minHeight: 100,
   },
   architecture: {
     label: 'Architecture',
     description: 'Codebase architecture mind map',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
   },
   voicechat: {
     label: 'Voice Chat',
     description: 'Voice conversation with Synaptic',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 180,
     minHeight: 100,
   },
   swarm: {
     label: 'Swarm',
     description: 'Multi-agent swarm orchestration',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 150,
     icon: 'Workflow',
@@ -189,7 +189,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   harmonizer: {
     label: 'Harmonizer',
     description: '7-gate code quality checker',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Shield',
@@ -197,7 +197,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   evidence: {
     label: 'Evidence',
     description: 'Evidence pipeline claims and promotions',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'FlaskConical',
@@ -205,7 +205,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   memory: {
     label: 'Memory',
     description: 'Persistent memory explorer (learnings, SOPs, patterns)',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'BookOpen',
@@ -213,7 +213,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   timeline: {
     label: 'Timeline',
     description: 'Session history and crash recovery',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Clock',
@@ -237,7 +237,7 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
   leaderboard: {
     label: 'Leaderboard',
     description: 'Community benchmark leaderboard -- compare local LLM performance',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 300,
     minHeight: 200,
     icon: 'Trophy',
@@ -275,7 +275,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   explorer: {
     label: 'Explorer',
     description: 'File tree browser',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'FolderOpen',
@@ -291,7 +291,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   terminal: {
     label: 'Terminal',
     description: 'Integrated terminal',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 100,
     icon: 'Terminal',
@@ -299,7 +299,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   openhands: {
     label: 'OpenHands',
     description: 'AI coding agent swarm — DeepSeek workers + ContextDNA tools',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 150,
     icon: 'Bot',
@@ -307,7 +307,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   editor: {
     label: 'Editor',
     description: 'Monaco code editor with tabs',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 300,
     minHeight: 150,
     icon: 'Code2',
@@ -315,7 +315,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   git: {
     label: 'Source Control',
     description: 'Git status, staging, and commits',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'GitBranch',
@@ -323,7 +323,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   diff: {
     label: 'Diff Viewer',
     description: 'Side-by-side file diff viewer',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 300,
     minHeight: 150,
     icon: 'Diff',
@@ -331,14 +331,14 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'find-replace': {
     label: 'Find & Replace',
     description: 'Search and replace across files',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
   },
   problems: {
     label: 'Problems',
     description: 'Errors, warnings, and diagnostics',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 100,
     icon: 'AlertCircle',
@@ -346,7 +346,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   debug: {
     label: 'Debug',
     description: 'Breakpoints, call stack, and variables',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 150,
     icon: 'Bug',
@@ -354,7 +354,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   extensions: {
     label: 'Extensions',
     description: 'Plugin marketplace and management',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Puzzle',
@@ -362,7 +362,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   collaboration: {
     label: 'Collaboration',
     description: 'Connected users, cursors, and team chat',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 150,
     icon: 'Users',
@@ -370,7 +370,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   minimap: {
     label: 'Minimap',
     description: 'Bird\'s eye codebase architecture graph',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 200,
     icon: 'Map',
@@ -378,7 +378,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'context-bus': {
     label: 'ContextBus',
     description: 'Lite/Heavy mode toggle and bus status',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Radio',
@@ -386,7 +386,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   sync: {
     label: 'Sync',
     description: 'Bidirectional SQLite/PG/Redis sync dashboard',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'ArrowLeftRight',
@@ -394,7 +394,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'injection-viewer': {
     label: 'Injection Viewer',
     description: '9-section webhook injection live viewer',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 150,
     icon: 'Eye',
@@ -402,7 +402,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   epistemic: {
     label: 'Epistemic',
     description: 'Evidence pipeline and epistemic sustainability',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 150,
     icon: 'Scale',
@@ -410,7 +410,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'llm-orchestration': {
     label: 'LLM',
     description: 'Local LLM orchestration (vllm-mlx + Qwen3)',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Cpu',
@@ -418,7 +418,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   agents: {
     label: 'Agents',
     description: 'Claude Code-style agent task submission',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 150,
     icon: 'Bot',
@@ -426,7 +426,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   librarian: {
     label: 'Librarian',
     description: 'Repo librarian with 8-intent query system',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
     icon: 'Library',
@@ -434,21 +434,21 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'swarm-controller': {
     label: 'Swarm Controller',
     description: 'Cost tracking, harmonizer gate, and per-agent resource meters',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 150,
   },
   'today-learnings': {
     label: 'Today\'s Learnings',
     description: 'Learnings feed with domain tags, evidence status, and confidence',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 200,
     minHeight: 120,
   },
   settings: {
     label: 'Settings',
     description: 'System configuration, service status, and install wizard',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 280,
     minHeight: 200,
     icon: 'Settings',
@@ -457,7 +457,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   notifications: {
     label: 'Notifications',
     description: 'Alerts, event feed, and action items',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 250,
     minHeight: 150,
     icon: 'Bell',
@@ -466,7 +466,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'frontend-preview': {
     label: 'Preview',
     description: 'Device frame preview for web and mobile apps (iOS, Android, Desktop)',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 350,
     minHeight: 300,
     icon: 'Monitor',
@@ -474,7 +474,7 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
   'node-red': {
     label: 'Node-RED',
     description: 'Visual event-driven flow monitor (Node-RED + FastAPI + PostgreSQL)',
-    pages: ['dashboard', 'synaptic', 'live'],
+    pages: ['dashboard', 'workspace', 'live'],
     minWidth: 300,
     minHeight: 200,
     icon: 'Workflow',

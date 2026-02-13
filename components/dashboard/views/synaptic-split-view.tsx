@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Bot, Brain, Sparkles, ExternalLink } from 'lucide-react';
+import { Bot, Brain, Sparkles, ExternalLink, ClipboardCheck, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { SynapticChatView } from './synaptic-chat-view';
 import { ClaudeChatView } from './claude-chat-view';
 import { cn } from '@/lib/utils';
@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
 // Tab Definitions
 // ---------------------------------------------------------------------------
 
-type TabId = 'synaptic' | 'claude' | 'agents';
+type TabId = 'synaptic' | 'claude' | 'agents' | 'reviews';
 
 interface TabDef {
   id: TabId;
@@ -54,6 +54,13 @@ const TABS: TabDef[] = [
     icon: Bot,
     accent: '#22c55e',       // Green (OpenHands brand)
     description: 'OpenHands',
+  },
+  {
+    id: 'reviews',
+    label: 'Reviews',
+    icon: ClipboardCheck,
+    accent: '#f59e0b',       // Amber (review/audit)
+    description: 'Agent QA',
   },
 ];
 
@@ -108,6 +115,220 @@ function OpenHandsPane() {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reviews Pane — Agent review history + plan progress
+// ---------------------------------------------------------------------------
+
+interface AgentReview {
+  agent_id: string;
+  agent_task: string;
+  status: string;
+  enqueued_at: number;
+  review?: {
+    alignment: number;
+    alignment_note: string;
+    verdict: string;
+    gaps: string[];
+    next_steps: string[];
+    risks: string[];
+    source: string;
+  };
+}
+
+function ReviewsPane() {
+  const [reviews, setReviews] = useState<AgentReview[]>([]);
+  const [planProgress, setPlanProgress] = useState<{
+    total: number;
+    completed: number;
+    percentage: number;
+    plan_name: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [revRes, planRes] = await Promise.all([
+        fetch('/api/agent-reviews').then(r => r.ok ? r.json() : { reviews: [] }).catch(() => ({ reviews: [] })),
+        fetch('/api/agent-reviews?plan=1').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      setReviews(revRes.reviews || revRes || []);
+      if (planRes) setPlanProgress(planRes);
+    } catch { /* silent */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 15000); // refresh every 15s
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  const getVerdictColor = (verdict: string) => {
+    switch (verdict) {
+      case 'on_track': return '#22c55e';
+      case 'needs_adjustment': return '#f59e0b';
+      case 'off_track': return '#ef4444';
+      default: return '#6b6b75';
+    }
+  };
+
+  const getVerdictIcon = (verdict: string) => {
+    switch (verdict) {
+      case 'on_track': return CheckCircle2;
+      case 'needs_adjustment': return AlertCircle;
+      case 'off_track': return AlertCircle;
+      default: return Clock;
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-[#0a0a0f] overflow-y-auto">
+      <div className="p-4 space-y-4 max-w-2xl mx-auto w-full">
+        {/* Plan Progress */}
+        {planProgress && planProgress.total > 0 && (
+          <div className="rounded-lg border border-[#2a2a35] bg-[#111118] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-[#a0a0a5]">Active Plan</span>
+              <span className="text-xs text-[#f59e0b]">
+                {planProgress.completed}/{planProgress.total} ({planProgress.percentage}%)
+              </span>
+            </div>
+            {planProgress.plan_name && (
+              <p className="text-sm text-[#e5e5e5] mb-2 truncate">{planProgress.plan_name}</p>
+            )}
+            <div className="h-2 bg-[#1e1e24] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${planProgress.percentage}%`,
+                  backgroundColor: '#f59e0b',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Reviews List */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-[#a0a0a5]">Agent Reviews</span>
+            <span className="text-xs text-[#555]">{reviews.length} total</span>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-8 text-[#6b6b75] text-sm">Loading...</div>
+          ) : reviews.length === 0 ? (
+            <div className="text-center py-8">
+              <ClipboardCheck className="w-8 h-8 text-[#333] mx-auto mb-2" />
+              <p className="text-sm text-[#6b6b75]">No agent reviews yet</p>
+              <p className="text-xs text-[#444] mt-1">Reviews appear when Atlas spawns Task agents</p>
+            </div>
+          ) : (
+            [...reviews].reverse().map((entry) => {
+              const review = entry.review;
+              const VerdictIcon = review ? getVerdictIcon(review.verdict) : Clock;
+              const verdictColor = review ? getVerdictColor(review.verdict) : '#6b6b75';
+              const alignment = review?.alignment ?? 0;
+              const timeAgo = entry.enqueued_at
+                ? `${Math.round((Date.now() / 1000 - entry.enqueued_at) / 60)}m ago`
+                : '';
+
+              return (
+                <div
+                  key={entry.agent_id}
+                  className="rounded-lg border border-[#2a2a35] bg-[#111118] p-3 space-y-2"
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <VerdictIcon
+                        className="w-4 h-4 shrink-0"
+                        style={{ color: verdictColor }}
+                      />
+                      <span className="text-sm text-[#e5e5e5] truncate">
+                        {entry.agent_task?.slice(0, 80) || 'Unknown task'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-[#555] shrink-0">{timeAgo}</span>
+                  </div>
+
+                  {/* Review details */}
+                  {review ? (
+                    <>
+                      {/* Alignment bar */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-[#1e1e24] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${alignment * 100}%`,
+                              backgroundColor: verdictColor,
+                            }}
+                          />
+                        </div>
+                        <span className="text-xs text-[#a0a0a5] w-8 text-right">
+                          {(alignment * 100).toFixed(0)}%
+                        </span>
+                      </div>
+
+                      {/* Note */}
+                      {review.alignment_note && (
+                        <p className="text-xs text-[#888]">{review.alignment_note}</p>
+                      )}
+
+                      {/* Gaps */}
+                      {review.gaps && review.gaps.length > 0 && (
+                        <div className="text-xs">
+                          <span className="text-[#f59e0b]">Gaps: </span>
+                          <span className="text-[#888]">{review.gaps.slice(0, 2).join('; ')}</span>
+                        </div>
+                      )}
+
+                      {/* Next steps */}
+                      {review.next_steps && review.next_steps.length > 0 && (
+                        <div className="text-xs">
+                          <span className="text-[#22c55e]">Next: </span>
+                          <span className="text-[#888]">{review.next_steps.slice(0, 2).join('; ')}</span>
+                        </div>
+                      )}
+
+                      {/* Source badge */}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{
+                            backgroundColor: review.source === 'qwen3' ? 'rgba(217,120,87,0.15)' : 'rgba(100,100,100,0.15)',
+                            color: review.source === 'qwen3' ? '#d97857' : '#888',
+                          }}
+                        >
+                          {review.source === 'qwen3' ? 'Qwen3' : 'Fallback'}
+                        </span>
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded uppercase"
+                          style={{
+                            backgroundColor: `${verdictColor}15`,
+                            color: verdictColor,
+                          }}
+                        >
+                          {review.verdict?.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-[#555]">
+                      {entry.status === 'completed' ? 'Review pending...' : entry.status}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -211,6 +432,16 @@ export function SynapticSplitView() {
             )}
           >
             <OpenHandsPane />
+          </div>
+        )}
+        {mounted.has('reviews') && (
+          <div
+            className={cn(
+              'absolute inset-0',
+              activeTab === 'reviews' ? 'z-10 visible' : 'z-0 invisible'
+            )}
+          >
+            <ReviewsPane />
           </div>
         )}
       </div>

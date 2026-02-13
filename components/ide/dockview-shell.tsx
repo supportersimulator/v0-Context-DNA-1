@@ -125,13 +125,14 @@ function debounce<T extends (...args: unknown[]) => void>(
 // ---------------------------------------------------------------------------
 // Default layout: DashboardShell takes full view
 // ---------------------------------------------------------------------------
-function applyDefaultLayout(api: DockviewApi) {
+function applyDefaultLayout(api: DockviewApi, initialTab?: string) {
   api.clear();
   const allMeta = getAllPanelMetadata();
   api.addPanel({
     id: 'dashboard-shell',
     component: 'dashboard-shell',
     title: allMeta['dashboard-shell']?.label ?? 'Context DNA',
+    params: initialTab ? { initialTab } : undefined,
   });
 }
 
@@ -139,10 +140,16 @@ function applyDefaultLayout(api: DockviewApi) {
 // DockviewShell — thin container around DockviewReact
 //
 // DashboardShell is the main panel and handles its own navigation
-// (Dashboard / Synaptic / Live View). Its header bar is the TOPMOST element.
+// (Dashboard / Workspace / Live View). Its header bar is the TOPMOST element.
 // Users can dock additional panels around it via dockview tab actions.
 // ---------------------------------------------------------------------------
-export function DockviewShell() {
+
+export interface DockviewShellProps {
+  /** Optional initial tab to activate in DashboardShell (e.g. 'home', 'synaptic', 'injection'). */
+  initialTab?: string;
+}
+
+export function DockviewShell({ initialTab }: DockviewShellProps = {}) {
   const [dockviewApi, setDockviewApi] = useState<DockviewApi | null>(null);
   const dockviewApiRef = useRef<{ toJSON(): unknown } | null>(null);
   const { state } = useResponsive();
@@ -353,12 +360,12 @@ export function DockviewShell() {
       try {
         event.api.fromJSON(saved);
       } catch {
-        applyDefaultLayout(event.api);
+        applyDefaultLayout(event.api, initialTab);
       }
     } else {
-      applyDefaultLayout(event.api);
+      applyDefaultLayout(event.api, initialTab);
     }
-  }, []);
+  }, [initialTab]);
 
   // ------- Workspace snapshot/restore -------
   const snapshotCurrentState = useCallback((): {

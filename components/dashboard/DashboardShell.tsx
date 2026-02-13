@@ -463,7 +463,7 @@ export default function DashboardShell() {
               <span>Dashboard</span>
             </button>
 
-            {/* Synaptic Button - Main View (default after login) */}
+            {/* Workspace Button - Main View (default after login) */}
             <button
               onClick={() => {
                 setActiveCustomPageId(null);
@@ -476,10 +476,10 @@ export default function DashboardShell() {
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "text-muted-foreground hover:text-foreground hover:bg-background/50"
               )}
-              title="Synaptic Chat (⌘2)"
+              title="Workspace (⌘2)"
             >
               <Brain className="w-3.5 h-3.5" />
-              <span>Synaptic</span>
+              <span>Workspace</span>
             </button>
 
             {/* Live View Button */}

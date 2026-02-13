@@ -48,7 +48,7 @@ export interface IDEEvents {
 
   // -- Navigation -----------------------------------------------------------
   'navigation:page-changed': {
-    page: 'dashboard' | 'synaptic' | 'live';
+    page: 'dashboard' | 'workspace' | 'live';
     previous: string;
   };
 

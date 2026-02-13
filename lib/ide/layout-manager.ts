@@ -6,7 +6,7 @@ import type { DockviewApi } from 'dockview-react';
 // Types
 // ---------------------------------------------------------------------------
 
-export type ParentPage = 'dashboard' | 'synaptic' | 'live';
+export type ParentPage = 'dashboard' | 'workspace' | 'live';
 
 export interface PageLayoutState {
   /** Panel IDs currently active in the dockview */

@@ -21,7 +21,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon, Code2, AudioLines, Sparkles } from "lucide-react";
+import { Send, Brain, MessageCircle, Mic, Volume2, Loader2, Sun, Moon, Code2, AudioLines, Sparkles, ShieldCheck, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -201,6 +201,7 @@ export function SynapticChatView() {
   const [textConnected, setTextConnected] = useState(false);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
+  const [browserVoiceFallback, setBrowserVoiceFallback] = useState(false);
 
   // Claude state
   const [claudeStreaming, setClaudeStreaming] = useState(false);
@@ -208,6 +209,14 @@ export function SynapticChatView() {
 
   // Voice state
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+
+  // Permission assistant state
+  const [pendingPermissions, setPendingPermissions] = useState<Array<{
+    tool_use_id: string;
+    tool_name: string;
+    explanation: string;
+    detected_at: number;
+  }>>([]);
 
   // Get current theme styles
   const t = THEMES[theme];
@@ -228,6 +237,8 @@ export function SynapticChatView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const claudeAbortRef = useRef<AbortController | null>(null);
+  const voiceReconnectCount = useRef(0);
+  const browserRecognitionRef = useRef<any>(null);
 
   // ==========================================================================
   // Audio Context
@@ -326,13 +337,22 @@ export function SynapticChatView() {
 
     ws.onopen = () => {
       setVoiceConnected(true);
+      voiceReconnectCount.current = 0;
+      setBrowserVoiceFallback(false);
       console.log("[Voice] Connected");
     };
 
     ws.onclose = () => {
       setVoiceConnected(false);
       setVoiceState("idle");
-      setTimeout(connectVoice, 3000);
+      voiceReconnectCount.current++;
+      // After 3 failed reconnects, activate browser voice fallback
+      if (voiceReconnectCount.current >= 3 && !browserVoiceFallback) {
+        console.log("[Voice] Server unreachable — activating browser voice fallback");
+        setBrowserVoiceFallback(true);
+      } else if (!browserVoiceFallback) {
+        setTimeout(connectVoice, 3000);
+      }
     };
 
     ws.onerror = (err) => {
@@ -460,6 +480,94 @@ export function SynapticChatView() {
       mediaRecorderRef.current = null;
     }
   }, []);
+
+  // ==========================================================================
+  // Browser Voice Fallback (Web Speech API — no server needed)
+  // ==========================================================================
+  // Activated when synaptic_chat_server.py is unreachable after 3 retries.
+  // Uses browser-native STT + TTS, sends text to text WebSocket for LLM response.
+
+  const browserSpeechSupported = typeof window !== "undefined" && (
+    "SpeechRecognition" in window || "webkitSpeechRecognition" in window
+  );
+
+  const startBrowserListening = useCallback(() => {
+    if (!browserSpeechSupported || voiceState !== "idle") return;
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => setVoiceState("listening");
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setVoiceState("processing");
+
+      // Send transcript as text message through the text WebSocket
+      if (textWsRef.current?.readyState === WebSocket.OPEN && transcript.trim()) {
+        textWsRef.current.send(JSON.stringify({
+          type: "message",
+          content: transcript.trim(),
+          sender: "aaron",
+        }));
+
+        // Add user message to chat (voice input shown as text)
+        setSynapticMessages(prev => [...prev, {
+          id: `browser-voice-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          sender: "user",
+          content: transcript.trim(),
+          source: "voice",
+          model: "Browser STT",
+        }]);
+      }
+      setVoiceState("idle");
+    };
+
+    recognition.onerror = () => setVoiceState("idle");
+    recognition.onend = () => {
+      if (voiceState === "listening") setVoiceState("idle");
+    };
+
+    browserRecognitionRef.current = recognition;
+    recognition.start();
+  }, [browserSpeechSupported, voiceState, textConnected]);
+
+  const stopBrowserListening = useCallback(() => {
+    if (browserRecognitionRef.current) {
+      browserRecognitionRef.current.stop();
+      browserRecognitionRef.current = null;
+    }
+  }, []);
+
+  /** Browser TTS — speak Synaptic's response when in fallback mode */
+  const browserSpeak = useCallback((text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.1;
+    utterance.pitch = 1.0;
+    utterance.onend = () => setVoiceState("idle");
+    setVoiceState("speaking");
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  // In fallback mode, auto-speak Synaptic responses
+  useEffect(() => {
+    if (!browserVoiceFallback) return;
+    const lastMsg = synapticMessages[synapticMessages.length - 1];
+    if (lastMsg?.sender === "synaptic" && lastMsg.source === "text") {
+      // Only speak recent messages (within last 2 seconds)
+      const msgAge = Date.now() - new Date(lastMsg.timestamp).getTime();
+      if (msgAge < 2000) {
+        browserSpeak(lastMsg.content);
+      }
+    }
+  }, [synapticMessages, browserVoiceFallback, browserSpeak]);
 
   // ==========================================================================
   // Send Text Message (Synaptic mode - via WebSocket)
@@ -645,6 +753,51 @@ export function SynapticChatView() {
   useEffect(() => {
     if (!claudeStreaming) saveClaudeMessages(claudeMessages);
   }, [claudeMessages, claudeStreaming]);
+
+  // ==========================================================================
+  // Permission Assistant — poll for pending tool approvals
+  // ==========================================================================
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+
+    const pollPermissions = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8080/api/permissions/pending");
+        if (res.ok) {
+          const data = await res.json();
+          const prev = pendingPermissions;
+          const next = data.pending || [];
+          setPendingPermissions(next);
+
+          // Auto-TTS for NEW permissions (speak explanation once)
+          if (next.length > prev.length && chatMode === "synaptic") {
+            const newest = next[next.length - 1];
+            if (newest?.explanation) {
+              browserSpeak?.(newest.explanation);
+            }
+          }
+        }
+      } catch {
+        // agent_service down — ignore
+      }
+    };
+
+    // Poll every 3s
+    pollPermissions();
+    interval = setInterval(pollPermissions, 3000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMode, pendingPermissions.length]);
+
+  const handlePermissionAction = useCallback(async (toolUseId: string, action: "approve" | "deny") => {
+    try {
+      await fetch(`http://127.0.0.1:8080/api/permissions/${toolUseId}/${action}`, { method: "POST" });
+      setPendingPermissions(prev => prev.filter(p => p.tool_use_id !== toolUseId));
+    } catch {
+      // silent
+    }
+  }, []);
 
   // ==========================================================================
   // Theme persistence
@@ -975,6 +1128,54 @@ export function SynapticChatView() {
             })
           )}
 
+          {/* Permission approval cards */}
+          {pendingPermissions.map((perm) => (
+            <div key={perm.tool_use_id} className="flex justify-start">
+              <div
+                className="rounded-2xl px-4 py-3 max-w-[85%] border"
+                style={{
+                  backgroundColor: "rgba(251,191,36,0.08)",
+                  borderColor: "rgba(251,191,36,0.3)",
+                }}
+              >
+                <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: "#f59e0b" }}>
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span className="font-medium">Permission Request</span>
+                  <span className={cn("ml-auto", t.textMuted)}>
+                    {perm.tool_name}
+                  </span>
+                </div>
+                <p className="text-sm mb-3" style={{ color: t === THEMES.dark ? "#e5e5e5" : "#1a1a1a" }}>
+                  {perm.explanation || `Claude wants to use ${perm.tool_name}`}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handlePermissionAction(perm.tool_use_id, "approve")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: "rgba(34,197,94,0.15)",
+                      color: "#22c55e",
+                    }}
+                  >
+                    <ShieldCheck className="h-3 w-3" />
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handlePermissionAction(perm.tool_use_id, "deny")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: "rgba(239,68,68,0.15)",
+                      color: "#ef4444",
+                    }}
+                  >
+                    <ShieldX className="h-3 w-3" />
+                    Deny
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
           {/* Processing indicator (Synaptic voice mode) */}
           {chatMode === "synaptic" && voiceState === "processing" && (
             <div className="flex justify-start">
@@ -992,6 +1193,21 @@ export function SynapticChatView() {
       {/* Input Area - Hybrid Voice + Text with accent color */}
       <div className={cn("p-4 border-t backdrop-blur", t.border, t.bgSecondary)}>
         <div className="max-w-3xl mx-auto">
+          {/* Browser voice fallback banner */}
+          {chatMode === "synaptic" && browserVoiceFallback && voiceState === "idle" && (
+            <div
+              className="flex items-center justify-center gap-2 mb-3 py-2 rounded-lg border text-xs"
+              style={{
+                backgroundColor: "rgba(251,191,36,0.08)",
+                borderColor: "rgba(251,191,36,0.25)",
+                color: "rgb(251,191,36)",
+              }}
+            >
+              <AudioLines className="h-3.5 w-3.5" />
+              <span>Browser voice mode — server offline</span>
+            </div>
+          )}
+
           {/* Voice recording indicator (Synaptic mode only) */}
           {chatMode === "synaptic" && voiceState === "listening" && (
             <div
@@ -1044,26 +1260,53 @@ export function SynapticChatView() {
                     ? { backgroundColor: ACCENT.primary, touchAction: "none" }
                     : { touchAction: "none" }
                 }
-                disabled={!voiceConnected || (voiceState !== "idle" && voiceState !== "listening")}
-                onMouseDown={() => voiceState === "idle" && startRecording()}
-                onMouseUp={() => voiceState === "listening" && stopRecording()}
-                onMouseLeave={() => voiceState === "listening" && stopRecording()}
+                disabled={
+                  (!voiceConnected && !(browserVoiceFallback && browserSpeechSupported))
+                  || (voiceState !== "idle" && voiceState !== "listening")
+                }
+                onMouseDown={() => {
+                  if (voiceState !== "idle") return;
+                  browserVoiceFallback ? startBrowserListening() : startRecording();
+                }}
+                onMouseUp={() => {
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
+                }}
+                onMouseLeave={() => {
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
+                }}
                 onTouchStart={(e) => {
                   e.preventDefault();
-                  voiceState === "idle" && startRecording();
+                  if (voiceState !== "idle") return;
+                  browserVoiceFallback ? startBrowserListening() : startRecording();
                 }}
                 onTouchEnd={(e) => {
                   e.preventDefault();
-                  voiceState === "listening" && stopRecording();
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
                 }}
                 onTouchCancel={(e) => {
                   e.preventDefault();
-                  voiceState === "listening" && stopRecording();
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
                 }}
-                onPointerDown={() => voiceState === "idle" && startRecording()}
-                onPointerUp={() => voiceState === "listening" && stopRecording()}
-                onPointerLeave={() => voiceState === "listening" && stopRecording()}
-                onPointerCancel={() => voiceState === "listening" && stopRecording()}
+                onPointerDown={() => {
+                  if (voiceState !== "idle") return;
+                  browserVoiceFallback ? startBrowserListening() : startRecording();
+                }}
+                onPointerUp={() => {
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
+                }}
+                onPointerLeave={() => {
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
+                }}
+                onPointerCancel={() => {
+                  if (voiceState !== "listening") return;
+                  browserVoiceFallback ? stopBrowserListening() : stopRecording();
+                }}
               >
                 {voiceState === "listening" ? (
                   <Mic className="h-6 w-6 animate-pulse text-white" />
@@ -1126,9 +1369,13 @@ export function SynapticChatView() {
               claudeStreaming ? "Claude is responding..." : "Claude Sonnet 4.5 \u2022 Streaming responses"
             ) : (
               voiceState === "idle" ? (
-                "Hold mic to speak \u2022 Type to chat"
+                browserVoiceFallback
+                  ? "Browser voice mode (offline) \u2022 Hold mic to speak"
+                  : "Hold mic to speak \u2022 Type to chat"
               ) : voiceState === "listening" ? (
-                "Release when done speaking"
+                browserVoiceFallback
+                  ? "Listening via browser... Release to send"
+                  : "Release when done speaking"
               ) : voiceState === "processing" ? (
                 "Processing your request..."
               ) : (

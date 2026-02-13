@@ -340,6 +340,42 @@ export function NotificationsPanel() {
     } catch { /* no WS */ }
   }, []);
 
+  // Poll permission assistant for pending tool approvals
+  useEffect(() => {
+    const pollPermissions = async () => {
+      try {
+        const res = await fetch(getServiceUrl('helper_agent') + '/api/permissions/pending', {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const perms = (data.pending || []) as Array<{
+          tool_use_id: string;
+          tool_name: string;
+          explanation: string;
+          detected_at: number;
+        }>;
+        if (perms.length > 0) {
+          setActionItems(prev => {
+            // Merge: keep non-permission items + add new permission items
+            const nonPerm = prev.filter(a => !a.id.startsWith('perm-'));
+            const permItems: ActionItem[] = perms.map(p => ({
+              id: `perm-${p.tool_use_id}`,
+              kind: 'tool_approval' as const,
+              title: `Claude requests ${p.tool_name}`,
+              detail: p.explanation || `Tool: ${p.tool_name}`,
+              timestamp: p.detected_at * 1000,
+            }));
+            return [...permItems, ...nonPerm];
+          });
+        }
+      } catch { /* silent */ }
+    };
+    pollPermissions();
+    const interval = setInterval(pollPermissions, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Auto-scroll event feed
   useEffect(() => {
     if (eventsFeedRef.current) {
@@ -369,20 +405,37 @@ export function NotificationsPanel() {
   const approveAction = useCallback(async (id: string) => {
     setActionItems((prev) => prev.filter((a) => a.id !== id));
     try {
-      await fetch(`${getServiceUrl('helper_agent')}/api/notifications/actions/${id}/approve`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(3000),
-      });
+      // Permission items use the permission API
+      if (id.startsWith('perm-')) {
+        const toolUseId = id.slice(5); // strip 'perm-' prefix
+        await fetch(`${getServiceUrl('helper_agent')}/api/permissions/${toolUseId}/approve`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(3000),
+        });
+      } else {
+        await fetch(`${getServiceUrl('helper_agent')}/api/notifications/actions/${id}/approve`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(3000),
+        });
+      }
     } catch { /* ignore */ }
   }, []);
 
   const denyAction = useCallback(async (id: string) => {
     setActionItems((prev) => prev.filter((a) => a.id !== id));
     try {
-      await fetch(`${getServiceUrl('helper_agent')}/api/notifications/actions/${id}/deny`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(3000),
-      });
+      if (id.startsWith('perm-')) {
+        const toolUseId = id.slice(5);
+        await fetch(`${getServiceUrl('helper_agent')}/api/permissions/${toolUseId}/deny`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(3000),
+        });
+      } else {
+        await fetch(`${getServiceUrl('helper_agent')}/api/notifications/actions/${id}/deny`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(3000),
+        });
+      }
     } catch { /* ignore */ }
   }, []);
 

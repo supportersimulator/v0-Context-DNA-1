@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 export type PanelId = 'injections' | 'learnings' | 'architecture' | 'synaptic';
-export type ParentPage = 'dashboard' | 'synaptic' | 'live';
+export type ParentPage = 'dashboard' | 'workspace' | 'live';
 export type PanelMode = 'docked' | 'sticky' | 'minimized';
 export type StickyCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
@@ -90,7 +90,7 @@ const DEFAULT_PANEL_STATES: Record<ParentPage, ParentPagePanels> = {
       },
     },
   },
-  synaptic: {
+  workspace: {
     activePanels: ['learnings', 'injections'],
     panelStates: {
       injections: {

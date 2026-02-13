@@ -102,7 +102,7 @@ export const leaderboardPanelMeta = {
   id: 'leaderboard' as const,
   label: 'Leaderboard',
   description: 'Community benchmark leaderboard -- compare local LLM performance',
-  pages: ['dashboard', 'synaptic', 'live'] as const,
+  pages: ['dashboard', 'workspace', 'live'] as const,
   minWidth: 300,
   minHeight: 200,
 };
