@@ -87,7 +87,7 @@ No overlay/backdrop state needed — each page is fully independent.
 | `PageProvider` context | BUILT |
 | Top-level nav buttons (DockviewShell tabs) | BUILT (internal tab switching, not Next.js routes) |
 | Activity bar page-aware filtering | BUILT |
-| `Cmd+1/2/3` shortcuts | NOT BUILT |
+| `Cmd+1/2/3` shortcuts | BUILT (keybinding-registry.ts) |
 | Per-route `layout.tsx` files | NOT BUILT (not needed until Electron packaging) |
 
 ---
@@ -124,11 +124,11 @@ Dashboard is a **dedicated measurement and configuration area**, completely sepa
 |------|--------|
 | Dashboard page route | BUILT |
 | Existing dashboard panels (13 total) | BUILT |
-| LLM Performance panel | NOT BUILT |
-| System Health panel | NOT BUILT |
-| ContextDNA Services panel | NOT BUILT |
-| Bottleneck detection | NOT BUILT |
-| Settings panel (Lite/Heavy) | NOT BUILT |
+| LLM Performance panel | BUILT (config-benchmark-summary.tsx + leaderboard-view.tsx) |
+| System Health panel | BUILT (health-view.tsx) |
+| ContextDNA Services panel | BUILT (health-view.tsx — Docker/PG/Redis/Ollama/API checks) |
+| Bottleneck detection | BUILT (bottleneck-card.tsx + bottleneck-analyzer.ts) |
+| Settings panel (Lite/Heavy) | BUILT (settings-panel.tsx) |
 
 ---
 
@@ -159,10 +159,10 @@ The Editor panel is the agent delegation hub (see Section 5).
 | Workspace page route | BUILT |
 | DockviewShell | BUILT |
 | SynapticSplitView (keep-alive pattern) | BUILT |
-| Explorer panel | NOT BUILT (file tree) |
-| Editor panel (with agent chat) | PARTIAL (Synaptic chat exists, agent switching built but not wired) |
-| Diff panel | NOT BUILT |
-| Panel lifecycle (activate/deactivate/pause/resume) | NOT BUILT |
+| Explorer panel | BUILT (file-explorer.tsx) |
+| Editor panel (with agent chat) | BUILT (AgentSwitcher wired in code-editor-panel.tsx) |
+| Diff panel | BUILT (diff-viewer-panel.tsx with Monaco DiffEditor) |
+| Panel lifecycle (activate/deactivate/pause/resume) | BUILT (panel-lifecycle.ts with IndexedDB persistence) |
 
 ---
 
@@ -209,10 +209,10 @@ Live is **not** a real-time log viewer. It is a **panel host** — ContextDNA's 
 | Item | Status |
 |------|--------|
 | Live page route | BUILT |
-| Panel catalog UI | NOT BUILT |
-| Panel Protocol v1 implementation | NOT BUILT |
+| Panel catalog UI | BUILT (panel-catalog-panel.tsx, registered in panel-factory) |
+| Panel Protocol v1 implementation | BUILT (lib/panels/panel-protocol.ts — types, registry, singleton) |
 | Panel Inspector | NOT BUILT |
-| Any Live panels | NOT BUILT |
+| Any Live panels | BUILT (injection-viewer, node-red, extensions, frontend-preview + 20 providers) |
 
 ---
 
@@ -288,12 +288,12 @@ When `agentMode = 'single'`:
 | ProjectDialogue EventStore | BUILT (Lite mode, in-process pub/sub, 500-event ring) |
 | AgentSwitcher UI (tab bar + keep-alive) | BUILT |
 | 4 built-in agent definitions | BUILT |
-| Handoff capsule generation | NOT BUILT |
-| Swarm Feed UI | NOT BUILT |
-| Tool Log panel | NOT BUILT |
-| Agent switching wired into Editor panel | NOT BUILT |
-| Agent status badges in activity bar | NOT BUILT |
-| One-agent-only mode toggle | NOT BUILT |
+| Handoff capsule generation | BUILT (context-handoff.ts: buildHandoffSummary + formatHandoffForAgent) |
+| Swarm Feed UI | BUILT (swarm-feed-panel.tsx, registered in panel-factory) |
+| Tool Log panel | BUILT (tool-log-panel.tsx, registered in panel-factory) |
+| Agent switching wired into Editor panel | BUILT (AgentSwitcher in code-editor-panel.tsx) |
+| Agent status badges in activity bar | BUILT (activity-bar.tsx subscribes to AgentManager) |
+| One-agent-only mode toggle | BUILT (agent-mode-store.ts + mode-toggle.tsx) |
 
 ---
 
@@ -393,7 +393,7 @@ Any tool can become a ContextDNA panel by implementing three primitives:
 
 ### Built Status
 
-Entirely NOT BUILT. This is the Live page's core contract.
+BUILT: `lib/panels/panel-protocol.ts` — PanelRegistry singleton, types (PanelManifest, PanelSnapshot, PanelEvent, PanelCommand), connection tracking. Transport layer stubs ready for file/WS/HTTP implementation.
 
 ---
 
@@ -589,8 +589,8 @@ cdna:{projectId}:{workspaceId}:ctx:*        (STRING with TTL)
 | ProjectDialogue (in-process pub/sub) | BUILT (Lite mode only) |
 | SQLiteEventStore | NOT BUILT (ProjectDialogue uses in-memory array) |
 | RedisEventStore | NOT BUILT |
-| EventStore interface abstraction | NOT BUILT |
-| Mode toggle UI | NOT BUILT |
+| EventStore interface abstraction | BUILT (event-store.ts — interface, config, factory utils) |
+| Mode toggle UI | BUILT (mode-toggle.tsx — dual toggle for agent/system modes) |
 
 ---
 

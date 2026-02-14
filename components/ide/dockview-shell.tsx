@@ -128,12 +128,23 @@ function debounce<T extends (...args: unknown[]) => void>(
 function applyDefaultLayout(api: DockviewApi, initialTab?: string) {
   api.clear();
   const allMeta = getAllPanelMetadata();
-  api.addPanel({
+  const shell = api.addPanel({
     id: 'dashboard-shell',
     component: 'dashboard-shell',
     title: allMeta['dashboard-shell']?.label ?? 'Context DNA',
     params: initialTab ? { initialTab } : undefined,
   });
+
+  // Dock benchmark panel to the right of the shell on dashboard page
+  if (initialTab === 'home') {
+    api.addPanel({
+      id: 'benchmark',
+      component: 'benchmark',
+      title: allMeta['benchmark']?.label ?? 'Benchmark',
+      position: { referencePanel: shell, direction: 'right' },
+      initialWidth: 380,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import { LeaderboardView } from '@/components/dashboard/views/leaderboard-view';
 import { ConfigPackBrowser } from '@/components/dashboard/views/config-pack-browser';
 import { BottleneckCard } from '@/components/dashboard/views/bottleneck-card';
 import { ConfigBenchmarkSummary } from '@/components/dashboard/views/config-benchmark-summary';
+import { BenchmarkPanel } from '@/components/dashboard/views/benchmark-panel';
 import { analyzeBottleneck } from '@/lib/benchmark/bottleneck-analyzer';
 import type { BenchmarkInput } from '@/lib/benchmark/bottleneck-analyzer';
 import DashboardShell from '@/components/dashboard/DashboardShell';
@@ -59,6 +60,9 @@ import { SettingsPanel } from '@/components/ide/panels/settings-panel';
 import { NotificationsPanel } from '@/components/ide/panels/notifications-panel';
 import { FrontendPreviewPanel } from '@/components/ide/panels/frontend-preview-panel';
 import { NodeRedPanel } from '@/components/ide/panels/node-red-panel';
+import { SwarmFeedPanel } from '@/components/ide/panels/swarm-feed-panel';
+import { ToolLogPanel } from '@/components/ide/panels/tool-log-panel';
+import { PanelCatalogPanel } from '@/components/ide/panels/panel-catalog-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -264,6 +268,14 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     pages: ['dashboard'],
     minWidth: 300,
     minHeight: 120,
+  },
+  benchmark: {
+    label: 'Benchmark',
+    description: 'Run LLM benchmarks, view results, copy markdown, and browse history',
+    pages: ['dashboard'],
+    minWidth: 280,
+    minHeight: 200,
+    icon: 'Gauge',
   },
 };
 
@@ -478,6 +490,33 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     minWidth: 300,
     minHeight: 200,
     icon: 'Workflow',
+  },
+  'swarm-feed': {
+    label: 'Swarm Feed',
+    description: 'Real-time agent activity feed across all agents',
+    pages: ['workspace', 'live'],
+    minWidth: 200,
+    minHeight: 120,
+    icon: 'Users',
+    position: 'top',
+  },
+  'tool-log': {
+    label: 'Tool Log',
+    description: 'Chronological log of tool calls made by agents',
+    pages: ['workspace'],
+    minWidth: 200,
+    minHeight: 120,
+    icon: 'Wrench',
+    position: 'top',
+  },
+  'panel-catalog': {
+    label: 'Panel Catalog',
+    description: 'Browse, search, and inspect all registered Panel Protocol v1 panels',
+    pages: ['live'],
+    minWidth: 200,
+    minHeight: 120,
+    icon: 'Puzzle',
+    position: 'top',
   },
 };
 
@@ -725,6 +764,14 @@ function ConfigSummaryPanel(_props: IDockviewPanelProps) {
   );
 }
 
+function BenchmarkPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="benchmark">
+      <BenchmarkPanel />
+    </PanelWrapper>
+  );
+}
+
 function DashboardShellPanel(_props: IDockviewPanelProps) {
   return <DashboardShell />;
 }
@@ -957,6 +1004,30 @@ function NodeRedPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function SwarmFeedPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="swarm-feed">
+      <SwarmFeedPanel />
+    </PanelWrapper>
+  );
+}
+
+function ToolLogPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="tool-log">
+      <ToolLogPanel />
+    </PanelWrapper>
+  );
+}
+
+function PanelCatalogPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="panel-catalog">
+      <PanelCatalogPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -988,6 +1059,7 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'config-packs': ConfigPacksPanel,
   bottleneck: BottleneckPanel,
   'config-summary': ConfigSummaryPanel,
+  benchmark: BenchmarkPanelView,
   // IDE panels (Electron-only — gracefully degrade with placeholder in web)
   explorer: ExplorerPanel,
   docker: DockerPanelView,
@@ -1018,6 +1090,9 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   notifications: NotificationsPanelView,
   'frontend-preview': FrontendPreviewPanelView,
   'node-red': NodeRedPanelView,
+  'swarm-feed': SwarmFeedPanelView,
+  'tool-log': ToolLogPanelView,
+  'panel-catalog': PanelCatalogPanelView,
 };
 
 /**

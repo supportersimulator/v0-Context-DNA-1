@@ -7,6 +7,8 @@
 // Spec: Dashboard-Workspace-Live-Plans.md Section 5.4
 // =============================================================================
 
+import type { EventStore } from './event-store';
+
 // ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
@@ -38,10 +40,8 @@ export type Unsubscribe = () => void;
 type EventCallback = (event: ProjectDialogueEvent) => void;
 
 // ---------------------------------------------------------------------------
-// EventStore — Lite mode (in-process pub/sub, bounded history)
+// ProjectDialogueStore — In-memory EventStore (Lite mode)
 // ---------------------------------------------------------------------------
-
-const MAX_HISTORY = 500;
 
 interface Subscription {
   id: number;
@@ -51,16 +51,21 @@ interface Subscription {
 
 let nextSubId = 0;
 
-class ProjectDialogueStore {
+class ProjectDialogueStore implements EventStore {
   private history: ProjectDialogueEvent[] = [];
   private subscriptions: Map<number, Subscription> = new Map();
+  private maxHistory: number;
+
+  constructor(maxHistory = 500) {
+    this.maxHistory = maxHistory;
+  }
 
   /** Emit an event to all matching subscribers and append to history. */
   emit(event: ProjectDialogueEvent): void {
     this.history.push(event);
     // Bounded ring: drop oldest when over limit
-    if (this.history.length > MAX_HISTORY) {
-      this.history = this.history.slice(-MAX_HISTORY);
+    if (this.history.length > this.maxHistory) {
+      this.history = this.history.slice(-this.maxHistory);
     }
     for (const sub of this.subscriptions.values()) {
       if (this.matches(event, sub.filter)) {
@@ -108,16 +113,71 @@ class ProjectDialogueStore {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton — one store per app
+// In-memory singleton factory (used by createEventStore for 'memory' mode)
 // ---------------------------------------------------------------------------
 
-let instance: ProjectDialogueStore | null = null;
+let inMemoryInstance: ProjectDialogueStore | null = null;
 
-export function getProjectDialogue(): ProjectDialogueStore {
-  if (!instance) {
-    instance = new ProjectDialogueStore();
+/**
+ * Get (or create) the in-memory ProjectDialogueStore singleton.
+ * Called by createEventStore() in event-store.ts for 'memory' mode.
+ */
+export function getInMemoryStore(maxHistory = 500): EventStore {
+  if (!inMemoryInstance) {
+    inMemoryInstance = new ProjectDialogueStore(maxHistory);
   }
-  return instance;
+  return inMemoryInstance;
+}
+
+// ---------------------------------------------------------------------------
+// Singleton — one store per app (delegates to createEventStore)
+// ---------------------------------------------------------------------------
+
+let instance: EventStore | null = null;
+let instancePromise: Promise<EventStore> | null = null;
+
+/**
+ * Get the ProjectDialogue singleton.
+ *
+ * On first call, reads config from event-store.ts and creates the appropriate
+ * backend (memory or IndexedDB). Returns synchronously if already initialized,
+ * otherwise returns the in-memory store immediately and upgrades in background
+ * when a persistent backend finishes loading.
+ */
+export function getProjectDialogue(): EventStore {
+  if (instance) return instance;
+
+  // Start async creation if not already in flight
+  if (!instancePromise) {
+    // Return in-memory immediately for synchronous callers
+    instance = new ProjectDialogueStore();
+
+    instancePromise = (async () => {
+      const { createEventStore } = await import('./event-store');
+      const store = await createEventStore();
+      instance = store;
+      return store;
+    })();
+
+    // If createEventStore fails, keep the in-memory fallback
+    instancePromise.catch(() => {});
+  }
+
+  // Always return something synchronously (in-memory until upgrade completes)
+  return instance!;
+}
+
+/**
+ * Async version — awaits full initialization including IDB hydration.
+ * Prefer this in useEffect or other async contexts.
+ */
+export async function getProjectDialogueAsync(): Promise<EventStore> {
+  if (instance && instancePromise) {
+    return instancePromise;
+  }
+  // Trigger init via sync path, then await the promise
+  getProjectDialogue();
+  return instancePromise!;
 }
 
 export type { ProjectDialogueStore };
