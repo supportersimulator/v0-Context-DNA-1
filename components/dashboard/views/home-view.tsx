@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import { fetchStats, fetchRecent } from '@/lib/api';
+import { fetchStats, fetchRecent, fetchVLLMStatus } from '@/lib/api';
 import { StatCard, StatCardSkeleton } from '../stat-card';
 import { RecentActivity } from '../recent-activity';
 import { RecordModal } from '../record-modal';
@@ -18,24 +18,6 @@ import { IntegrationsModal } from './integrations-modal';
 
 type RecordType = 'win' | 'fix' | 'pattern';
 
-// ---------------------------------------------------------------------------
-// Placeholder data — will be replaced by live API / SWR queries
-// ---------------------------------------------------------------------------
-
-const PLACEHOLDER_LLM: LLMStatus = {
-  modelName: 'Qwen3-14B-4bit',
-  online: true,
-  tokensPerSecond: 35.1,
-  ttft: 0.24,
-};
-
-const PLACEHOLDER_BENCHMARK: BenchmarkResult = {
-  suiteName: 'coding-14B',
-  date: new Date().toISOString(),
-  metrics: { tokensPerSecond: 35.1, ttft: 0.24, ramUsageGB: 5.8 },
-  shared: false,
-};
-
 export function HomeView() {
   const [modalType, setModalType] = useState<RecordType | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -49,6 +31,29 @@ export function HomeView() {
     refreshInterval: 30000,
   });
 
+  // Live LLM status from vllm-mlx
+  const { data: vllmStatus } = useSWR('vllm-status', fetchVLLMStatus, {
+    refreshInterval: 10000,
+  });
+
+  const llmStatus: LLMStatus = {
+    modelName: vllmStatus?.modelName ?? 'Checking...',
+    online: vllmStatus?.online ?? false,
+    tokensPerSecond: null,
+    ttft: null,
+  };
+
+  // Last benchmark from localStorage (populated by benchmark runner)
+  const [lastBenchmark] = useState<BenchmarkResult | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = localStorage.getItem('contextdna-last-benchmark');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const handleRecordSuccess = () => {
     mutateStats();
     mutateRecent();
@@ -58,8 +63,8 @@ export function HomeView() {
     <div className="space-y-8">
       {/* Config Benchmark Widget — LLM status + quick actions */}
       <ConfigBenchmarkWidget
-        llmStatus={PLACEHOLDER_LLM}
-        lastBenchmark={PLACEHOLDER_BENCHMARK}
+        llmStatus={llmStatus}
+        lastBenchmark={lastBenchmark}
         onCompareConfigs={() => setShowConsentModal(true)}
         onOpenIntegrations={() => setShowIntegrationsModal(true)}
         onRunBenchmark={() => console.log('[Home] Run benchmark clicked')}

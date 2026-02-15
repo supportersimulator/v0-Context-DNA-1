@@ -1,4 +1,4 @@
-export type LearningType = 'win' | 'fix' | 'pattern' | 'sop' | 'insight' | 'gotcha';
+export type LearningType = 'win' | 'fix' | 'pattern' | 'sop' | 'insight' | 'gotcha' | 'protocol' | 'architecture' | 'bug_fix' | 'performance';
 
 export interface Learning {
   id: string;
@@ -21,6 +21,7 @@ export interface Stats {
   fixes: number;
   patterns: number;
   sops: number;
+  gotchas: number;
   today: number;
   streak: number;
   last_updated: string;
@@ -88,6 +89,10 @@ export const LEARNING_TYPE_CONFIG: Record<LearningType, { emoji: string; color: 
   sop: { emoji: '📋', color: 'text-type-sop', label: 'SOP' },
   insight: { emoji: '💡', color: 'text-type-insight', label: 'Insight' },
   gotcha: { emoji: '⚠️', color: 'text-type-gotcha', label: 'Gotcha' },
+  protocol: { emoji: '📐', color: 'text-type-sop', label: 'Protocol' },
+  architecture: { emoji: '🏗️', color: 'text-type-pattern', label: 'Architecture' },
+  bug_fix: { emoji: '🐛', color: 'text-type-fix', label: 'Bug Fix' },
+  performance: { emoji: '⚡', color: 'text-type-win', label: 'Performance' },
 };
 
 // =============================================================================

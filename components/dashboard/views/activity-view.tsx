@@ -162,8 +162,8 @@ interface LearningCardProps {
 }
 
 function LearningCard({ learning, isExpanded, onToggle }: LearningCardProps) {
-  const config = LEARNING_TYPE_CONFIG[learning.type];
-  
+  const config = LEARNING_TYPE_CONFIG[learning.type] || LEARNING_TYPE_CONFIG.insight;
+
   return (
     <div
       className={cn(
@@ -174,7 +174,11 @@ function LearningCard({ learning, isExpanded, onToggle }: LearningCardProps) {
         learning.type === 'pattern' && 'border-l-type-pattern',
         learning.type === 'sop' && 'border-l-type-sop',
         learning.type === 'insight' && 'border-l-type-insight',
-        learning.type === 'gotcha' && 'border-l-type-gotcha'
+        learning.type === 'gotcha' && 'border-l-type-gotcha',
+        learning.type === 'protocol' && 'border-l-type-sop',
+        learning.type === 'architecture' && 'border-l-type-pattern',
+        learning.type === 'bug_fix' && 'border-l-type-fix',
+        learning.type === 'performance' && 'border-l-type-win'
       )}
     >
       <button

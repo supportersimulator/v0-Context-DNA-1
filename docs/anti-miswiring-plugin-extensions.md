@@ -2123,3 +2123,242 @@ graph LR
 | `lib/ide/providers/system-monitor-provider.ts` | OS resource monitoring | ~140 |
 | `lib/ide/providers/vscode-bridge-provider.ts` | IDE integration (WebSocket) | ~150 |
 | `lib/ide/providers/launchagent-manager-provider.ts` | macOS service management (CLI) | ~115 |
+
+---
+
+## Pre-Compute Architecture — 2026-02-14
+
+### Anti-Miswiring Relevance
+
+The pre-compute architecture changes how S2/S8 content reaches the webhook:
+- **Before**: Live LLM calls during webhook (miswiring = immediate visible failure)
+- **After**: Anticipation engine pre-computes, Redis cache serves (miswiring = stale/missing cache)
+
+**New miswiring risks**:
+- Redis down → all S2/S8 are fallback (no LLM content). Detectable via 0ms timing.
+- Anticipation engine not running → perpetual cache MISS → perpetual fallback. Detectable via Redis key count = 0.
+- Session detection failure → anticipation targets wrong session → wrong pre-compute. Detectable via source_prompt mismatch.
+
+**Detection**: Admin panel should monitor `contextdna:anticipation:*` key count and TTL freshness.
+
+### Anticipation Engine Fixes (2026-02-14)
+
+| Bug | Root Cause | Fix | File |
+|-----|-----------|-----|------|
+| Cache going stale | `same_prompt_as_last_run` skip blocked refresh even when cache expiring | TTL-aware refresh: skip only if Redis TTL > 60s, otherwise re-compute | `anticipation_engine.py` |
+| TTL double-set | `_store_anticipation()` used hardcoded 300s `setex()`, then `client.expire()` tried adaptive TTL (race) | `_store_anticipation()` accepts `ttl` param directly, single `setex()` call | `anticipation_engine.py` |
+| Slow cycle | Scheduler ran anticipation every 45s (cache expires in 300s → only 6 refreshes per TTL window) | Interval reduced to 30s, MIN_INTERVAL_BETWEEN_RUNS 30→20s | `lite_scheduler.py` |
+
+---
+
+## Webhook Cascading Failure Architecture — 2026-02-14
+
+> **Incident**: Webhook quality dropped from A+ (design grade) to 31% (7.5/24 measured score).
+> **Root cause**: NOT code bugs. Infrastructure services died silently, causing cascading degradation.
+> **Resolution**: Programmatic infrastructure audit added to 16-pass gold mining system.
+> **Source**: `memory/session_gold_passes.py` → `WEBHOOK_INFRA_CHECKS` + `WebhookInfraProber`
+
+### The Cascading Dependency Chain
+
+The webhook pipeline depends on a chain of services. When any link breaks, everything downstream degrades:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                 WEBHOOK CASCADING FAILURE MAP                     │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Docker Engine                                                    │
+│    ├── Redis (6379) ◄── SINGLE POINT OF FAILURE                  │
+│    │     ├── Anticipation cache (S2/S8 pre-compute)              │
+│    │     ├── S1 cache (Foundation SOPs)                           │
+│    │     ├── Pass runner lock                                     │
+│    │     └── Critical findings store                              │
+│    ├── PostgreSQL (5432)                                          │
+│    │     └── Learnings store (agent_service queries this)         │
+│    └── Agent Service (8080) ◄── S1 FOUNDATION DEPENDS ON THIS   │
+│          └── GET /api/query → S1 Foundation SOPs                 │
+│                                                                   │
+│  lite_scheduler (background daemon) ◄── THE HEARTBEAT            │
+│    ├── Anticipation Engine (every 30s)                            │
+│    │     ├── Pre-compute S2 Professor → Redis                    │
+│    │     └── Pre-compute S8 Synaptic → Redis                     │
+│    ├── 16-Pass Gold Mining (every 5min, 2 passes/cycle)          │
+│    │     └── Infrastructure Audit (every cycle)                   │
+│    ├── Health checks, sync, success detection...                  │
+│    └── If scheduler dies → ALL of the above stops                │
+│                                                                   │
+│  mlx_lm.server (port 5044) ◄── THE BRAIN                        │
+│    ├── Anticipation engine S2 pre-compute                         │
+│    ├── Anticipation engine S8 pre-compute                         │
+│    ├── All 16 gold mining passes                                  │
+│    └── Butler queries, Synaptic voice                             │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Failure Scenarios & Cascading Impact
+
+| # | Service Down | Sections Affected | Quality Impact | Detection Method |
+|---|-------------|-------------------|----------------|-----------------|
+| 1 | **Docker Engine** | ALL (S0-S8) | **0%** — total blackout | `docker info` exit code |
+| 2 | **Redis (6379)** | S1, S2, S8 + pass locks | **~25%** — placeholders everywhere | `redis.ping()` timeout |
+| 3 | **lite_scheduler** | S2, S8 (anticipation stops) | **~30%** — pre-compute cache expires, never refreshes | `pgrep -f lite_scheduler` empty |
+| 4 | **Agent Service (8080)** | S1 Foundation | **~50%** — SOPs become garbage "[CONSOLIDATED] 0 patterns" | HTTP /health timeout |
+| 5 | **mlx_lm LLM (5044)** | S2, S8, all passes | **~35%** — no Professor, no Synaptic, no gold mining | `pgrep -f mlx_lm` empty |
+| 6 | **PostgreSQL (5432)** | S1 (indirect) | **~70%** — SQLite FTS5 fallback works but narrower | TCP connect timeout |
+| 7 | **Anticipation keys = 0** | S2, S8 | **~40%** — cache cold, placeholders shown | `redis.keys('contextdna:anticipation:*')` count |
+| 8 | **S1 cache has empty-hash** | S1 | **~60%** — caching garbage from empty prompts | Key contains `d41d8cd98f00` (MD5 of "") |
+
+### Compound Failures (What Happened 2026-02-14)
+
+The actual incident combined failures #3 + #4 + #7:
+
+```
+lite_scheduler died during code edits
+    ↓ (30s later)
+Anticipation engine stops cycling
+    ↓ (5 min later — Redis TTL expires)
+S2/S8 pre-compute keys expire, not refreshed
+    ↓
+S2 Professor → "[Pre-computing LLM wisdom]" placeholder
+S8 Synaptic → "[Pre-computing for next prompt]" placeholder
+    ↓
+agent_service already unreachable (container not started)
+    ↓
+S1 Foundation → "[CONSOLIDATED] 0 patterns, 0 insights" garbage
+    ↓
+MEASURED RESULT: 7.5/24 = 31% webhook quality
+```
+
+### Programmatic Detection (Implemented)
+
+File: `memory/session_gold_passes.py`
+
+Every 5 minutes (gold mining cycle), the scheduler runs `run_webhook_infrastructure_audit()`:
+
+1. **8 programmatic probes** — no LLM needed, pure service health checks
+2. **Critical failures auto-promoted** — bypasses LLM holding tank (infrastructure-down is objectively verifiable)
+3. **Deduplication** — same check won't create duplicate findings if already unacknowledged
+4. **Redis + SQLite dual-write** — findings accessible even if one store is down
+
+```python
+WEBHOOK_INFRA_CHECKS = [
+    {"id": "scheduler_alive",         "probe": "pgrep",          "target": "lite_scheduler",    "critical_if_down": True},
+    {"id": "llm_alive",               "probe": "pgrep",          "target": "mlx_lm",            "critical_if_down": True},
+    {"id": "agent_service_reachable", "probe": "http",           "target": "http://127.0.0.1:8080/health", "critical_if_down": True},
+    {"id": "contextdna_reachable",    "probe": "http",           "target": "http://127.0.0.1:8029/health", "critical_if_down": False},
+    {"id": "redis_reachable",         "probe": "redis",          "target": "127.0.0.1:6379",    "critical_if_down": True},
+    {"id": "anticipation_keys_exist", "probe": "redis_keys",     "target": "contextdna:anticipation:*", "critical_if_down": True},
+    {"id": "s1_cache_not_empty_hash", "probe": "redis_key_value","target": "contextdna:s1:",    "critical_if_down": True},
+    {"id": "postgres_context_dna",    "probe": "pg",             "target": "127.0.0.1:5432",    "critical_if_down": False},
+    {"id": "docker_running",          "probe": "command",        "target": "docker info",       "critical_if_down": True},
+]
+```
+
+### Fix Procedures Per Failure
+
+| Check | Exact Fix Command | Restores |
+|-------|-------------------|----------|
+| `scheduler_alive` | `PYTHONPATH=. nohup .venv/bin/python3 memory/lite_scheduler.py &` | Anticipation, gold mining, all scheduled jobs |
+| `llm_alive` | `./scripts/start-llm.sh` | S2, S8, all LLM-dependent passes |
+| `agent_service_reachable` | `cd context-dna && docker-compose up -d agent_service` | S1 Foundation SOPs |
+| `redis_reachable` | `docker start redis-context-dna` | All caching, anticipation, pass locks |
+| `anticipation_keys_exist` | Restart scheduler (auto-populates in ~30s) | S2 Professor, S8 Synaptic pre-compute |
+| `s1_cache_not_empty_hash` | `redis-cli DEL $(redis-cli KEYS 'contextdna:s1:*')` | S1 Foundation cache (forces fresh query) |
+| `postgres_context_dna` | `docker start postgres-context-dna` | PG sync, wider learnings search |
+| `docker_running` | `open -a Docker` | ALL containerized services |
+
+### Prevention: Why This Won't Happen Again
+
+1. **Infrastructure audit runs every 5 minutes** — gold mining cycle starts with `run_webhook_infrastructure_audit()`
+2. **Critical failures auto-promote** — bypass LLM holding tank, go straight to `critical_findings` table + Redis
+3. **CLAUDE.md mandates** — Atlas must check `get_critical_findings()` before any task
+4. **Multiple criticals → 3-agent response** — Diagnose, Search existing solutions, Evaluate optimal fix
+5. **Ecosystem health daemon (launchd)** — monitors services continuously, auto-restarts failures
+6. **Anti-miswiring detection in eval_webhook_quality pass** — LLM evaluates injection quality WITH infrastructure context
+
+---
+
+## Backend Wiring Integrity — 2026-02-14
+
+### Local LLM Migration: vllm-mlx → mlx_lm.server
+
+**Context**: vllm-mlx crash-looped and was replaced by mlx_lm.server (stable). However, 11 files still referenced the dead binary. Auto-recovery was broken: watchdog detected "down" but restarted the wrong process.
+
+| Component | Old (Broken) | New (Correct) | File |
+|-----------|-------------|---------------|------|
+| Process detection | `pgrep -f "vllm-mlx"` | `pgrep -f "mlx_lm"` | `lite_scheduler.py`, `llm_health_nonblocking.py`, `synaptic_chat_server.py`, `llm_health_comprehensive.py`, `mutual_heartbeat.py` |
+| Auto-restart | `vllm-mlx serve --model ...` | `./scripts/start-vllm.sh` | `ecosystem_health.py` |
+| Health module | `vllm_health_nonblocking.py` | `llm_health_nonblocking.py` (renamed) | All importers |
+| RSS threshold | 2000MB (vllm-mlx was larger) | 1500MB (mlx_lm smaller footprint) | `lite_scheduler.py` |
+| pip package | `vllm-mlx==0.2.5` | **UNINSTALLED** | `.venv` |
+
+**Anti-miswiring detection**:
+- If `pgrep -f "mlx_lm"` returns empty AND `pgrep -f "vllm"` returns results → old binary running, not new server
+- Watchdog health check: `llm_health_nonblocking.check_llm_health_nonblocking()` returns `(bool, reason_str)`
+- Log path: `memory/.mlx_lm.log` (not `.vllm.log`)
+
+### Python Interpreter Miswiring (macOS-specific)
+
+**Context**: macOS has Xcode's Python 3.9 at `/usr/bin/python3`. The project uses `.venv/bin/python` (Python 3.14). Bare `python3` calls crash with SIGSEGV on modern Python packages.
+
+| Location | Old (Broken) | New (Correct) |
+|----------|-------------|---------------|
+| `scripts/auto-memory-query.sh:201` | `python3 -c` | `"$PYTHON" -c` |
+| `scripts/auto-memory-query.sh:491` | `python3 -c` | `"$PYTHON" -c` |
+| `$PYTHON` defined at line 91 | — | `"${CONTEXT_DNA_PYTHON:-$REPO_DIR/.venv/bin/python}"` |
+
+**Anti-miswiring rule**: ALL Python invocations in shell scripts MUST use `$PYTHON` or `.venv/bin/python`. NEVER bare `python3`.
+
+### Success Detection Pipeline Wiring
+
+**Context**: `enhanced_success_detector.py` implements a 4-layer detection pipeline (Regex → Learned Patterns → LLM Semantic → Temporal Validation) but was NOT wired to any scheduler job. The scheduler used simple `work_log.get_successes()` extraction instead.
+
+| Layer | What It Does | Module |
+|-------|-------------|--------|
+| 1. Regex | 125+ patterns for success phrases | `objective_success.py` |
+| 2. Learned Patterns | Evolving pattern registry (grows from confirmed successes) | `pattern_registry.py` |
+| 3. LLM Semantic | Local LLM contextual analysis (disabled in background jobs) | `llm_success_analyzer.py` |
+| 4. Temporal Validation | Verifies success persists over time window | `temporal_validator.py` |
+
+**Wiring (2026-02-14)**:
+- `lite_scheduler._run_success_detection()` now uses `EnhancedSuccessDetector`
+- Detector cached as `self._cached_success_detector` (memory leak prevention)
+- `use_llm=False` for background jobs (no LLM blocking)
+- Only `high_confidence` results (≥0.7) fed to `capture_success()`
+- `learn_from_confirmed()` called on each success (self-improving patterns)
+- Fallback to simple extraction if enhanced detector import fails
+
+**Anti-miswiring detection**:
+- Success detection log line includes `(enhanced)` or `(fallback)` suffix
+- If always `(fallback)` → import issue, check `enhanced_success_detector.py` exists
+- If zero successes → check `work_log` has entries: `ls -la memory/.work_dialogue_log.jsonl`
+
+### Redis Wiring (Critical)
+
+| Parameter | Correct | Wrong (will silently fail) |
+|-----------|---------|--------------------------|
+| Host | `127.0.0.1` | `localhost` (IPv6 issues on macOS) |
+| Port | `6379` | `16379` (that's the OTHER Redis with auth) |
+| Password | `""` (empty) | `1c5b2e35b43e91f90da8a23cd287e045` (wrong container) |
+| DB | `0` | Any other DB number |
+
+**Two Redis containers** exist — miswiring between them is the #1 Redis failure mode.
+
+### Evidence Pipeline Wiring
+
+```
+capture_success() ──→ quarantine_item() ──→ [mature enough?] ──→ applied_to_wisdom
+     ↑                      ↑                                         ↓
+auto_learn.py          session_historian                      webhook Section 2
+(git commits)          (2min/15min cycles)                    (professor wisdom)
+     ↑                      ↑
+enhanced_success_detector  observability_store
+(4-layer, scheduler)       (quarantine_item, NOT record_quarantine)
+```
+
+**Common miswirings**:
+- `record_quarantine()` does NOT exist → use `quarantine_item()`
+- `objective_success_detector.py` does NOT exist → use `enhanced_success_detector.py`
+- `work_dialogue_log.jsonl` does NOT exist → dialogue mirror at `~/.context-dna/`
+- `capture_failure()` had dead code gate (`boundary_injection_id`) → always skipped → FIXED

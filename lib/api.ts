@@ -435,6 +435,30 @@ export function subscribeToInjections(
 // =============================================================================
 
 const OLLAMA_API = process.env.NEXT_PUBLIC_OLLAMA_API || 'http://127.0.0.1:11434';
+const VLLM_API = process.env.NEXT_PUBLIC_VLLM_API || 'http://127.0.0.1:5044';
+
+/**
+ * Fetch live LLM status from vllm-mlx (OpenAI-compatible /v1/models)
+ */
+export async function fetchVLLMStatus(): Promise<{ modelName: string; online: boolean } | null> {
+  try {
+    const res = await fetch(`${VLLM_API}/v1/models`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return { modelName: 'unknown', online: false };
+    const data = await res.json();
+    const models = data?.data || [];
+    if (models.length > 0) {
+      const id = models[0].id as string;
+      // Extract friendly name: "mlx-community/Qwen3-14B-4bit" → "Qwen3-14B-4bit"
+      const name = id.includes('/') ? id.split('/').pop()! : id;
+      return { modelName: name, online: true };
+    }
+    return { modelName: 'none', online: false };
+  } catch {
+    return null;
+  }
+}
 const LOCAL_LLM_API = process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5044';
 
 // Import types
