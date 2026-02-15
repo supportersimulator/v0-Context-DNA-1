@@ -4,6 +4,7 @@ import { registerWindowHandlers } from './ipc/window';
 import { registerFileSystemHandlers } from './ipc/file-system';
 import { registerDockerHandlers } from './ipc/docker';
 import { registerShellHandlers } from './ipc/shell';
+import { registerSupervisorHandlers } from './ipc/supervisor';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -64,6 +65,7 @@ function registerAllHandlers(win: BrowserWindow) {
   registerFileSystemHandlers();
   registerDockerHandlers();
   registerShellHandlers();
+  registerSupervisorHandlers();
 }
 
 // ---------------------------------------------------------------------------

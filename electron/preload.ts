@@ -43,6 +43,19 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('docker:containerAction', id, action),
   },
 
+  // Supervisor (native macOS service manager on port 9090)
+  supervisor: {
+    health: () => ipcRenderer.invoke('supervisor:health'),
+    services: () => ipcRenderer.invoke('supervisor:services'),
+    serviceAction: (id: string, action: 'start' | 'stop' | 'restart') =>
+      ipcRenderer.invoke('supervisor:serviceAction', id, action),
+    bulkAction: (action: 'start-all' | 'stop-all') =>
+      ipcRenderer.invoke('supervisor:bulkAction', action),
+    mode: (mode?: 'lite' | 'heavy') =>
+      ipcRenderer.invoke('supervisor:mode', mode),
+    ping: () => ipcRenderer.invoke('supervisor:ping'),
+  },
+
   // Shell/Terminal (for integrated terminal)
   shell: {
     create: (opts?: { cwd?: string; shell?: string }) =>

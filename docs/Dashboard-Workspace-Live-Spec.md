@@ -31,6 +31,7 @@ Each section states: the decision, the rationale, the implementation contract, a
 13. [Database Corruption Prevention](#13-database-corruption-prevention)
 14. [License Constraints](#14-license-constraints)
 15. [LLM Benchmarking System](#15-llm-benchmarking-system)
+16. [Native macOS Supervisor](#16-native-macos-supervisor)
 
 ---
 
@@ -897,6 +898,369 @@ Entirely NOT BUILT. This is the Dashboard's benchmark subsystem.
 
 ---
 
+## 16. Native macOS Supervisor
+
+### Decision
+
+One native Swift/SwiftUI menu bar app replaces 8+ Python launchd plists with a single login item. The supervisor is the **control plane** for all ContextDNA services — it starts, stops, monitors, and auto-recovers processes. The Electron IDE is the **display plane** — it reads health data from the supervisor and sends control commands back through it.
+
+### Why Native Swift (Not Electron)
+
+| Approach | Verdict | Rationale |
+|----------|---------|-----------|
+| Swift + `MenuBarExtra` + `Process()` | **YES** | Single login item in System Settings, full process lifecycle control, native macOS integration |
+| Embed in Electron | **NO** | Electron is cross-platform; supervisor is macOS-only. Mixing concerns degrades both |
+| Keep launchd plists | **NO** | 8+ login items, no unified health view, no coordinated start/stop, no mode transition UI |
+| launchd XPC for children | **NO** | Requires each child to be a signed bundle — services are Python scripts |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     macOS Menu Bar                              │
+│   [●] Context DNA  (SF Symbol, green/yellow/red/gray)          │
+│     ├── Services (start/stop/restart each, bulk actions)        │
+│     ├── Mode: Lite/Heavy (transition controls)                  │
+│     ├── Quick links (Dashboard, Logs)                           │
+│     └── Quit (keep services / stop all)                         │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │
+            ┌─────────┴─────────┐
+            │   ServiceOrchestrator   │
+            │   ProcessManager        │
+            │   HealthChecker         │
+            │   CrashRecovery         │
+            │   ModeManager           │
+            └─────────┬─────────┘
+                      │
+         ┌────────────┼────────────────────┐
+         │            │                    │
+    BridgeServer   .supervisor_health.json   .heartbeat_config.json
+    (port 9090)    (written every 10s)       (mode transitions)
+         │            │                    │
+         └────────────┼────────────────────┘
+                      │
+         ┌────────────┴────────────┐
+         │     Electron IDE        │
+         │  ┌─────────────────┐    │
+         │  │ Dashboard        │    │
+         │  │  ContextDNA Services panel ← reads health JSON / bridge API
+         │  │  Settings Lite/Heavy      ← writes via bridge API
+         │  │  System Health            ← reads health JSON
+         │  ├─────────────────┤    │
+         │  │ Workspace        │    │
+         │  │  (no direct supervisor interaction — uses agent_service)
+         │  ├─────────────────┤    │
+         │  │ Live             │    │
+         │  │  Supervisor Health panel (optional extension)
+         │  └─────────────────┘    │
+         └─────────────────────────┘
+```
+
+### 4 Managed Services
+
+| # | Service | Port | Start Command | Health Check | Priority |
+|---|---------|------|---------------|--------------|----------|
+| 1 | LLM Server | 5044 | `./scripts/start-llm.sh` | HTTP `GET /v1/models` | 0 (first) |
+| 2 | Agent Service | 8080 | `./scripts/start-helper-agent.sh` | HTTP `GET /health` | 1 |
+| 3 | Scheduler | — | `.venv/bin/python memory/scheduler_coordinator.py` | Process alive + `.scheduler_state.json` fresh | 2 |
+| 4 | Voice Daemon | — | `.venv/bin/python memory/synaptic_voice_daemon.py --run` | Process alive + PID file | 3 |
+
+**Critical**: All health checks use `127.0.0.1` not `localhost` (macOS IPv6 resolution gotcha).
+
+### Health Checking (3-Tier)
+
+Mirrors `ecosystem_health.py` patterns:
+
+1. **TCP probe** — `NWConnection` to port, 3s timeout
+2. **HTTP probe** — `URLSession` GET to health endpoint, 5s timeout
+3. **Process probe** — `kill(pid, 0)` for services without ports (scheduler, voice daemon)
+
+Polling: 10s when active. On failure: accelerated 5s for 3 cycles, then back to 10s.
+
+### Crash Recovery
+
+Replaces launchd `KeepAlive` with intelligent recovery:
+
+```
+Service terminates → Process.terminationHandler fires
+  → Wait: throttleInterval × backoff^retryCount
+       (15s base, 1.5× multiplier, 300s max)
+  → Port check: already bound?
+       → If bound + healthy → adopt (another manager started it)
+       → If bound + unhealthy → wait up to 30s for release
+  → Restart service
+  → If maxRetries (5) exceeded → red icon + macOS notification, stop retrying
+  → Reset retry counter after 600s of successful uptime
+```
+
+Graceful shutdown order: Voice → Scheduler → Agent (10s SIGTERM then SIGKILL) → LLM (15s SIGTERM).
+
+### Mode Transition Integration
+
+The supervisor integrates with the existing Python mode infrastructure — it does **not** replace it.
+
+**Flow:**
+
+```
+User clicks "Switch to Heavy" in:
+  - Swift menu bar (ModeMenuSection)     ─┐
+  - Electron Dashboard (mode-toggle.tsx)  ─┤
+                                           ▼
+              Write intended_mode to .heartbeat_config.json
+                                           │
+              scheduler_coordinator.py reads it (≤30s)
+                                           │
+              Coordinator handles handoff:
+                lite→heavy: stop lite scheduler, start Celery workers
+                heavy→lite: stop Celery, start lite scheduler
+                                           │
+              Coordinator writes result to .scheduler_state.json
+                                           │
+              Swift ModeManager reads it (10s refresh)
+              Electron getModeStatus() reads it
+                                           │
+              UI updates: icon, toggle state, "Transitioning..." clears
+```
+
+**State files** (shared contract between Swift, Python, and Electron):
+
+| File | Written By | Read By | Purpose |
+|------|-----------|---------|---------|
+| `.scheduler_state.json` | scheduler_coordinator.py | Swift ModeManager, Electron getModeStatus() | Current mode + active scheduler |
+| `.heartbeat_config.json` | Swift ModeManager, Electron mode API | scheduler_coordinator.py | Intended mode (triggers transition) |
+| `.lite_mode_config.json` | User preferences | Swift ModeManager, scheduler_coordinator.py | Lite mode settings |
+
+**Transitioning state**: When `intended_mode ≠ current_mode`, UI shows "Transitioning..." with spinner. 0-30s window while coordinator picks up the change.
+
+### BridgeServer API (Port 9090)
+
+Local HTTP server connecting supervisor to Electron IDE. Follows the same pattern as `electron/ipc/docker.ts`.
+
+```
+GET  /api/health                    → Overall health + all service states
+GET  /api/services                  → Full service details (PID, uptime, status, port)
+POST /api/services/:id/start        → Start a specific service
+POST /api/services/:id/stop         → Stop a specific service
+POST /api/services/:id/restart      → Restart a specific service
+POST /api/services/start-all        → Start all in priority order
+POST /api/services/stop-all         → Stop all in reverse priority order
+GET  /api/mode                      → Current mode, intended mode, transitioning flag
+POST /api/mode                      → Set intended mode (triggers transition)
+```
+
+**Security**: Binds to `127.0.0.1` only. No auth required (local-only, same machine).
+
+### Supervisor Health JSON Contract
+
+Written to `memory/.supervisor_health.json` every 10s. This is the **file-based** channel — simpler than the HTTP bridge, works even if BridgeServer isn't running.
+
+```json
+{
+  "timestamp": "2026-02-14T10:30:00Z",
+  "status": "healthy",
+  "mode": {
+    "current": "lite",
+    "intended": "lite",
+    "scheduler": "lite_scheduler",
+    "transitioning": false,
+    "celery_locked": false
+  },
+  "services": [
+    {
+      "id": "llm_server",
+      "name": "LLM Server",
+      "status": "Healthy",
+      "healthy": true,
+      "pid": 12345,
+      "uptime_seconds": 3600,
+      "port": 5044
+    }
+  ]
+}
+```
+
+### Dashboard Integration Points
+
+| Dashboard Component | Current Data Source | Supervisor Data Source | Integration |
+|---|---|---|---|
+| **ContextDNA Services** (health-view.tsx) | Direct HTTP probes via ServiceRegistry | `.supervisor_health.json` or `GET /api/health` | Primary: bridge API. Fallback: direct probes |
+| **Settings Lite/Heavy** (mode-toggle.tsx) | Client-side only (agent-mode-store.ts) | `POST /api/mode` via BridgeServer | Toggle calls supervisor, reads back state |
+| **Start/Stop/Restart** (health-view.tsx) | Simulated (no execution) | `POST /api/services/:id/{action}` | Bridge API enables real control |
+| **System Health** (health-view.tsx) | `GET /api/health` (port 3456) | Supervisor enriches with PID/uptime/restart count | Complementary — supervisor adds process-level data |
+| **Bottleneck detection** (bottleneck-analyzer.ts) | Derived from service snapshots | Supervisor health feeds unhealthy-service signal | Feeds into bottleneck "unhealthy services" category |
+
+### Workspace Integration
+
+Minimal. Workspace uses agent_service (port 8080) for agent chat — the supervisor keeps agent_service alive. No direct wiring needed. If supervisor recovers agent_service from a crash, Workspace reconnects automatically via existing ServiceRegistry retry logic.
+
+### Live Integration
+
+Optional "Supervisor Health" panel via Panel Protocol v1:
+- **Snapshot**: Current service states, mode, transition status
+- **Events**: Service started/stopped/crashed/recovered, mode transitions
+- **Commands**: Start/stop/restart services, switch mode
+
+This is a natural Live extension — not required for MVP.
+
+### Electron IPC Handler
+
+New handler following the existing `electron/ipc/docker.ts` pattern:
+
+```typescript
+// electron/ipc/supervisor.ts
+import { ipcMain } from 'electron';
+
+const SUPERVISOR_URL = 'http://127.0.0.1:9090';
+
+ipcMain.handle('supervisor:health', async () => {
+  try {
+    const res = await fetch(`${SUPERVISOR_URL}/api/health`);
+    return res.json();
+  } catch {
+    // Fallback: read .supervisor_health.json directly
+    return readSupervisorHealthJSON();
+  }
+});
+
+ipcMain.handle('supervisor:service-action', async (_e, { serviceId, action }) => {
+  const res = await fetch(`${SUPERVISOR_URL}/api/services/${serviceId}/${action}`, {
+    method: 'POST'
+  });
+  return res.json();
+});
+
+ipcMain.handle('supervisor:mode', async (_e, { mode } = {}) => {
+  if (mode) {
+    const res = await fetch(`${SUPERVISOR_URL}/api/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    });
+    return res.json();
+  }
+  const res = await fetch(`${SUPERVISOR_URL}/api/mode`);
+  return res.json();
+});
+```
+
+### ServiceRegistry Integration
+
+The existing `service-registry.ts` should be updated to use the supervisor as primary health source:
+
+```typescript
+// In service-registry.ts — enhanced health check
+async checkHealth(service: ServiceEntry): Promise<ServiceStatus> {
+  // Primary: ask supervisor (single source of truth)
+  try {
+    const health = await window.electronAPI.invoke('supervisor:health');
+    const svc = health.services.find(s => s.id === service.id);
+    if (svc) return { status: svc.healthy ? 'online' : 'degraded', latency: 0 };
+  } catch {}
+
+  // Fallback: direct probe (supervisor not running)
+  return this.directProbe(service);
+}
+```
+
+### Mode Toggle Wiring
+
+The `mode-toggle.tsx` Lite/Heavy toggle should be connected to the supervisor:
+
+```typescript
+// In mode-toggle.tsx — wired toggle
+const toggleSystemMode = async () => {
+  const newMode = systemMode === 'lite' ? 'heavy' : 'lite';
+
+  // Write to supervisor → supervisor writes .heartbeat_config.json
+  // → scheduler_coordinator picks up → transitions
+  await window.electronAPI.invoke('supervisor:mode', { mode: newMode });
+
+  // Optimistic UI update
+  setSystemMode(newMode);
+};
+```
+
+### Dependency Management Integration (Section 12)
+
+The Install Wizard's "Menu Bar Integration" card (currently referencing xbar) should be updated:
+
+| Phase 2 Card | Old | New |
+|---|---|---|
+| Menu Bar Integration | "xbar (macOS only)" | "ContextDNA Supervisor (macOS only)" — native menu bar, auto-installed |
+
+The supervisor replaces xbar entirely. No third-party dependency needed.
+
+### Database Corruption Prevention Integration (Section 13)
+
+During Lite↔Heavy mode transitions, the supervisor coordinates with the freeze protocol:
+
+1. Supervisor's ModeManager writes `intended_mode` to `.heartbeat_config.json`
+2. scheduler_coordinator.py reads it, begins transition
+3. Freeze protocol activates (pause background writes, queue events)
+4. Sync completes, cutover happens
+5. scheduler_coordinator.py writes new mode to `.scheduler_state.json`
+6. Supervisor reads it, clears "Transitioning..." state
+7. Dashboard's DB Doctor panel shows transition complete
+
+The supervisor does **not** own the freeze protocol — it triggers the transition and reflects its state. The Python coordinator owns the actual handoff.
+
+### Project Structure
+
+```
+ContextDNASupervisor/
+  Package.swift                                    # SPM, macOS 13+
+  ContextDNASupervisor/
+    App/
+      ContextDNASupervisorApp.swift                # @main, MenuBarExtra
+    Models/
+      ServiceDefinition.swift                      # Port, script, health, restart policy
+      ServiceState.swift                           # PID, status, uptime, process ref
+      SupervisorConfig.swift                       # UserDefaults preferences
+    Services/
+      ProcessManager.swift                         # Process() spawn/kill/monitor
+      HealthChecker.swift                          # TCP + HTTP + Process probes
+      CrashRecovery.swift                          # Backoff, max retries, port adoption
+      ServiceOrchestrator.swift                    # Start/stop ordering, health timer
+      ModeManager.swift                            # Lite/Heavy state + transition
+      BridgeServer.swift                           # HTTP API on port 9090
+    Views/
+      ServiceMenuView.swift                        # Menu dropdown (services + actions)
+      ModeMenuSection.swift                        # Mode display + transition controls
+      PreferencesView.swift                        # Settings window
+    Utilities/
+      ShellExecutor.swift                          # Bash execution with env/timeout
+      PortChecker.swift                            # NWConnection TCP probe
+      Logger.swift                                 # os.Logger + file logging
+```
+
+### Built Status
+
+| Item | Status |
+|------|--------|
+| Xcode/SPM project + MenuBarExtra | BUILT |
+| ServiceDefinition (4 services) | BUILT |
+| ServiceState + ServiceStatus enum | BUILT |
+| SupervisorConfig (UserDefaults) | BUILT |
+| HealthChecker (TCP + HTTP + Process) | BUILT |
+| ProcessManager (spawn/kill/terminate) | BUILT |
+| CrashRecovery (backoff, retries, adoption) | BUILT |
+| ServiceOrchestrator (ordering, health timer, health JSON) | BUILT |
+| ModeManager (reads/writes state files, transitions) | BUILT |
+| ModeMenuSection (transition UI) | BUILT |
+| ServiceMenuView (full dropdown) | BUILT |
+| PreferencesView (settings window) | BUILT |
+| ShellExecutor, PortChecker, Logger | BUILT |
+| SMAppService login item registration | BUILT |
+| `.supervisor_health.json` output | BUILT |
+| BridgeServer (port 9090 HTTP API) | NOT BUILT |
+| Electron IPC handler (`supervisor.ts`) | NOT BUILT |
+| ServiceRegistry supervisor integration | NOT BUILT |
+| Mode toggle wiring to supervisor | NOT BUILT |
+| Migration script (remove old plists) | NOT BUILT |
+
+---
+
 ## Node-RED Role (Clarification)
 
 Aaron asked about Node-RED's role. The decision:
@@ -1026,14 +1390,19 @@ Based on what's built vs what's specified:
 - System/service snapshot schedulers
 - Dashboard telemetry tabs
 - Explorer + Diff panels for Workspace
+- **Supervisor BridgeServer** (port 9090 HTTP API)
+- **Supervisor IPC handler** (`electron/ipc/supervisor.ts`)
+- **Wire ServiceRegistry** to read from supervisor as primary health source
+- **Wire mode-toggle.tsx** to POST mode changes through supervisor
 
 ### P3 — Electron Phase
 - ASAR packaging
 - UserData layout
 - Config Packs + signing
-- Dependency catalog + install wizard
-- DB corruption prevention (sync state machine)
+- Dependency catalog + install wizard (supervisor replaces xbar card)
+- DB corruption prevention (sync state machine + supervisor transition coordination)
 - VS Code bridge discovery
+- Migration script (remove legacy launchd plists)
 
 ### P4 — Community Phase
 - LLM benchmarking suites

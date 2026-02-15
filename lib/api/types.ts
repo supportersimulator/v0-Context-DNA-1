@@ -11,6 +11,7 @@ export const API_BASE = {
   memory: process.env.NEXT_PUBLIC_MEMORY_API || 'http://127.0.0.1:3456',
   helper: process.env.NEXT_PUBLIC_HELPER_API || 'http://127.0.0.1:8080',
   llm: process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5044',
+  supervisor: process.env.NEXT_PUBLIC_SUPERVISOR_API || 'http://127.0.0.1:9090',
 } as const;
 
 const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
@@ -276,4 +277,69 @@ export interface ModeStatus {
     last_sync: string | null;
     pending_changes: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Supervisor Types (maps to Swift BridgeServer on 127.0.0.1:9090)
+// ---------------------------------------------------------------------------
+
+export interface SupervisorServiceState {
+  id: string;
+  name: string;
+  status: string;
+  healthy: boolean;
+  running: boolean;
+  pid: number | null;
+  uptime_seconds: number | null;
+  uptime_display?: string;
+  port: number | null;
+  critical: boolean;
+  priority?: number;
+  retry_count?: number;
+  last_health_check: string | null;
+  start_time?: string | null;
+}
+
+export interface SupervisorModeState {
+  current: 'lite' | 'heavy' | 'unknown';
+  intended: 'lite' | 'heavy' | 'unknown';
+  scheduler: string;
+  transitioning: boolean;
+  celery_locked: boolean;
+  display_text?: string;
+  can_switch_to_heavy?: boolean;
+  can_switch_to_lite?: boolean;
+  state_age?: string;
+}
+
+export type SupervisorOverallStatus =
+  | 'healthy'
+  | 'degraded'
+  | 'critical'
+  | 'down'
+  | 'empty'
+  | 'unknown';
+
+export interface SupervisorHealth {
+  timestamp: string;
+  status: SupervisorOverallStatus;
+  healthy_count: number;
+  total_count: number;
+  mode: SupervisorModeState;
+  services: SupervisorServiceState[];
+  _source?: 'bridge' | 'file_fallback' | 'unavailable';
+}
+
+export interface SupervisorActionResult {
+  ok: boolean;
+  action: string;
+  service?: string;
+  error?: string;
+  note?: string;
+}
+
+export interface SupervisorPing {
+  reachable: boolean;
+  url: string;
+  healthJsonAvailable?: boolean;
 }
