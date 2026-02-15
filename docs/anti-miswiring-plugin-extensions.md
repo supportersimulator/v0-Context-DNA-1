@@ -2138,6 +2138,7 @@ The pre-compute architecture changes how S2/S8 content reaches the webhook:
 - Redis down → all S2/S8 are fallback (no LLM content). Detectable via 0ms timing.
 - Anticipation engine not running → perpetual cache MISS → perpetual fallback. Detectable via Redis key count = 0.
 - Session detection failure → anticipation targets wrong session → wrong pre-compute. Detectable via source_prompt mismatch.
+- **Cross-IDE session ID mismatch** (fixed 2026-02-15): Anticipation cached under Cursor IDE sessions (`cursor-auto-*`) not found by VS Code sessions (JSONL stem IDs). Fix: `get_anticipation_section()` now falls back to SCAN for any matching `{section}:{project}:*` key, enabling cross-IDE cache sharing.
 
 **Detection**: Admin panel should monitor `contextdna:anticipation:*` key count and TTL freshness.
 
@@ -2148,6 +2149,9 @@ The pre-compute architecture changes how S2/S8 content reaches the webhook:
 | Cache going stale | `same_prompt_as_last_run` skip blocked refresh even when cache expiring | TTL-aware refresh: skip only if Redis TTL > 60s, otherwise re-compute | `anticipation_engine.py` |
 | TTL double-set | `_store_anticipation()` used hardcoded 300s `setex()`, then `client.expire()` tried adaptive TTL (race) | `_store_anticipation()` accepts `ttl` param directly, single `setex()` call | `anticipation_engine.py` |
 | Slow cycle | Scheduler ran anticipation every 45s (cache expires in 300s → only 6 refreshes per TTL window) | Interval reduced to 30s, MIN_INTERVAL_BETWEEN_RUNS 30→20s | `lite_scheduler.py` |
+| Cross-IDE session mismatch | Anticipation cached under Cursor session IDs (`cursor-auto-*`), VS Code sessions use JSONL stem IDs — cache miss across IDEs | SCAN fallback in `get_anticipation_section()` — tries exact key, then scans `{section}:{project}:*` for cross-IDE cache sharing | `redis_cache.py` |
+| Gold passes empty (5/16 never ran) | `OBS_DB` pointed to `~/.context-dna/observability_store.db` (doesn't exist), actual DB at `memory/.observability.db` (14MB, 18K+ rows) | Fixed path to `Path(__file__).parent / ".observability.db"` | `session_gold_passes.py` |
+| Scheduler probe false positive | `pgrep -f lite_scheduler` misses `scheduler_coordinator.py` which runs lite_scheduler as embedded thread | Target changed to `scheduler_coordinator\|lite_scheduler` | `session_gold_passes.py` |
 
 ---
 
@@ -2243,7 +2247,7 @@ Every 5 minutes (gold mining cycle), the scheduler runs `run_webhook_infrastruct
 
 ```python
 WEBHOOK_INFRA_CHECKS = [
-    {"id": "scheduler_alive",         "probe": "pgrep",          "target": "lite_scheduler",    "critical_if_down": True},
+    {"id": "scheduler_alive",         "probe": "pgrep",          "target": "scheduler_coordinator|lite_scheduler", "critical_if_down": True},
     {"id": "llm_alive",               "probe": "pgrep",          "target": "mlx_lm",            "critical_if_down": True},
     {"id": "agent_service_reachable", "probe": "http",           "target": "http://127.0.0.1:8080/health", "critical_if_down": True},
     {"id": "contextdna_reachable",    "probe": "http",           "target": "http://127.0.0.1:8029/health", "critical_if_down": False},
@@ -2259,7 +2263,7 @@ WEBHOOK_INFRA_CHECKS = [
 
 | Check | Exact Fix Command | Restores |
 |-------|-------------------|----------|
-| `scheduler_alive` | `PYTHONPATH=. nohup .venv/bin/python3 memory/lite_scheduler.py &` | Anticipation, gold mining, all scheduled jobs |
+| `scheduler_alive` | `PYTHONPATH=. nohup .venv/bin/python3 memory/scheduler_coordinator.py &` | Anticipation, gold mining, all scheduled jobs |
 | `llm_alive` | `./scripts/start-llm.sh` | S2, S8, all LLM-dependent passes |
 | `agent_service_reachable` | `cd context-dna && docker-compose up -d agent_service` | S1 Foundation SOPs |
 | `redis_reachable` | `docker start redis-context-dna` | All caching, anticipation, pass locks |
