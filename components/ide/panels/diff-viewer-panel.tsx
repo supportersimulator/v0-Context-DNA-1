@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { getServiceUrl } from '@/lib/ide/service-registry';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 
 // Dynamic import for Monaco DiffEditor (SSR disabled)
 const DiffEditor = dynamic(
@@ -190,6 +191,15 @@ export function DiffViewerPanel() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Subscribe to file.diff events from other panels (e.g., git panel)
+  useEffect(() => {
+    const bus = getCapabilityBus();
+    const sub = bus.on('file.diff', (data) => {
+      setSelectedFile(data.rightPath);
+    });
+    return () => sub.dispose();
   }, []);
 
   // Initial load

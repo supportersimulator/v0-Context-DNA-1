@@ -8,6 +8,7 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
+import { getCommandRegistry } from '@/lib/ide/command-registry';
 import {
   Search,
   PanelLeft,
@@ -581,8 +582,14 @@ export function CommandPalette({ commands, isOpen, onClose }: CommandPaletteProp
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [registryVersion, setRegistryVersion] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Subscribe to CommandRegistry changes so dynamically registered commands appear
+  useEffect(() => {
+    return getCommandRegistry().subscribe(() => setRegistryVersion((v) => v + 1));
+  }, []);
 
   // Load recent commands on mount
   useEffect(() => {
@@ -602,17 +609,32 @@ export function CommandPalette({ commands, isOpen, onClose }: CommandPaletteProp
     }
   }, [isOpen]);
 
-  // Build filtered + grouped command list
+  // Build filtered + grouped command list (merge props + registry)
   const { flatList, groups } = useMemo(() => {
+    // Merge prop commands with dynamically registered commands from the registry
+    const propIds = new Set(commands.map((c) => c.id));
+    const registryCommands: Command[] = getCommandRegistry()
+      .getAll()
+      .filter((rc) => !propIds.has(rc.id))
+      .map((rc) => ({
+        id: rc.id,
+        label: rc.label,
+        category: rc.category,
+        shortcut: rc.shortcut,
+        icon: rc.icon,
+        action: rc.handler,
+      }));
+    const allCommands = [...commands, ...registryCommands];
+
     const hasQuery = query.trim().length > 0;
 
     // Filter commands by query
     const filtered = hasQuery
-      ? commands.filter(
+      ? allCommands.filter(
           (cmd) =>
             fuzzyMatch(cmd.label, query) || fuzzyMatch(cmd.category, query),
         )
-      : commands;
+      : allCommands;
 
     // When no query, show recent commands first
     const recentCommands: Command[] = [];
@@ -648,7 +670,8 @@ export function CommandPalette({ commands, isOpen, onClose }: CommandPaletteProp
     }
 
     return { flatList: flat, groups: grouped };
-  }, [commands, query, recentIds]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commands, query, recentIds, registryVersion]);
 
   // Clamp selected index when list changes
   useEffect(() => {

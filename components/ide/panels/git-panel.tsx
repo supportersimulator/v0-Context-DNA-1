@@ -78,7 +78,16 @@ function FileRow({ file }: { file: GitFileStatus }) {
   const handleClick = useCallback(() => {
     getEditorStore().openFile(file.path, '');
     getCapabilityBus().emit('file.open', { path: file.path, source: 'git-panel' });
-  }, [file.path]);
+    // Modified/renamed/conflict files also emit file.diff for the diff viewer
+    if (file.status === 'modified' || file.status === 'renamed' || file.status === 'conflict') {
+      getCapabilityBus().emit('file.diff', {
+        leftPath: `HEAD:${file.path}`,
+        rightPath: file.path,
+        title: `${file.path} (${file.status})`,
+        source: 'git-panel',
+      });
+    }
+  }, [file.path, file.status]);
 
   return (
     <button

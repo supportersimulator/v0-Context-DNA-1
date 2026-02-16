@@ -178,10 +178,10 @@ export function CodeEditorPanel() {
   // Force re-render when settings change
   useSettingsVersion();
 
-  // Subscribe to file.open events from other panels (git, problems, debug)
+  // Subscribe to file.open and file.diff events from other panels
   useEffect(() => {
     const bus = getCapabilityBus();
-    const sub = bus.on('file.open', (data) => {
+    const openSub = bus.on('file.open', (data) => {
       // Open the file tab
       store.openFile(data.path, '');
 
@@ -193,7 +193,11 @@ export function CodeEditorPanel() {
         editor.focus();
       }
     });
-    return () => sub.dispose();
+    // When a diff is requested, open the modified (right) file in the editor
+    const diffSub = bus.on('file.diff', (data) => {
+      store.openFile(data.rightPath, '');
+    });
+    return () => { openSub.dispose(); diffSub.dispose(); };
   }, [store]);
 
   // Read editor settings from settings store

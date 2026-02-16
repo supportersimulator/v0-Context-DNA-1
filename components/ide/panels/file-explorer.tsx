@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { getEditorStore } from '@/lib/ide/editor-store';
+import { getCapabilityBus } from '@/lib/ide/capability-bus';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,7 +164,7 @@ export function FileExplorer() {
 
   // Toggle directory expand/collapse — or open file in editor
   const handleToggle = useCallback(async (target: TreeNode) => {
-    // File click → open in editor
+    // File click → open in editor + emit on CapabilityBus
     if (target.isFile) {
       try {
         const efs = getElectronFs();
@@ -173,6 +174,7 @@ export function FileExplorer() {
         // Fallback: open empty tab
         getEditorStore().openFile(target.path, '');
       }
+      getCapabilityBus().emit('file.open', { path: target.path, source: 'file-explorer' });
       return;
     }
     if (!target.isDirectory) return;
