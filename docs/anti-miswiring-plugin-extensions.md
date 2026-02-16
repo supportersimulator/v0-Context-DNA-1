@@ -2366,3 +2366,48 @@ enhanced_success_detector  observability_store
 - `objective_success_detector.py` does NOT exist → use `enhanced_success_detector.py`
 - `work_dialogue_log.jsonl` does NOT exist → dialogue mirror at `~/.context-dna/`
 - `capture_failure()` had dead code gate (`boundary_injection_id`) → always skipped → FIXED
+
+### Gold Pass Data Fetcher Wiring (2026-02-15 fixes)
+
+```
+session_gold_passes.py
+    ├── OBS_DB:     Path(__file__).parent / ".observability.db"   ← FIXED (was ~/.context-dna/)
+    ├── PLANS_DB:   Path(__file__).parent / ".strategic_plans.db" ← FIXED (was ~/.context-dna/)
+    ├── ARCHIVE_DB: Path.home() / ".context-dna" / "session_archive.db" ← correct
+    └── SQLite Storage: ~/.context-dna/learnings.db (426 SOPs)   ← correct path, query("") broken
+
+Scheduler: lite_scheduler.py:2701 → run_pass(pk, limit=20)  ← was limit=5
+```
+
+**Anti-miswiring detection**:
+- `Path.home() / ".context-dna"` for DBs that live in `memory/` → WRONG. Use `Path(__file__).parent`
+- `query("")` returns nothing (no FTS terms) → use direct SQL for "fetch all"
+- `claim WHERE status = 'active'` matches 0 → claims use `applied_to_wisdom`, `quarantine`, `expired`
+- SQL `LIMIT limit*2` with post-filter → top items all processed, rest invisible → remove SQL LIMIT
+- `get_sqlite_storage()` singleton → first caller's path wins. DB path resolves at module load time
+
+### Architectural Critical Findings Wiring (2026-02-15)
+
+```
+_ds_code_intelligence() ──→ parse SCOPE/FRAGILITY
+    ↓ CORE or HIGH
+    ↓
+critical_handler.hold("arch_code_artifact", ...) ──→ holding_tank
+    ↓ evaluate_holding_tank()
+    ↓ LLM: "Is this architecturally significant?" (not "data loss?")
+    ↓
+_promote(severity="architectural")
+    ├── SQLite critical_findings (severity="architectural")
+    ├── Redis critical:recent (severity: "architectural")
+    └── Strategic Plans (category: "architectural_debt")
+    ↓
+Webhook S0: persistent_hook_structure.py
+    ├── 🚨 CRITICAL INFRASTRUCTURE (severity=critical)
+    └── 🏗️ ARCHITECTURAL FINDINGS (severity=architectural)
+        "DO NOT SKIP: research + present options to Aaron"
+```
+
+**Anti-miswiring detection**:
+- `severity` field missing in Redis JSON → defaults to `"critical"` in webhook renderer
+- `pass_id.startswith("arch_")` drives evaluation criteria — non-arch passes use infra criteria
+- `PLANS_DB.exists()` check in `_promote()` → if path wrong, big picture silently skipped
