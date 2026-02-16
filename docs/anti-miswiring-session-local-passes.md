@@ -494,6 +494,8 @@ Gold mining acquires `contextdna:pass_runner:active` Redis lock. Anticipation en
 
 10. **NEVER allow `gold_text` to exceed 80K chars without truncation.** The Phase 2 LLM analysis has a hard cap (`MAX_LLM_INPUT_CHARS = 80000`). Segmentation handles overflow gracefully, but raw `gold_text` must not cause OOM.
 
+11. **NEVER use raw integer IDs for gold_segment items.** Gold segment IDs MUST be namespaced as `gs:{id}` to prevent collision with session_insight IDs (which share the same integer space). The fetcher `_fetch_gold_segments` handles this — do not bypass it with raw SQL queries that return unnamespaced IDs. *(Added 2026-02-16 after ID collision bug blocked 67% of segments.)*
+
 ### Data Source → Pass Mapping (Invariant as of 2026-02-16)
 
 ```
@@ -586,7 +588,109 @@ promoted_from_tank INTEGER DEFAULT 0
 
 ---
 
+## Quality Audit (2026-02-16)
+
+### System Stats at Time of Audit
+
+| Metric | Value |
+|--------|-------|
+| Gold segments | 507 total, avg 23,276 chars |
+| Sessions with gold | 88, total 11.3MB |
+| Items processed (all passes) | 4,471 |
+| Learnings stored (gold pass sourced) | 712 (gotcha:243, pattern:197, decision:140, fix:76, code:56) |
+| Observability notes | 802 audit entries |
+| All 16 downstream handlers | Implemented and firing |
+
+### Tier 1: SOP Extraction — GOOD
+
+| Pass | Yield | Assessment |
+|------|-------|------------|
+| sop_bugfix | 18% (79/442) | **Excellent** — JSON-structured SOPs with SYMPTOM/ROOT_CAUSE/FIX/VERIFY. Specific: file paths, commands, error messages |
+| sop_pattern | 46% (202/440) | **Good** — WHEN/PROCESS/WHY/VERIFY structure. Some generic items |
+| sop_antipattern | 57% (250/440) | **Good** — NEVER_DO/BECAUSE/INSTEAD/VERIFY correct |
+| sop_architecture | 33% (146/440) | **Good** — DECISION/ALTERNATIVES/RATIONALE/CONSEQUENCES |
+
+Yield differences natural — bugfixes rarer than patterns. Classify gate filters 43-82% correctly.
+
+### Tier 2: Quality Evaluation — MIXED
+
+| Pass | Assessment |
+|------|------------|
+| eval_sop_quality | **Good** — 96% yield, SCORE/WEAKNESS/SUGGESTION (scores 2-3 range) |
+| eval_webhook_quality | **Good** — Multi-pass 4-dim scoring. "TOTAL: 9/12, ISSUE: Weak relevance" — actionable |
+| eval_success | **Was broken** — ID collision blocked 67% of gold segments (fixed 2026-02-16) |
+| eval_failure | **Was broken** — Same ID collision bug (fixed 2026-02-16) |
+
+### Tier 3: System Intelligence — GOOD with caveats
+
+| Pass | Assessment |
+|------|------------|
+| intel_bigpicture | **Excellent** — Rich GOAL/PLANNED/ACTUAL/DRIFT with real context |
+| intel_code_artifacts | **Good** — 99% yield, 2% reasoning leaks |
+| intel_crosssession | Low volume (16 items — sparse data) |
+| intel_feedback_loops | 3.7% reasoning-in-output instead of structured format |
+| intel_evidence_quality | **Good** — 97% yield |
+
+### Tier 4: Operations — REASONING LEAK ISSUE
+
+| Pass | Assessment |
+|------|------------|
+| ops_butler_perf | **Problem** — Full reasoning chains in output ("The task is called...", "First, the goal met?"). Mixed structured/unstructured |
+| ops_capture_quality | 7% combined thinking+conversational leaks |
+| ops_constitutional | **Good** — Clean COMPLIANT/PRINCIPLE/EVIDENCE structure |
+
+### Critical Findings Pipeline
+
+| Metric | Value |
+|--------|-------|
+| Holding tank total | 490 |
+| Evaluated | 463 |
+| Confirmed real | 88 (19%) |
+| **False positive rate** | **81%** |
+| Worst offender | arch_code_artifact: 90% FP (232 tank, 21 real) |
+| sop_antipattern | 70% FP (148 tank, 44 real) |
+
+### Bugs Found and Fixed (2026-02-16)
+
+#### BUG: ID Collision Between Data Sources (CRITICAL)
+
+**Problem**: Gold segment IDs (1-507) collided with session_insight IDs (1-715) in the `pass_processing_log`. When `_fetch_gold_segments` checked processed IDs, it thought segments 1-341 were already processed (they were — but as insights from the old `session_insights` data source, not as segments).
+
+**Impact**: 341/507 gold segments (67%) were silently blocked from processing across ALL 7 passes using `gold_segments`. Passes appeared to be processing gold segments but were actually only getting the few segments with IDs > 341.
+
+**Fix**: Namespace gold_segment IDs as `gs:{id}` (e.g., `gs:507`). The `_fetch_gold_segments` fetcher now returns `"id": f"gs:{r['id']}"`, making collisions impossible. The `_log_processing` method detects the `gs:` prefix to set `item_type = "gold_segment"`.
+
+**Anti-miswiring rule added**: Rule 11 below.
+
+#### BUG: Merge Function Stale Text
+
+**Problem**: `_merge_success_measurement` and `_merge_failure_measurement` had hardcoded `f"EVIDENCE: from session insight — {what}"` from before the data source switch to gold_segments.
+
+**Fix**: Changed to `f"EVIDENCE: {what}"` — evidence is the LLM's extracted content, no source prefix needed.
+
+#### Enhancement: Reasoning Strip Patterns
+
+**Problem**: The 4B model sometimes outputs reasoning chains instead of structured content (2-5% of items), especially in `extract(768)` profile where thinking is OFF but model reasons anyway.
+
+**Fix**: Added 4 new preamble strip patterns to `_clean_llm_output`: "The task is/was...", "So..., so/which/maybe...", "I think...", "Wait/Hmm,...".
+
+#### Enhancement: Critical False-Positive Filter
+
+**Problem**: 81% false positive rate on CRITICAL flags. The 4B model frequently generates speculative criticals ("could lead to", "may cause", "potentially").
+
+**Fix**: Added 14 new false-positive phrases to both single-pass and multi-pass critical detection: "could lead", "may cause", "might", "potentially", "risk of", "without proper", "if not", "ensure", "should be", "recommend", "consider", "important to", "check that", "verify that". These catch speculative/advisory language that isn't an actual critical finding.
+
+---
+
 ## Evolution History
+
+### 2026-02-16 (evening): Quality Audit + Critical Bug Fixes
+- **ID collision fix**: gold_segment IDs namespaced as `gs:{id}` — unblocked 341/507 segments (67%)
+- **Merge function fix**: removed stale "from session insight" text in eval_success/failure
+- **Reasoning strip**: 4 new preamble patterns for 4B model reasoning leaks
+- **Critical FP tightened**: 14 new false-positive phrases (speculative/advisory language)
+- **item_type logging**: gold_segment items now logged as `item_type = "gold_segment"` instead of "unknown"
+- Quality audit completed: 4,471 items processed, 712 learnings, 802 audit notes, all 16 downstream handlers operational
 
 ### 2026-02-16: Gold Segments + Multi-Pass Maturity
 - **7 passes on gold_segments** (was 0): sop_*, eval_success, eval_failure, intel_bigpicture
