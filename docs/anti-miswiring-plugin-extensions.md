@@ -2149,9 +2149,12 @@ The pre-compute architecture changes how S2/S8 content reaches the webhook:
 | Cache going stale | `same_prompt_as_last_run` skip blocked refresh even when cache expiring | TTL-aware refresh: skip only if Redis TTL > 60s, otherwise re-compute | `anticipation_engine.py` |
 | TTL double-set | `_store_anticipation()` used hardcoded 300s `setex()`, then `client.expire()` tried adaptive TTL (race) | `_store_anticipation()` accepts `ttl` param directly, single `setex()` call | `anticipation_engine.py` |
 | Slow cycle | Scheduler ran anticipation every 45s (cache expires in 300s → only 6 refreshes per TTL window) | Interval reduced to 30s, MIN_INTERVAL_BETWEEN_RUNS 30→20s | `lite_scheduler.py` |
-| Cross-IDE session mismatch | Anticipation cached under Cursor session IDs (`cursor-auto-*`), VS Code sessions use JSONL stem IDs — cache miss across IDEs | SCAN fallback in `get_anticipation_section()` — tries exact key, then scans `{section}:{project}:*` for cross-IDE cache sharing | `redis_cache.py` |
+| Cross-IDE session mismatch | Anticipation cached under Cursor session IDs (`cursor-auto-*`), VS Code sessions use JSONL stem IDs — cache miss across IDEs | **SCAN fallback in `get_anticipation_section()`** — tries exact key → legacy key → fallback key → SCAN `{section}:{project}:*` for cross-IDE cache sharing. Implemented 2026-02-18 (was O(1)-only interim). | `redis_cache.py` |
 | Gold passes empty (5/16 never ran) | `OBS_DB` pointed to `~/.context-dna/observability_store.db` (doesn't exist), actual DB at `memory/.observability.db` (14MB, 18K+ rows) | Fixed path to `Path(__file__).parent / ".observability.db"` | `session_gold_passes.py` |
 | Scheduler probe false positive | `pgrep -f lite_scheduler` misses `scheduler_coordinator.py` which runs lite_scheduler as embedded thread | Target changed to `scheduler_coordinator\|lite_scheduler` | `session_gold_passes.py` |
+| O(1) fallback key (interim) | Cross-IDE SCAN was documented but not implemented; O(1) fallback key used as interim fix | `_store_anticipation()` writes `:fallback` key with 1hr TTL alongside session keys. `get_anticipation_section()` checks fallback before SCAN. Both strategies now active. | `redis_cache.py`, `anticipation_engine.py` |
+
+> **Note (2026-02-18)**: Dual anticipation jobs exist — `anticipation_engine` (30s) and `anticipation_precompute` (45s). This is intentional: the 45s job has future purposes for anticipation engine expansion beyond current S2/S8 pre-compute.
 
 ---
 
@@ -2186,7 +2189,7 @@ The webhook pipeline depends on a chain of services. When any link breaks, every
 │    ├── Anticipation Engine (every 30s)                            │
 │    │     ├── Pre-compute S2 Professor → Redis                    │
 │    │     └── Pre-compute S8 Synaptic → Redis                     │
-│    ├── 16-Pass Gold Mining (every 5min, 2 passes/cycle)          │
+│    ├── 16-Pass Gold Mining (every 3min, 4 passes/cycle)          │
 │    │     └── Infrastructure Audit (every cycle)                   │
 │    ├── Health checks, sync, success detection...                  │
 │    └── If scheduler dies → ALL of the above stops                │
@@ -2212,6 +2215,8 @@ The webhook pipeline depends on a chain of services. When any link breaks, every
 | 6 | **PostgreSQL (5432)** | S1 (indirect) | **~70%** — SQLite FTS5 fallback works but narrower | TCP connect timeout |
 | 7 | **Anticipation keys = 0** | S2, S8 | **~40%** — cache cold, placeholders shown | `redis.keys('contextdna:anticipation:*')` count |
 | 8 | **S1 cache has empty-hash** | S1 | **~60%** — caching garbage from empty prompts | Key contains `d41d8cd98f00` (MD5 of "") |
+| 9 | **Agent Service slow recovery** | S1 Foundation (21-min gap) | **~50% for 21 min** — launchd ThrottleInterval (30s) + Docker container start (~20s) + agent warm-up = 21-min measured gap | Monitor `docker logs agent_service --since 5m` for startup |
+| 10 | **Health monitor overlap** | False positives, duplicate restarts | **~5%** — three monitors (butler-watchdog.sh, ecosystem_health.py, lite_scheduler internal) can race on restart decisions | Check for concurrent restart attempts in logs |
 
 ### Compound Failures (What Happened 2026-02-14)
 
@@ -2274,12 +2279,15 @@ WEBHOOK_INFRA_CHECKS = [
 
 ### Prevention: Why This Won't Happen Again
 
-1. **Infrastructure audit runs every 5 minutes** — gold mining cycle starts with `run_webhook_infrastructure_audit()`
+1. **Infrastructure audit runs every 3 minutes** — gold mining cycle starts with `run_webhook_infrastructure_audit()`
 2. **Critical failures auto-promote** — bypass LLM holding tank, go straight to `critical_findings` table + Redis
 3. **CLAUDE.md mandates** — Atlas must check `get_critical_findings()` before any task
 4. **Multiple criticals → 3-agent response** — Diagnose, Search existing solutions, Evaluate optimal fix
 5. **Ecosystem health daemon (launchd)** — monitors services continuously, auto-restarts failures
 6. **Anti-miswiring detection in eval_webhook_quality pass** — LLM evaluates injection quality WITH infrastructure context
+7. **Age-based expiry (2026-02-18)** — critical findings >48h auto-acknowledged, prevents stale accumulation poisoning LLM prompts
+8. **Redis rebuild from SQLite truth** — after any clear/acknowledge operation, `_rebuild_redis_from_sqlite()` ensures Redis cache is always derived from SQLite authoritative store
+9. **Dedup on pass+finding combo** — `get_critical_findings()` deduplicates by (pass_id, finding[:100]) tuple, preventing duplicate alerts from multiple audit cycles
 
 ---
 
@@ -2328,7 +2336,7 @@ WEBHOOK_INFRA_CHECKS = [
 **Wiring (2026-02-14)**:
 - `lite_scheduler._run_success_detection()` now uses `EnhancedSuccessDetector`
 - Detector cached as `self._cached_success_detector` (memory leak prevention)
-- `use_llm=False` for background jobs (no LLM blocking)
+- `use_llm=True` — **updated 2026-02-18**: Butler has 97% idle LLM capacity, Layer 3 semantic analysis now enabled in background
 - Only `high_confidence` results (≥0.7) fed to `capture_success()`
 - `learn_from_confirmed()` called on each success (self-improving patterns)
 - Fallback to simple extraction if enhanced detector import fails
@@ -2349,6 +2357,8 @@ WEBHOOK_INFRA_CHECKS = [
 
 **Two Redis containers** exist — miswiring between them is the #1 Redis failure mode.
 
+> **Status (2026-02-18)**: All core Python modules use `127.0.0.1`. Two remaining `localhost` references in `persistent_hook_structure.py` (S8 generator, Synaptic health check at port 8888) fixed to `127.0.0.1`. Shell scripts (`ask-synaptic.sh`, `atlas-ops.sh`) still use `localhost` — non-critical path, fix when touched.
+
 ### Evidence Pipeline Wiring
 
 ```
@@ -2365,7 +2375,7 @@ enhanced_success_detector  observability_store
 - `record_quarantine()` does NOT exist → use `quarantine_item()`
 - `objective_success_detector.py` does NOT exist → use `enhanced_success_detector.py`
 - `work_dialogue_log.jsonl` does NOT exist → dialogue mirror at `~/.context-dna/`
-- `capture_failure()` had dead code gate (`boundary_injection_id`) → always skipped → FIXED
+- `capture_failure()` had dead code gate (`boundary_injection_id`) → always skipped → **FIXED** (`auto_capture.py` lines 1123-1128: outcome_event now fires unconditionally, P1.6 fix documented in code comments)
 
 ### Gold Pass Data Fetcher Wiring (2026-02-15 fixes)
 
@@ -2411,3 +2421,216 @@ Webhook S0: persistent_hook_structure.py
 - `severity` field missing in Redis JSON → defaults to `"critical"` in webhook renderer
 - `pass_id.startswith("arch_")` drives evaluation criteria — non-arch passes use infra criteria
 - `PLANS_DB.exists()` check in `_promote()` → if path wrong, big picture silently skipped
+
+---
+
+## Corrigibility & Input Quality — 2026-02-18
+
+> **Finding**: The 4B LLM (Qwen3-4B-4bit) was blamed for producing poor S2/S8 output. Multi-session audit proved the model IS capable — the inputs were polluted. This is a corrigibility lesson: always suspect inputs before blaming LLM output quality.
+
+### The Contamination
+
+| Source | Count | Impact |
+|--------|-------|--------|
+| Prompt-leaked learnings | 82 | Learnings containing raw Claude Code prompt fragments (e.g., "PYTHONPATH=.", "memory/", webhook section headers) fed into S2 context → LLM echoed garbage |
+| "test test" failure patterns | 19 | `failure_pattern_analyzer` accepted 2-character inputs as valid tasks → polluted failure analytics |
+| Stale critical findings | 11 | Findings >48h old persisted in Redis, injected into every LLM prompt, consumed token budget with irrelevant warnings |
+| Meta-noise entries | 18 | Learnings about the system itself ("Atlas should...", "Claude Code...") confused S2 Professor context |
+
+### Fixes Applied
+
+| Fix | File | Detection |
+|-----|------|-----------|
+| `type='prompt_leak'` flagging | `sqlite_storage.py` | `query()` excludes `type='prompt_leak'` from FTS5 and keyword paths |
+| Min 20 chars + 2 unique words | `failure_pattern_analyzer.py` → `_normalize_task()` | Rejects short/trivial input before recording |
+| 48h auto-expiry | `session_gold_passes.py` → `run_webhook_infrastructure_audit()` | Age-based clear in every audit cycle |
+| Redis rebuild from SQLite | `session_gold_passes.py` → `_rebuild_redis_from_sqlite()` | Ensures Redis reflects only unacknowledged SQLite findings |
+
+### Anti-Miswiring Detection
+
+- If S2 output contains meta-noise patterns (`"Claude Code"`, `"memory/"`, `"PYTHONPATH"`, `".venv"`, section header markers) → **input pipeline contaminated**
+- If `sqlite_storage.query("task")` returns entries with `type='prompt_leak'` → query filter broken
+- If `failure_pattern_analyzer` records tasks <20 chars → normalization gate bypassed
+- **Principle**: When LLM output is bad, check inputs FIRST. Run `PYTHONPATH=. .venv/bin/python3 -c "from memory.sqlite_storage import get_sqlite_storage; s=get_sqlite_storage(); print(len(s.query('test', limit=50)))"` to audit input quality
+
+---
+
+## Critical Findings Lifecycle — 2026-02-18
+
+> **Context**: Critical findings flow: gold mining pass → `_promote_critical()` → SQLite `critical_findings` table + Redis list → `get_critical_findings()` → webhook S0 injection. Five lifecycle bugs caused stale/duplicate/phantom findings.
+
+### Bugs Fixed
+
+| # | Bug | Root Cause | Fix | File:Line |
+|---|-----|-----------|-----|-----------|
+| 1 | Redundant Redis filtering | `get_critical_findings()` filtered Redis list AFTER fetching from SQLite (already filtered) | Removed redundant filter block | `session_gold_passes.py` |
+| 2 | Duplicate findings in Redis | `_promote_critical()` did `lpush` without checking if finding already existed | Added dedup check: query SQLite for matching `pass_id + finding[:100]` before lpush | `session_gold_passes.py` |
+| 3 | Stale accumulation | No expiry mechanism — old findings persisted indefinitely | Added 48h age-based auto-acknowledge in `run_webhook_infrastructure_audit()` | `session_gold_passes.py` |
+| 4 | Redis/SQLite divergence | Redis could contain findings already acknowledged in SQLite | Added `_rebuild_redis_from_sqlite()` — rebuilds Redis from SQLite truth after every clear/ack | `session_gold_passes.py` |
+| 5 | Phantom findings | `get_critical_findings()` could return findings from Redis that were acknowledged in SQLite | SQLite is now authoritative — Redis is cache only, rebuilt on every mutation | `session_gold_passes.py` |
+
+### Data Flow (Post-Fix)
+
+```
+Gold Mining Pass
+    ↓ _promote_critical(finding, pass_id, severity)
+    ↓ DEDUP CHECK: SQLite query for matching pass+finding
+    ↓
+SQLite critical_findings (AUTHORITATIVE)
+    ├── acknowledged = 0/1
+    ├── found_at timestamp
+    └── action_taken text
+    ↓ _rebuild_redis_from_sqlite()
+Redis critical:recent (CACHE ONLY)
+    ↓ get_critical_findings()
+    ↓ DEDUP: (pass_id, finding[:100]) tuple
+Webhook S0 injection
+```
+
+### Anti-Miswiring Detection
+
+- If Redis `LLEN critical:recent` > SQLite `SELECT COUNT(*) FROM critical_findings WHERE acknowledged=0` → stale Redis, needs rebuild
+- If findings >48h appear in `get_critical_findings()` → age-based expiry not running (check `run_webhook_infrastructure_audit()` is called)
+- If duplicate findings appear → dedup in `_promote_critical()` or `get_critical_findings()` broken
+
+---
+
+## GPU Lock & Cross-Process Contention — 2026-02-17
+
+> **Incident**: `abort()` crashes in mlx_lm.server. Root cause: lite_scheduler and scheduler_coordinator each maintained their own LLM request queue, sending concurrent requests to Metal GPU.
+
+### The Problem
+
+```
+lite_scheduler (process A)          scheduler_coordinator (process B)
+    ├── own LLM queue                   ├── own LLM queue
+    ├── _execute_llm_request()          ├── _execute_llm_request()
+    └── Metal GPU op ←──── CONFLICT ────→ Metal GPU op
+                                ↓
+                          abort() / SIGSEGV
+```
+
+Metal GPU operations are NOT thread-safe across processes. The HTTP server serializes within a single process, but cross-process concurrent callers bypass this.
+
+### Fix: Redis GPU Lock
+
+| Component | Implementation | File |
+|-----------|---------------|------|
+| Lock acquisition | `_acquire_gpu_lock()` — Redis `SET llm:gpu_lock {pid}:{timestamp} NX EX 30` | `llm_priority_queue.py` |
+| Lock release | `_release_gpu_lock()` — Redis `DEL llm:gpu_lock` (only if holder matches) | `llm_priority_queue.py` |
+| Stale lock recovery | `_is_pid_alive()` — checks holder PID via `os.kill(pid, 0)`. Dead PID → auto-steal | `llm_priority_queue.py` |
+| Singleton guard | PID file at `memory/.scheduler_coordinator.pid` — prevents duplicate coordinators | `scheduler_coordinator.py` |
+
+### Anti-Miswiring Detection
+
+- If `abort()` in `memory/.mlx_lm.log` → check `redis-cli GET llm:gpu_lock` — if empty, lock not being used
+- If lock held >30s → holder likely dead. `_is_pid_alive()` should auto-recover
+- If two `scheduler_coordinator` processes running → PID file guard broken. Check `ps aux | grep scheduler_coordinator`
+- **Never run** `lite_scheduler.py` directly when `scheduler_coordinator.py` is active — coordinator embeds the scheduler
+
+---
+
+## S8 Generator vs Anticipation Cache — Design Intent — 2026-02-18
+
+> **Architecture**: Two paths produce S8 (8th Intelligence / Synaptic) content. They serve DIFFERENT purposes and are NOT redundant.
+
+### Anticipation Cache Path (Primary)
+
+- **Source**: `anticipation_engine.py` → `_precompute_section_8(prompt, ctx)`
+- **Trigger**: Scheduler runs every 30s, pre-computes using local 4B LLM
+- **Content**: Deep Synaptic voice — contextual analysis, risks, actions, perspective
+- **When active**: LLM available AND cache fresh (TTL >60s remaining)
+- **Quality**: High — full LLM reasoning with dialogue context
+
+### Generator Path (Gap-Filler)
+
+- **Source**: `persistent_hook_structure.py` → S8 generator function
+- **Trigger**: Anticipation cache MISS (LLM down, cache expired, first prompt)
+- **Content**: Status updates between LLM calls — 4 features:
+  1. **LLM status indicator** — is the local LLM up/down/busy?
+  2. **System awareness** — scheduler health, service states
+  3. **Outbox check** — pending messages from Synaptic
+  4. **Superhero escalation** — if critical findings need multi-agent response
+- **When active**: Anticipation cache unavailable or between LLM cycles
+- **Quality**: Adequate — informational, not deep analysis
+
+### Anti-Miswiring Detection
+
+- If generator gap-fillers appear when anticipation cache IS fresh → fallback path triggered incorrectly (check `get_anticipation_section()` return value)
+- If anticipation cache never populates → gap-fillers become permanent, quality degradation (~35%). Check scheduler is running + LLM is alive
+- Generator and anticipation are NOT competing — one is deep analysis, the other is system status. Both are valuable at different times
+- **Test**: `redis-cli TTL $(redis-cli KEYS 'contextdna:anticipation:s8:*' | head -1)` — if <60s or -2 (missing), cache is expiring/absent
+
+---
+
+## Overflow Protection & Injection Depth — 2026-02-17
+
+> **Problem**: Webhook payload grew unbounded as more sections added content. Claude Code rejected prompts exceeding context limits, causing silent failures.
+
+### Hard Caps
+
+| Mode | Max Payload | Trigger |
+|------|------------|---------|
+| FULL | 14,000 chars | Turns 1-2, 13-14 (session bookends) |
+| ABBREVIATED | 6,000 chars | Turns 3-12 (mid-session, lean injection) |
+| SAFE MODE | S0 + S2 + S8 only | Payload exceeds cap after all stripping |
+
+### Injection Depth Cycling
+
+```
+Turn 1-2:   FULL (14K) — complete context for session start
+Turn 3-12:  ABBREVIATED (6K) — S2/S6/S8 always full, others summarized
+Turn 13-14: FULL (14K) — refresh before context window compacts
+Turn 15+:   Cycle repeats
+```
+
+S2 (Professor Wisdom), S6 (Synaptic→Atlas), S8 (Synaptic→Aaron) are **NEVER abbreviated**. These sections carry the highest value density.
+
+### Progressive Strip Order (when over cap)
+
+If payload exceeds hard cap after depth cycling:
+
+```
+Strip order: S10 → S7 → S4 → S3 → S1 → S5
+NEVER strip: S0 (Safety), S2 (Wisdom), S6 (Holistic), S8 (8th Intelligence)
+```
+
+### Anti-Miswiring Detection
+
+- If webhook payload >14K after all stripping → SAFE MODE activated (check Redis `contextdna:overflow:*` telemetry)
+- If S2/S6/S8 appear abbreviated → depth cycling logic broken (these sections are never-strip)
+- If mid-session turns have full 14K payloads → depth cycling not engaged (check turn counter)
+- Redis telemetry key: `contextdna:injection:overflow_count` — if >0, payloads are hitting caps
+
+---
+
+## LLM Health Gate — 2026-02-17
+
+> **Problem**: When the local LLM was down, gold mining passes still ran, producing 300+ `llm_error` verdicts per cycle. These polluted failure analytics and wasted scheduler cycles.
+
+### Implementation
+
+```python
+# lite_scheduler.py — gold mining entry point
+infra = run_webhook_infrastructure_audit()
+if infra.get("critical", 0) > 0:
+    failures = infra.get("failures", [])
+    llm_down = any("llm" in str(f).lower() for f in failures)
+    if llm_down:
+        return True, f"SKIPPED: LLM down | {infra['passed']}/{infra['total_checks']} ok"
+```
+
+### Gate Logic
+
+1. Infrastructure audit runs FIRST (before any pass execution)
+2. If LLM probe fails (`pgrep -f mlx_lm` empty) → critical failure flagged
+3. Gold mining cycle returns early with `SKIPPED: LLM down` status
+4. Other infrastructure failures (Redis, PG, etc.) log warnings but do NOT gate gold mining
+5. Only LLM-down gates the cycle (other passes can run without LLM using cached/fallback data)
+
+### Anti-Miswiring Detection
+
+- If gold mining produces `llm_error` verdicts while LLM IS up → gate check not catching the right failure mode
+- If gold mining never runs despite LLM being up → gate check too aggressive (false positive on `"llm"` string match)
+- If `infra["critical"]` is always 0 despite services being down → `run_webhook_infrastructure_audit()` not probing correctly
+- **Quick check**: `redis-cli GET llm:gpu_lock` — if lock exists with dead PID, LLM may appear down to other processes
