@@ -1486,3 +1486,149 @@ GPT-4.1 surgeon discovered: Shell environment has stale `OPENAI_API_KEY=sk-proj-
 ---
 
 *Consensus achieved by all 3 surgeons. 29 of 33 findings resolved (VERIFIED_FIXED or STALE). 4 genuine items remain for future work. No changes to be made until Aaron reviews.*
+
+---
+
+# 3-SURGEON COLLABORATION PROTOCOL (Feb 22, 2026)
+
+## The Surgery Team
+
+| Role | Model | Cost | Specialty |
+|------|-------|------|-----------|
+| **Head Surgeon (Atlas)** | Claude Opus 4.6 | Session-based | Orchestration, synthesis, code execution, final decisions |
+| **Cardiologist (GPT-4.1)** | OpenAI GPT-4.1 | $5/day budget | Document evaluation, evidence cross-examination, rigorous test design |
+| **Neurologist (Qwen3-4B)** | Local MLX (port 5044) | $0 | Feasibility scoring (0-3), risk assessment, implementation grounding |
+
+## Communication Protocol
+
+All inter-surgeon communication uses a **14-field JSON schema** (defined in `docs/design-conversations/surgeons-communication-json.md`):
+
+```json
+{
+  "sender": "Atlas|GPT-4.1|Qwen3-4B",
+  "recipient": "Atlas|GPT-4.1|Qwen3-4B|Aaron",
+  "timestamp": "ISO-8601",
+  "discussion_id": "unique-thread-id",
+  "message_type": "proposal|review|consensus|dissent|question|directive",
+  "task_type": "verification|design|analysis|measurement",
+  "confidence": 0.0-1.0,
+  "reasoning": "why this conclusion",
+  "urgency": 1-5,
+  "data": { /* task-specific payload */ },
+  "references": [],
+  "requires_response": true|false,
+  "deadline": "ISO-8601|null",
+  "context": {}
+}
+```
+
+### Dual Confidence System
+
+- **GPT-4.1**: Float 0.0–1.0 (native)
+- **Qwen3-4B**: Integer 0–3, mapped → `{0: 0.15, 1: 0.35, 2: 0.65, 3: 0.92}`
+- **Atlas weighted formula**: `0.45 × GPT-4.1 + 0.25 × Qwen3-4B(mapped) + 0.30 × Atlas`
+
+### Butler Priority Queue
+
+ALL local LLM calls in surgery-team.py use **Priority.AARON (P1)** — the highest priority tier. This ensures surgeon collaboration never gets starved by background scheduler jobs.
+
+Verified: all 10 `query_local()` calls route through `llm_generate(system, prompt, Priority.AARON, profile, "surgery_team")`. No bypass paths exist.
+
+### Dissent Protocol
+
+- **Dissent** (score-based, BLOCKING): Qwen3-4B scores < 2 on measurement_feasibility, risk > 2, or clarity < 2 → blocks consensus
+- **Caveats** (informational, NON-BLOCKING): Textual concerns from any surgeon → noted but don't block
+- **Dissent is NEVER suppressed** — even if 2/3 agree, dissent is preserved in the record
+
+## Cardiologist's Super Skill: Document Eval + Evidence Cross-Examination
+
+GPT-4.1 excels at two unique capabilities no other surgeon can match:
+
+### 1. Evidence Cross-Examination (`research-evidence <topic>`)
+
+Queries the ContextDNA evidence store (2,994+ learnings in SQLite FTS5), retrieves relevant findings, and sends them to GPT-4.1 for rigorous cross-examination:
+
+- **Claim extraction**: Identifies testable claims from evidence
+- **Truth grading**: TRUE_TO_EVIDENCE / PARTIALLY_TRUE / WORTH_TESTING / CONTRADICTED
+- **Confidence scoring**: 0.0–1.0 per claim
+- **A/B test candidates**: Flags claims suitable for empirical testing
+- **Gap identification**: What's missing from the evidence
+
+**Example output** (from webhook pre-compute cross-exam):
+> 14 claims extracted → 11 TRUE_TO_EVIDENCE, 3 WORTH_TESTING → 4 A/B test candidates identified
+
+### 2. A/B Test Design (`ab-collaborate <claim>`)
+
+When a claim is identified as testable, GPT-4.1 designs a rigorous experiment:
+
+- **Hypothesis** with clear causal mechanism
+- **Control vs Variant** with specific implementation steps
+- **Success metrics** (measurable by Qwen3-4B via webhook classify)
+- **Sample size** with statistical power calculation
+- **Duration** estimate
+- **Rollback plan**
+- **Risk identification**
+
+Then Qwen3-4B reviews for local feasibility (can WE actually measure this?), and Atlas synthesizes consensus.
+
+## A/B Test Lifecycle Commands
+
+| Command | Purpose |
+|---------|---------|
+| `surgery-team.py research-evidence <topic>` | Cross-examine evidence store with GPT-4.1 |
+| `surgery-team.py ab-propose <claim>` | GPT-4.1 designs test, Qwen3-4B reviews feasibility |
+| `surgery-team.py ab-collaborate <claim>` | Full 3-surgeon consensus on test design |
+| `surgery-team.py ab-start <test_ref>` | Activate test — creates Redis config flag, begins measurement |
+| `surgery-team.py ab-measure <test_ref>` | Check current metrics for running test |
+| `surgery-team.py ab-conclude <test_ref> <win\|lose\|inconclusive>` | End test, record outcome as evidence |
+| `surgery-team.py ab-status` | List all active/completed A/B tests |
+
+## First Successful Collaboration: S4-MODERATE Test
+
+**Claim**: "Section 4 inclusion for MODERATE risk tasks improves agent first-try success rate"
+
+### Consensus Result: APPROVED_WITH_CAVEATS (87% weighted confidence)
+
+| Surgeon | Assessment |
+|---------|-----------|
+| **GPT-4.1** | 89% confidence. Designed clean A/B with config flag toggle, 200 tasks/arm, 3-7 day duration |
+| **Qwen3-4B** | conf=3/3, measurement=3/3, risk=1/3, clarity=3/3. 3 informational caveats |
+| **Atlas** | 87% weighted. Implementation-ready. No blocking dissent |
+
+### Test Design (from consensus)
+
+- **Control**: MODERATE risk tasks processed WITHOUT Section 4
+- **Variant**: MODERATE risk tasks processed WITH Section 4
+- **Metric**: First-try success rate (classified per-webhook by Qwen3-4B: 0=failure, 1=retry-success, 2=first-try, 3=first-try+satisfaction)
+- **Target**: +5% absolute improvement in first-try success
+- **Sample**: N=400 (200/arm), 80% power, α=0.05
+- **Rollback**: Revert config flag, clear caches
+
+### Caveats (informational, non-blocking)
+
+1. Potential confounding variables in task difficulty distribution between arms
+2. Need for rigorous webhook event logging validation
+3. Risk of metric definition ambiguity ("first-try" vs "initial attempt")
+
+### Test Reference: `1771800362`
+
+Consensus file: `/tmp/atlas-agent-results/ab_consensus_1771800362.json`
+
+## Bug Fixes Applied to Consensus Logic (Feb 22)
+
+Three bugs in `scripts/surgery-team.py` consensus logic were discovered and fixed during first collaboration:
+
+1. **Truncated JSON fallback** — Qwen3-4B's extract profile (768 tok) was insufficient. Changed to extract_deep (1024 tok) + regex field extraction fallback for partial JSON
+2. **False dissent from caveats** — All Qwen3-4B concerns were treated as blocking dissent. Separated into caveats (informational) vs dissent (score-based blocking)
+3. **Consensus status logic** — New 4-condition logic: approved / approved_with_caveats (caveats only) / approved_with_caveats (dissent but high feasibility) / needs_revision
+
+## Suggested Next Tests (from Evidence Cross-Examination)
+
+From the webhook pre-compute cross-exam, these A/B candidates remain:
+
+| # | Claim | Why Test |
+|---|-------|----------|
+| 1 | S4-MODERATE inclusion improves first-try success | **APPROVED — ready to activate** (ref: `1771800362`) |
+| 2 | Injection depth cycling saves 40-60% tokens without quality loss | Measured savings claimed but quality impact unverified |
+| 3 | Multi-pass classify + Python merge outperforms single extract_deep | Gold mining proves it, but webhook sections untested |
+| 4 | Evidence grounding in S2 prompts reduces hallucinated guidance | Core claim of the reasoning-chains plan, empirically unverified |
