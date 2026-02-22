@@ -1632,3 +1632,96 @@ From the webhook pre-compute cross-exam, these A/B candidates remain:
 | 2 | Injection depth cycling saves 40-60% tokens without quality loss | Measured savings claimed but quality impact unverified |
 | 3 | Multi-pass classify + Python merge outperforms single extract_deep | Gold mining proves it, but webhook sections untested |
 | 4 | Evidence grounding in S2 prompts reduces hallucinated guidance | Core claim of the reasoning-chains plan, empirically unverified |
+
+## Autonomous A/B Testing System (Feb 22)
+
+The manual A/B lifecycle above required Atlas (Opus) to be present for every step: propose → collaborate → start → measure → conclude. The **Autonomous A/B System** extends this so the scheduler can execute the full lifecycle 24/7 without human presence.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  DURING SESSION (Atlas present)                         │
+│  Evidence Store → Cross-Examine → 3-Surgeon Consensus → QUEUE
+└───────────────────────────────────┬─────────────────────┘
+                                    │ pre-authorized rules
+                                    ▼
+┌─────────────────────────────────────────────────────────┐
+│  AUTONOMOUS (scheduler, no Atlas)                       │
+│  Activate (30min grace) → Monitor (hourly) → Conclude/Revert → EVIDENCE
+└─────────────────────────────────────────────────────────┘
+```
+
+**Trust model**: Atlas pre-authorizes test rules during session. Scheduler executes within those rules. GPT-4.1 + Qwen3-4B validate at each gate. No test proceeds without 2/3 agreement.
+
+### New Files & Changes
+
+| File | What |
+|------|------|
+| `memory/ab_autonomous.py` | Core engine: 8-phase lifecycle, BudgetManager, safety thresholds, 5 scheduler job wrappers |
+| `memory/hook_evolution.py` | New `ab_config_versions` table (config snapshots for rollback) + 7 new columns on `hook_ab_tests` |
+| `memory/lite_scheduler.py` | 5 new jobs: `ab_safety_check` (5min), `ab_monitor_active` (15min), `ab_activate_approved` (5min), `ab_scan_candidates` (1hr), `ab_conclude_ready` (1hr) |
+| `memory/notification_manager.py` | 5 new categories: `ab_test_proposed/activated/degraded/reverted/concluded` |
+| `scripts/surgery-team.py` | 2 new commands: `ab-veto`, `ab-queue` |
+
+### Updated A/B Test Lifecycle Commands
+
+| Command | Purpose |
+|---------|---------|
+| `surgery-team.py research-evidence <topic>` | Cross-examine evidence store with GPT-4.1 |
+| `surgery-team.py ab-propose <claim>` | GPT-4.1 designs test, Qwen3-4B reviews feasibility |
+| `surgery-team.py ab-collaborate <claim>` | Full 3-surgeon consensus on test design |
+| `surgery-team.py ab-start <test_ref>` | Activate test — creates Redis config flag, begins measurement |
+| `surgery-team.py ab-measure <test_ref>` | Check current metrics for running test |
+| `surgery-team.py ab-conclude <test_ref> <win\|lose\|inconclusive>` | End test, record outcome as evidence |
+| `surgery-team.py ab-status` | List all active/completed A/B tests |
+| **`surgery-team.py ab-veto <test_id> [reason]`** | **Veto an autonomous test during grace period or while active** |
+| **`surgery-team.py ab-queue`** | **Show autonomous A/B test queue, budget, active test, history** |
+
+### 8-Phase Autonomous Lifecycle
+
+1. **scan_for_candidates** — Queries evidence store for learnings with A/B test potential (Qwen3-4B classify, 64 tok)
+2. **design_test** — Structures hypothesis, control/variant, metrics (GPT-4.1 extract)
+3. **request_consensus** — 3-surgeon vote: 2/3 agreement required, blocking if neuro_risk<1 or cardio_conf<0.4
+4. **queue_test** — Stores approved test with 30-min grace period. macOS notification sent. Aaron can veto
+5. **activate_test** — Snapshots current config in `ab_config_versions`, applies variant value, starts monitoring
+6. **monitor_test** — Measures metrics against baseline, checks degradation thresholds (Qwen3-4B classify, 15min)
+7. **auto_revert** — If degradation detected: restore config snapshot, notify (critical), record as evidence
+8. **conclude_test** — Evaluates results, records to evidence store (winner→pattern, loser→gotcha, inconclusive→learning)
+
+### Safety Rails
+
+| Rail | Detail |
+|------|--------|
+| **3-Surgeon Consensus** | 2/3 agreement required. Blocking: neuro_meas<2, neuro_risk<1, cardio_conf<0.4 |
+| **30-min Grace Period** | After consensus, Aaron can veto via `ab-veto`, xbar menu, or next Atlas session |
+| **Auto-Revert on Degradation** | Sustained threshold breach triggers automatic rollback to snapshotted config |
+| **Config Snapshots** | Every change recorded with before/after in `ab_config_versions` SQLite table |
+| **Forbidden Parameters** | S0/S2/S8 (Safety/Professor/Synaptic), GPU lock, Redis, DB configs — never touched |
+| **Max 1 Concurrent Test** | Prevents interaction effects between simultaneous tests |
+| **48h Max Duration** | Tests auto-conclude if not done, prevents indefinite experiments |
+| **$2/day Budget Cap** | GPT-4.1 autonomous spend capped; tracked via Redis `ab_autonomous:costs:*` |
+
+### Degradation Thresholds
+
+| Metric | Revert If |
+|--------|-----------|
+| `webhook_e2e_p95_ms` | > 8000ms sustained |
+| `llm_error_rate_pct` | > 15% sustained |
+| `scheduler_failure_rate_pct` | > 10% sustained |
+
+### Self-Enhancing Loop
+
+Evidence feeds the system; test outcomes feed back into evidence:
+
+- **Winner** → recorded as `type: pattern` with `grade: correlation` (proven by test)
+- **Loser** → recorded as `type: gotcha` with details on what degraded
+- **Inconclusive** → recorded as `type: learning` with hypothesis for next iteration
+
+This closes the loop: the system gets smarter with each test cycle, generating better candidates from richer evidence.
+
+### Budget Model
+
+- **Per test**: ~$0.68 (GPT-4.1 design + consensus + conclude)
+- **Daily autonomous**: $2.00 cap → ~2-3 tests/day max
+- **Tracking**: Redis `ab_autonomous:costs:{YYYY-MM-DD}`
