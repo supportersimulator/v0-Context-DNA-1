@@ -1725,3 +1725,78 @@ This closes the loop: the system gets smarter with each test cycle, generating b
 - **Per test**: ~$0.68 (GPT-4.1 design + consensus + conclude)
 - **Daily autonomous**: $2.00 cap → ~2-3 tests/day max
 - **Tracking**: Redis `ab_autonomous:costs:{YYYY-MM-DD}`
+
+---
+
+# POST-PHASE GAINS VERIFICATION GATE (Feb 23, 2026)
+
+## Origin Story
+
+During Phase B (Infrastructure Stabilization), Atlas ran a **33-finding cross-check** (documented above as "SURGICAL CONSENSUS — Round 2 Cross-Check") that systematically verified every infrastructure component still worked after major changes. This was the first time the Surgery Team used live probes (curl, grep, lsof, redis-cli) to produce definitive verdicts rather than relying on LLM inference.
+
+The cross-check caught:
+- **19 VERIFIED_FIXED** — confirmed working via live probes
+- **8 STALE** — findings that were outdated or invalid (including Qwen3-4B incorrectly claiming a nonexistent module was "FIXED")
+- **3 PARTIALLY_FIXED** — real progress with remaining edges
+- **4 STILL_ACTIVE** — genuine work items for future phases
+
+**Key lesson**: GPT-4.1 was overly conservative (marked 11 verified-fixed items as STILL_ACTIVE). Qwen3-4B was unreliable on specific code questions (wrong on B4, unreliable on 13+ items). **Live probes are the only definitive evidence** — LLM inference is a starting point, not a verdict.
+
+## 3-Surgeon Consensus (2026-02-23)
+
+All 3 surgeons consulted on whether to codify this as a mandatory gate in CLAUDE.md:
+
+| Proposal | Qwen3-4B | GPT-4.1 | Atlas | Result |
+|----------|----------|---------|-------|--------|
+| Add gains gate to CLAUDE.md | 0.7 agree (full consult) | 0.9 agree (full consult) | agree | **Consensus: YES** |
+| Automated script (<30s), not manual checklist | **0.8 agree** | **0.8 agree** | agree | **100% agree** |
+| Block on critical failures; prior STILL_ACTIVE items don't block | **0.8 agree** | **0.8 agree** | agree | **100% agree** |
+
+### What Each Surgeon Said
+
+**GPT-4.1 (Cardiologist)**:
+> "Adding a mandatory automated gains verification gate to CLAUDE.md would improve infrastructure stability by ensuring standardized health/regression checks after major phase completions. The verification script should be optimized for speed and possibly run in parallel. Include pass/fail criteria and auto-revert logic."
+
+**Qwen3-4B (Neurologist)**:
+> "Automated verification scripts are more reliable and efficient than manual checklists. Prioritize critical infrastructure and workflow metrics over non-critical components. Balance automation with manual spot checks for complex architecture gaps."
+
+**Atlas (Head Surgeon)**:
+> The Phase B cross-check was invaluable but ad-hoc. Codifying it as a script ensures every phase transition gets the same rigor without relying on Atlas remembering to check 33 items manually. The script should be fast (<30s) to not slow velocity, and only block on truly critical failures.
+
+## The 3-Layer Gains Protection System
+
+### Layer 1: `scripts/gains-gate.sh` — Post-Phase Verification (NEW)
+**When**: After every major phase completion (A→C, C→D, D→E)
+**What**: Automated script checks critical infrastructure in <30s
+**Gate**: All critical checks must PASS to proceed. Failures = diagnose + fix first.
+
+Checks:
+| Check | Method | Critical? |
+|-------|--------|-----------|
+| Webhook E2E | `curl -s http://127.0.0.1:8080/health` | YES |
+| LLM server | `curl -s http://127.0.0.1:5044/v1/models` | YES |
+| Redis | `redis-cli -h 127.0.0.1 ping` | YES |
+| Scheduler PID | Check PID file exists + process alive | YES |
+| Synaptic (8888) | `curl -s http://127.0.0.1:8888/markdown/health` | YES |
+| ContextDNA (8029) | `curl -s http://127.0.0.1:8029/health` | NO (Docker-dependent) |
+| GPU lock stale | Check Redis `llm:gpu_lock` holder PID alive | YES |
+| Critical findings | `get_critical_findings()` returns 0 | YES |
+| LLM test query | P2 classify call completes | YES |
+| Redis key count | `dbsize` > 0 | NO (sanity check) |
+
+### Layer 2: `ab_autonomous.py` — Continuous Monitoring (EXISTING)
+**When**: Every 5 minutes, 24/7
+**What**: Automated degradation detection with auto-revert
+**Thresholds**: webhook_e2e_p95 > 8s, llm_error_rate > 15%, scheduler_failures > 10%
+
+### Layer 3: 3-Surgeon Consensus Gate (EXISTING)
+**When**: Before any new phase or major change is authorized
+**What**: All 3 surgeons must agree; dissent blocks; GPT-4.1 gets 50% vote weight on risk
+
+## Rules
+
+1. **Critical failures BLOCK** — do not proceed to next phase until fixed
+2. **Prior STILL_ACTIVE items do NOT block** — they're tracked but don't gate forward progress
+3. **Results logged** to `google-drive-code/shared/atlas-hermes-ledger.md`
+4. **Script runs <30s** — fast enough to not slow velocity
+5. **CLAUDE.md section added** — makes this mandatory, not optional
