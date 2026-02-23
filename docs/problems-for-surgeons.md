@@ -1800,3 +1800,72 @@ Checks:
 3. **Results logged** to `google-drive-code/shared/atlas-hermes-ledger.md`
 4. **Script runs <30s** — fast enough to not slow velocity
 5. **CLAUDE.md section added** — makes this mandatory, not optional
+
+---
+
+## Cardiologist EKG Pipeline (Event-Based Critical Response)
+
+> Like frequent EKG reviews — immediate drift correction the moment an anomaly appears, not on a polling schedule.
+
+### Architecture
+
+```
+Pass 6 detects low-quality webhook sections
+  → queues to Redis quality:investigation_queue
+    → Cardiologist (GPT-4.1-mini) diagnoses in background
+      → gathers evidence from learnings/claims/anti-patterns
+      → assesses severity → promotes critical findings
+        → labeled quality_cardiologist + needs_cross_exam: True
+          → EVENT TRIGGER: cardio-gate.sh fires immediately (fire-and-forget)
+            → gains-gate.sh --cardio MUST pass (10 infra checks)
+              → 3-surgeon cross-exam runs
+                → results → Redis quality:cross_exam_result (24h TTL) + WAL
+```
+
+### Pipeline Components
+
+| Component | Location | Role |
+|-----------|----------|------|
+| Quality scorer | `_ds_injection_quality_log()` in lite_scheduler.py | Scores webhook sections on 5 dimensions, queues degraded to investigation |
+| Cardiologist | `_run_quality_cardiologist()` in lite_scheduler.py | Background diagnosis via GPT-4.1-mini, evidence gathering, severity assessment |
+| Critical promotion | `_cardiologist_promote_critical()` in lite_scheduler.py | Stores to SQLite `critical_findings` + Redis `quality:critical_notifications` |
+| Event trigger | `_cardiologist_trigger_cross_exam()` in lite_scheduler.py | Fire-and-forget subprocess launch of cardio-gate.sh |
+| Cardio gate | `scripts/cardio-gate.sh` | Gains-preserving shell gate: rate limit → find criticals → gains-gate --cardio → cross-exam |
+| Gains gate | `scripts/gains-gate.sh --cardio` | 10 infrastructure checks; `--cardio` excludes cardiologist findings from blocking (cross-exam IS the response) |
+| 3-surgeon cross-exam | `scripts/surgery-team.py cardio-review` | 3 git agents → Cardiologist validates → Neurologist checks blind spots → dissent tested → Atlas synthesizes |
+
+### Shell Tools
+
+```bash
+./scripts/cardio-gate.sh              # Auto-triggered by cardiologist. Gains gate → cross-exam
+./scripts/cardio-gate.sh --manual     # Skip rate limit (3/hr max otherwise)
+./scripts/cardio-gate.sh --dry-run    # Check state without executing
+./scripts/surgery-team.py cardio-review "topic"  # Direct cross-exam (no gate)
+```
+
+### Key Design Decisions
+
+1. **Event-based, not polling** — `_cardiologist_trigger_cross_exam()` fires the moment a critical is promoted. No scheduler delay. Drift correction is immediate.
+2. **Gains-preserving gate** — Nothing automatic proceeds without `gains-gate.sh` passing. The `--cardio` flag resolves the catch-22 where the cross-exam IS the response to the critical finding.
+3. **Fire-and-forget** — `subprocess.Popen` so the scheduler isn't blocked waiting for the full cross-exam (~2min).
+4. **Rate limited** — 3 automated reviews/hour via Redis `quality:cardio_gate_count` (1h TTL). Override with `--manual`.
+5. **Cost** — ~$0.006/review (GPT-4.1-mini for cardiologist + GPT-4.1 for opposing view steelman). Budget: ~$0.05/day max at 3/hr cap.
+
+### Redis Keys
+
+| Key | Purpose | TTL |
+|-----|---------|-----|
+| `quality:investigation_queue` | Low-quality sections awaiting diagnosis | Persistent |
+| `quality:cardiologist_findings` | All cardiologist findings (list) | Persistent |
+| `quality:critical_notifications` | Critical findings needing cross-exam | Persistent |
+| `quality:cross_exam_result` | Latest cross-exam consensus | 24h |
+| `quality:cardio_gate_count` | Rate limiter counter | 1h |
+| `quality:cardio_gate_blocked` | Set when gains gate fails | 1h |
+| `quality:new_critical` | Flag cleared after successful processing | Persistent |
+
+### Invariants
+
+- **If `quality:cardio_gate_blocked` exists** → gains gate failed → fix infra BEFORE any cross-exam
+- **Cardiologist findings use pass_id `quality_cardiologist`** — this label flows through the entire chain (SQLite uses `pass_id`, Redis fallback uses `pass`)
+- **SQLite is authoritative** for critical findings (`~/.context-dna/session_archive.db`), Redis is fast-path cache rebuilt via `_rebuild_redis_from_sqlite()`
+- **Corrigibility principle enforced** — dissent between surgeons triggers opposing view testing before consensus. No finding accepted without testing the counter-position
