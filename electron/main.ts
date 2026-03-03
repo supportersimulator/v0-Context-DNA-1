@@ -5,11 +5,12 @@ import { registerFileSystemHandlers } from './ipc/file-system';
 import { registerDockerHandlers } from './ipc/docker';
 import { registerShellHandlers } from './ipc/shell';
 import { registerSupervisorHandlers } from './ipc/supervisor';
+import { loadEndpoints } from './config';
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-const DEV_URL = 'http://localhost:3000';
+const endpoints = loadEndpoints();
 const isDev = process.env.NODE_ENV !== 'production';
 
 let mainWindow: BrowserWindow | null = null;
@@ -37,7 +38,7 @@ function createWindow() {
 
   // Load the Next.js app
   if (isDev) {
-    mainWindow.loadURL(DEV_URL);
+    mainWindow.loadURL(endpoints.devServer);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     // Production: load from exported static files

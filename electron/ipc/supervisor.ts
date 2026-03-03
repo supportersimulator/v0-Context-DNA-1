@@ -1,9 +1,10 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { readFile } from 'fs/promises';
 import path from 'path';
+import { loadEndpoints } from '../config';
 
 // ---------------------------------------------------------------------------
-// Swift Supervisor Bridge — HTTP API on 127.0.0.1:9090
+// Swift Supervisor Bridge — HTTP API
 //
 // The native macOS supervisor manages 4 services (LLM, Agent, Scheduler, Voice)
 // and exposes a local REST API. This IPC handler bridges Electron renderer ↔
@@ -12,13 +13,9 @@ import path from 'path';
 // Fallback: if supervisor is unreachable, reads .supervisor_health.json directly.
 // ---------------------------------------------------------------------------
 
-const SUPERVISOR_URL =
-  process.env.SUPERVISOR_URL || 'http://127.0.0.1:9090';
-
-const REPO_ROOT =
-  process.env.REPO_ROOT ||
-  path.join(process.env.HOME || '', 'Documents/er-simulator-superrepo');
-
+const endpoints = loadEndpoints();
+const SUPERVISOR_URL = endpoints.supervisor;
+const REPO_ROOT = endpoints.repoRoot;
 const HEALTH_JSON_PATH = path.join(REPO_ROOT, 'memory/.supervisor_health.json');
 
 // Timeout for supervisor API calls (supervisor is local, should be fast)
