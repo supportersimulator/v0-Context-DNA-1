@@ -1497,3 +1497,101 @@ autoUpdater.on('update-downloaded', () => {
   mainWindow.webContents.send('update-ready');
 });
 ```
+
+---
+
+## 15. Corrigibility Gap Closure — Path to 100%
+
+> Status date: 2026-03-03. Based on 5-agent structured diff of all admin docs vs actual codebase.
+> Source docs diffed: Dashboard-Workspace-Live-Plans.md, Dashboard-Workspace-Live-Spec.md, Dashboard-Workspace-Live.md, IDE-Legit-Node-Red.md, problems-for-surgeons.md
+>
+> **Principle**: Items selected for "wise superior choices" — only gaps that genuinely improve the system. Items where our implementation is architecturally superior to the doc's vision are marked SUPERSEDED.
+
+### 15.1 What's DONE Since Section 13 (2026-02-12 → 2026-03-03)
+
+M10.1–M10.7 closed the majority of Section 13's gaps:
+
+| Section 13 Item | Now Status | Implementation |
+|----------------|-----------|----------------|
+| Three-page routing (P0) | DONE | `app/dashboard/page.tsx`, `app/workspace/page.tsx`, `app/live/page.tsx` |
+| Panel Protocol v1 types (P1) | DONE | `lib/panels/panel-protocol.ts` + `engine/panel/` (dual implementation) |
+| Panel registry API (P1) | DONE | `engine/panel/registry.ts` — 8 capabilities, permission resolution |
+| CapabilityBus (P1) | DONE | `engine/integration/CapabilityBus.ts` — typed pub/sub, entity store, ring buffer |
+| Context handoff (P2) | DONE | `lib/agents/context-handoff.ts` — buildHandoffSummary from last 20 events |
+| Panel state machine | DONE | `engine/panel/state-machine.ts` — 7 states, deterministic TRANSITION_TABLE |
+| Panel renderer | DONE | `components/live/panel-renderer.tsx` — 4 transports |
+| Agent Manager singleton (P1) | DONE | `lib/agents/agent-manager.ts` — 4 agents, foreground/background |
+| ProjectDialogue EventStore (P1) | DONE | `lib/agents/project-dialogue.ts` — 7 event types, bounded ring (500) |
+| Benchmark runner (P1) | DONE | `lib/benchmark/runner.ts` + `benchmark-card.tsx` |
+| Electron main+preload (P2) | DONE | `electron/main.ts`, `electron/preload.ts`, 5 IPC domains |
+| Electron build config (P2) | DONE | `electron-builder.json` — Mac/Win/Linux |
+| Config pack builder+signing | DONE | `engine/pack/` — manifest, builder, HMAC signing |
+| Config pack browser UI | DONE | `components/dashboard/views/config-pack-browser.tsx` |
+| Lite/Heavy mode switch | DONE | `engine/mode/mode-switch.ts` + `lib/hooks/use-mode.ts` |
+| Integration providers (P2) | DONE | 20+ providers in `lib/ide/providers/`, 3 reference in engine |
+| Evidence pipeline API | DONE | `lib/api/evidence.ts` |
+| Recovery telemetry | DONE | `engine/builder/restore-proceed.ts` + `_diagnostics.ts` |
+
+### 15.2 SUPERSEDED (Our Implementation Is Superior)
+
+These doc items are intentionally not implemented as described — our architecture is better:
+
+| Doc Vision | Our Approach | Why Ours Is Better |
+|-----------|-------------|-------------------|
+| Node-RED visual programming | CapabilityBus typed events | Compile-time safety, no runtime Node-RED dependency, ~70 typed events vs fragile wires |
+| Single Panel Registry | Dual registry (frontend + engine) with ProviderBridge | Separation of concerns — engine validates capabilities, frontend manages UI lifecycle |
+| Desktop Commander as MCP server | Electron IPC modules (5 domains) | Direct IPC = lower latency, no HTTP overhead, native Electron integration |
+| Single event system | Kernel EventTypes + CapabilityEventTypes | Different scopes: kernel = injection/recovery, capability = DevOps/integration |
+
+### 15.3 Remaining Gaps — Ranked by Impact
+
+#### Tier 1: Architecture Wiring (highest value — connecting existing pieces)
+
+| # | Gap | What Exists | What's Missing | Impact |
+|---|-----|------------|---------------|--------|
+| G1 | **Event bridge: kernel ↔ CapabilityBus** | Kernel EventTypes in `engine/types/events.ts`, CapabilityBus in `engine/integration/CapabilityBus.ts` | Bridge that forwards kernel events (injection.complete, quality.fail, recovery.triggered) to CapabilityBus subscribers | HIGHEST — unlocks cross-system observability, dashboard can react to injection events |
+| G2 | **Real health data → dashboard** | Backend `health.ts` (8 DB checks + Redis), `metrics.ts` (Redis telemetry) | API route + system-health provider wiring to push live data to dashboard panels | HIGHEST — dashboard currently shows stale/mock health data |
+| G3 | **Config Pack API route** | Engine `pack/builder.ts` + `pack/signing.ts`, Frontend `config-pack-browser.tsx` | API route: `app/api/packs/route.ts` — list, download, install packs | HIGH — both endpoints exist, need plumbing |
+| G4 | **SyncManager orchestrator** | `sync-state-store.ts` (posture state machine), `mode-switch.ts` (mode transitions) | SyncManager class coordinating posture transitions on mode changes, data integrity during switches | HIGH — components exist, orchestrator missing |
+
+#### Tier 2: Intelligence Quality (webhook/injection improvement)
+
+| # | Gap | What Exists | What's Missing | Impact |
+|---|-----|------------|---------------|--------|
+| G5 | **S6 file-awareness** | `ide_detection.py` feeds `boundary_decision` into S1, `generate_section_6()` in webhook builders | Pass `active_file` + `boundary_decision` to `generate_section_6()` so Synaptic guides based on what Atlas is editing | HIGH — Synaptic gives generic guidance without file context |
+| G6 | **Heading-based MD chunking** | Markdown Memory Layer (port 8888) | Chunk .md files by heading hierarchy for finer-grained retrieval | MEDIUM — improves context retrieval quality |
+
+#### Tier 3: Product Features (valuable but not core infrastructure)
+
+| # | Gap | What Exists | What's Missing | Impact |
+|---|-----|------------|---------------|--------|
+| G7 | **Pipeline visualization panel** | `@xyflow/react` already installed, CapabilityBus has ring buffer | ReactFlow panel rendering injection pipeline as read-only flow diagram | MEDIUM — visual debugging of 9-section pipeline |
+| G8 | **VS Code Extension scaffold** | `lib/ide/providers/vscode-bridge-provider.ts` (WebSocket client, JSON-RPC) | Actual VS Code extension repo with WebSocket server on port 8765 | MEDIUM — provider contract ready, extension unlocks IDE integration |
+| G9 | **LLM Benchmark instrumentation** | `lib/benchmark/runner.ts` + UI cards | Wire TTFT/tokens-per-sec extraction from `llm_priority_queue.py` Redis telemetry | MEDIUM — real benchmark data vs synthetic |
+
+#### Tier 4: Electron Polish (P3 — pre-distribution)
+
+| # | Gap | What Exists | What's Missing | Impact |
+|---|-----|------------|---------------|--------|
+| G10 | **userData path resolution** | `electron/main.ts`, `env-detect.ts` | `electron/paths.ts` — userData resolution for all DBs | LOW — needed before Electron distribution |
+| G11 | **Secret resolver (keytar)** | Config pack system, Electron IPC | `lib/config/secret-resolver.ts` — OS keychain integration | LOW — needed for config packs with secrets |
+| G12 | **Auto-updater** | `electron-builder.json` | `electron-updater` integration in main.ts | LOW — needed before Electron distribution |
+
+#### Tier 5: Documentation/Hygiene
+
+| # | Gap | What Exists | What's Missing | Impact |
+|---|-----|------------|---------------|--------|
+| G13 | **Dual registry documentation** | Frontend PanelRegistry + Engine PanelRegistry + ProviderBridge | Architectural note explaining the boundary and when to use which | LOW — prevents developer confusion |
+| G14 | **MEMORY.md accuracy** | Claims "LLM HEALTH GATE" exists | Remove or implement — documentation drift | LOW — housekeeping |
+
+### 15.4 Completion Scorecard
+
+| Category | Total Items | Done | Remaining | % Complete |
+|----------|-----------|------|-----------|------------|
+| Architecture (P0) | 5 | 5 | 0 | 100% |
+| Core Value (P1) | 18 | 14 | 4 (G1-G4) | 78% |
+| Extensions (P2) | 10 | 6 | 4 (G5-G8) | 60% |
+| Polish (P3) | 8 | 2 | 6 (G9-G14) | 25% |
+| **Total** | **41** | **27** | **14** | **66%** |
+
+To reach 100%: 14 items. To reach 90% (wise threshold): G1–G6 (6 items, all Tier 1+2).
