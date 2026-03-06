@@ -22,6 +22,8 @@
 12. [License Audit](#12-license-audit)
 13. [Gap Analysis — DONE / PARTIAL / MISSING](#13-gap-analysis--done--partial--missing)
 14. [Integration Specifications](#14-integration-specifications)
+15. [Corrigibility Gap Closure — Path to 100%](#15-corrigibility-gap-closure--path-to-100)
+16. [Product Boundary Remediation — Project vs Tool Separation](#16-product-boundary-remediation--project-vs-tool-separation)
 
 ---
 
@@ -1595,3 +1597,596 @@ These doc items are intentionally not implemented as described — our architect
 | **Total** | **41** | **27** | **14** | **66%** |
 
 To reach 100%: 14 items. To reach 90% (wise threshold): G1–G6 (6 items, all Tier 1+2).
+
+---
+
+## 16. Product Boundary Remediation — Project vs Tool Separation
+
+> **Status date**: 2026-03-03. Based on 5-agent structured investigation comparing GPT design conversation (Versioned-Engine-Contracts-ContextDNA-vs-projects__chat.md) against actual codebase implementation.
+>
+> **Core question**: Does the product/tool boundary need to be established before proceeding with Electron distribution?
+>
+> **Verdict**: **YES.** The tool boundary must be caught up first. Estimated scope: 1-2 focused weeks.
+
+### 16.1 The V3 Problem — Tool That Builds Itself
+
+ContextDNA is simultaneously:
+- **The project being built** — Aaron and Atlas develop it daily, learnings are about its own internals
+- **The product/tool customers install** — users get context-aware AI assistance for *their* projects
+
+This creates the V3 Complexity Vector: internal development knowledge (webhook architecture, GPU lock patterns, scheduler gotchas) must NEVER leak into customer workspaces. The GPT design conversation defined a Cognitive Invariance Spec to solve this. The 5-agent investigation measured actual implementation against that spec.
+
+### 16.2 Five-Agent Investigation Results
+
+#### Agent 1: TypeScript Engine Interfaces vs GPT Design Spec
+
+**Alignment: ~60%**
+
+| Interface | Spec Requirement | Implementation Status |
+|-----------|-----------------|----------------------|
+| `IWorkspaceStore` | Per-workspace memory isolation | EXISTS — profile-centric variant |
+| `IMemoryStore` | 9 methods for memory CRUD | EXISTS — well-aligned |
+| `IArchitectureStore` | Architecture twin queries | EXISTS — 5 methods |
+| `IRunStore` | Agent attribution per run | **MISSING** — spec required for agent output tracking |
+| `IInjectionStore` | Injection event recording | EXISTS — 6 methods |
+| `IContextBuilder` | Exported interface contract | **NOT EXPORTED** — class exists, no interface |
+| `EngineContext` | `productMode` + `developerMode` flags | **MISSING** — `productMode` exists as loose flag, no `developerMode` |
+| `MemoryScope` | `"profile" \| "workspace"` (core=immutable) | RENAMED — `"global" \| "project" \| "session" \| "task"` |
+| `Domain` type | Learning domain classification | **MISSING** |
+| `PayloadManifest` | Auditable safety block | DIFFERENT — missing `workspaceId`, `engineMode`, `safety` block |
+| Self-reference suppression | Automatic when `productMode=true` | IMPLEMENTED — but opt-in, not default |
+| Write Gates | Domain/scope/confidence validation | **NOT IMPLEMENTED** |
+| Mode switching | 8-stage migration pipeline | FULLY IMPLEMENTED |
+
+**Critical gaps**: IRunStore, EngineContext, Write Gates, PayloadManifest safety block.
+
+#### Agent 2: Python `src/` Product Leakage Analysis
+
+**Alignment: ~20% — the most critical finding.**
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| **Self-Reference Filter** | Built but INACTIVE | `product_mode: false` in `manifest.yaml`. Only masks term names, doesn't prevent knowledge leakage |
+| **Boundary Intelligence** | Partial | 5 input signals, confidence-based filtering. But: NO ContextDNA self-detection, filtering is optional (`skip_boundary_intelligence` flag) |
+| **Learning Storage** | GLOBALLY MIXED | Single SQLite DB per machine. No `workspace_id` column. ALL learnings from ALL projects in one table |
+| **Webhook Injection** | Queries ALL learnings | `query.py` fetches all learnings. Boundary filtering is optional post-filter, can be skipped entirely |
+| **Memory Query** | No workspace scope | `professor.py`, `query.py` search across all learnings regardless of project |
+
+**Root cause**: The spec designed workspace isolation as a first-class data model (separate storage per workspace). The implementation treats it as an optional filter layer on top of global storage.
+
+**Impact if shipped**: Customer opens their React project → ContextDNA injects Aaron's internal learnings about webhook architecture, GPU lock patterns, scheduler gotchas. Worse: customer's learnings about their React project pollute Aaron's ContextDNA dev workspace on the same machine.
+
+#### Agent 3: Electron Readiness Assessment
+
+**Readiness score: 2/10**
+
+| Aspect | Status | Detail |
+|--------|--------|--------|
+| Electron shell | V0.1 stub | Splash screen, tray icon, dashboard placeholder. 437MB (mostly node_modules) |
+| IPC handlers | Exist | 5 domains: window, file-system, docker, shell, api |
+| Build config | Exists | `electron-builder.json` for Mac/Win/Linux |
+| **Hardcoded endpoints** | BLOCKING | Points to `localhost:5044`, `localhost:8080`, etc. No config |
+| **Dev artifacts** | BLOCKING | `.env` with API keys in Electron client directory |
+| **Python backend** | BLOCKING | 82 Python modules required. No bundling strategy |
+| **Product boundary** | BLOCKING | No mechanism to prevent dev learnings from reaching users |
+| **userData paths** | MISSING | `electron/paths.ts` not implemented |
+
+**Verdict**: The Electron shell is trivial to finish. The problem is what it connects to. Shipping today = shipping Aaron's internal dev data to customers.
+
+#### Agent 4: Context Builder Pipeline vs Spec
+
+**Pipeline alignment: ~75% — mechanism solid, invariance enforcement incomplete.**
+
+| Component | Spec | Reality |
+|-----------|------|---------|
+| gather→filter→rank→fit→assemble | Yes | **IMPLEMENTED** — `ContextBuilder.build()` in `context-builder.ts` |
+| `classifyWorkspace()` | Detect `contextdna_dev` vs `user_project` | **MISSING** — no workspace classification function |
+| Self-reference suppression | Automatic when `productMode=true` | **OPT-IN** — called post-assembly only when flag set |
+| `renderProductModePolicy()` | Safety block in payload manifest | **MISSING** — stub code only |
+| Scope filter | Classify candidates by `profile` vs `workspace` | PARTIAL — relies on pre-tagged candidates |
+| Dev Pack presence check | Enable dev mode only when dev pack present | **NOT IMPLEMENTED** |
+
+**Root insight**: The spec designed cognitive invariance as a first-principle classification system ("what workspace am I in?" drives ALL behavior). The implementation treats it as optional flags and post-assembly filters.
+
+#### Agent 5: Pack System + Mode Switch Readiness
+
+**Alignment: ~75-80% — infrastructure done, critical execution paths stubbed.**
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| Pack manifest types | DONE | `PackManifest.ts` — 4 types (context_capsule, memory_export, profile_snapshot, injection_bundle) |
+| Pack builder | DONE | Fluent API: `addSection()`, `addSecretRef()`, `stripSecrets()`, `serialize()` |
+| Pack signer | DONE | HMAC-SHA256 with verification and canonicalization |
+| Pack presets | DONE | core (S0,S1,S2), dev (S0-S8), user (empty) |
+| Mode switch state machine | DONE | idle→snapshotting→transitioning→validating→idle/rolling_back |
+| Migration pipeline | DONE | 8-stage: preflight→lock→drain→snapshot→replay→flip→warmup→unlock |
+| **Event log replay (stage 5)** | **STUBBED** | Always returns `{ success: true, eventsReplayed: 0 }` |
+| **Write gate** | **NOT ENFORCED** | No application-layer validation before memory writes |
+| **Sync queue** | **NOT EXECUTED** | SQL schema exists in `002_sync_and_boundaries.sql`, no runtime wiring |
+| Language/Provider Packs | **MISSING** | Only core/dev/user presets. No distribution layer |
+
+**Estimate**: 1-2 weeks for blocking items (event replay, write gate, sync queue execution).
+
+### 16.3 The Core Architectural Insight
+
+The GPT design conversation got the architecture RIGHT. The implementation built the **mechanisms** (self-ref filter, boundary intelligence, mode switch, pack signing) but never **wired the defaults to product-safe**.
+
+Everything is built as opt-in developer features when the spec designed them as opt-out safety rails:
+
+```
+SPEC DESIGN:                          CURRENT REALITY:
+┌─────────────────────┐               ┌─────────────────────┐
+│ Product Mode = ON   │               │ Product Mode = OFF  │
+│ Dev Mode = OFF      │               │ Dev Mode = ON       │
+│ (unless dev pack    │               │ (always, no gate)   │
+│  detected)          │               │                     │
+│                     │               │                     │
+│ Self-ref: AUTOMATIC │               │ Self-ref: OPT-IN    │
+│ Write gates: ON     │               │ Write gates: NONE   │
+│ Workspace scope: ON │               │ Workspace scope: N/A│
+│ Boundary: MANDATORY │               │ Boundary: OPTIONAL  │
+└─────────────────────┘               └─────────────────────┘
+```
+
+**Flipping the defaults and adding workspace isolation is the gap.**
+
+### 16.4 Implementation Plan — 5 Workstreams
+
+Each workstream is independent and can be parallelized. Ordered by criticality.
+
+#### Workstream 1: Workspace-Scoped Storage (CRITICAL — foundations)
+
+**Goal**: Every learning belongs to a workspace. Queries are scoped by default.
+
+**Files to modify**:
+| File | Change |
+|------|--------|
+| `memory/sqlite_storage.py` | Add `workspace_id TEXT` column to learnings table. Migration for existing data → `workspace_id='contextdna_dev'` |
+| `memory/query.py` | Add `workspace_id` parameter to all query functions. Default: current workspace |
+| `memory/professor.py` | Pass `workspace_id` to query layer |
+| `memory/auto_capture.py` | Tag `workspace_id` on `capture_success()` and `capture_failure()` |
+| `memory/observability_store.py` | Scope claims/outcomes by workspace |
+| `memory/boundary_intelligence.py` | Add `classify_workspace()` → returns `contextdna_dev | user_project | unknown` |
+| `context-dna/engine/types/memory.ts` | Add `workspaceId: string` to `MemoryItem` type |
+| `context-dna/engine/interfaces/memory-store.ts` | Add `workspaceId` to query parameters |
+
+**Migration strategy**:
+```sql
+-- Step 1: Add column (nullable for backwards compat)
+ALTER TABLE learnings ADD COLUMN workspace_id TEXT DEFAULT NULL;
+
+-- Step 2: Tag all existing data as contextdna_dev (Aaron's current data)
+UPDATE learnings SET workspace_id = 'contextdna_dev' WHERE workspace_id IS NULL;
+
+-- Step 3: Make column NOT NULL going forward
+-- (handled in Python code, not ALTER TABLE — SQLite limitation)
+```
+
+**Workspace classification signals**:
+```python
+def classify_workspace(project_root: str) -> str:
+    """Detect workspace type from project markers."""
+    markers = {
+        'contextdna_dev': [
+            '.projectdna/manifest.yaml',  # ContextDNA's own manifest
+            'memory/llm_priority_queue.py',  # internal memory system
+            'context-dna/engine/',  # engine source
+        ],
+        'user_project': [
+            'package.json',  # generic project
+            'pyproject.toml',
+            'Cargo.toml',
+            '.git/',
+        ]
+    }
+    # Check contextdna_dev markers first (more specific)
+    contextdna_score = sum(1 for m in markers['contextdna_dev']
+                          if os.path.exists(os.path.join(project_root, m)))
+    if contextdna_score >= 2:
+        return 'contextdna_dev'
+    return 'user_project'
+```
+
+**Tests**:
+- Existing learnings get `workspace_id='contextdna_dev'` after migration
+- New learnings tagged with auto-detected workspace
+- Queries only return learnings from matching workspace
+- Cross-workspace queries require explicit opt-in flag
+
+#### Workstream 2: Self-Reference Suppression Default Flip (CRITICAL — safety)
+
+**Goal**: Product mode ON by default. Dev mode only when dev pack detected.
+
+**Files to modify**:
+| File | Change |
+|------|--------|
+| `.projectdna/manifest.yaml` | Change `product_mode: false` → `product_mode: true` (default for all installs) |
+| `context-dna/engine/builder/context-builder.ts` | Check for dev pack presence → set `developerMode=true` only when detected |
+| `context-dna/engine/builder/invariance-filters.ts` | `filterSelfReferences()` active by default (not gated on `productMode` flag) |
+| `memory/self_reference_filter.py` | Activate by default. Add deep filtering (content analysis, not just term masking) |
+| `memory/persistent_hook_structure.py` | Remove `skip_boundary_intelligence` flag. Boundary filtering always on |
+| `context-dna/engine/types/context.ts` | Add `developerMode: boolean` to `InjectionResult` |
+| `context-dna/engine/pack/PackManifest.ts` | Add `type: 'dev_pack'` check for enabling dev mode |
+
+**Dev pack detection**:
+```typescript
+// context-builder.ts
+function detectDevMode(project: ProjectConfig): boolean {
+  // Dev mode ONLY when:
+  // 1. Dev pack is present in project root
+  // 2. OR explicit .contextdna/dev-mode.json exists
+  const devPackPath = path.join(project.root, '.contextdna', 'packs', 'dev');
+  const devModeFlag = path.join(project.root, '.contextdna', 'dev-mode.json');
+  return fs.existsSync(devPackPath) || fs.existsSync(devModeFlag);
+}
+```
+
+**Deep self-reference filtering** (beyond term masking):
+```python
+# self_reference_filter.py additions
+DEEP_PATTERNS = [
+    r'webhook.*section',      # internal webhook architecture
+    r'gpu.?lock',             # internal GPU management
+    r'lite.?scheduler',       # internal scheduler
+    r'priority.?queue',       # internal LLM routing
+    r'gold.?mining',          # internal learning extraction
+    r'butler.*protocol',      # internal butler system
+    r'synaptic.*atlas',       # internal AI family
+    r'cardiologist.*ekg',     # internal quality system
+    r'section\s*[0-8]',       # internal webhook sections
+]
+
+def deep_filter(content: str, product_mode: bool) -> str:
+    """Remove internal ContextDNA knowledge from product-mode output."""
+    if not product_mode:
+        return content  # Dev mode: show everything
+    for pattern in DEEP_PATTERNS:
+        content = re.sub(pattern, '[internal]', content, flags=re.IGNORECASE)
+    return content
+```
+
+**Tests**:
+- Default install has `productMode=true`
+- ContextDNA dev workspace auto-detects dev pack → `developerMode=true`
+- User project workspace → no dev pack → `developerMode=false`
+- Deep filter removes internal patterns from product-mode output
+- `skip_boundary_intelligence` flag removed, filtering always runs
+
+#### Workstream 3: Write Gates (CRITICAL — data integrity)
+
+**Goal**: No learning is stored without domain/scope/confidence validation.
+
+**Files to create/modify**:
+| File | Change |
+|------|--------|
+| `context-dna/engine/gates/write-gate.ts` | NEW — `WriteGate` class with validation pipeline |
+| `context-dna/engine/types/memory.ts` | Add `WriteGateResult` type |
+| `memory/write_gate.py` | NEW — Python-side write validation |
+| `memory/auto_capture.py` | Route all captures through write gate |
+| `memory/sqlite_storage.py` | Reject writes that bypass gate (gate token required) |
+
+**Write Gate validation pipeline**:
+```typescript
+// engine/gates/write-gate.ts
+interface WriteGateResult {
+  allowed: boolean;
+  reason?: string;
+  gateToken?: string;  // Proof that validation passed
+}
+
+class WriteGate {
+  validate(candidate: LearningCandidate): WriteGateResult {
+    // Gate 1: Domain check — is this a valid learning domain?
+    if (!VALID_DOMAINS.includes(candidate.domain)) {
+      return { allowed: false, reason: `invalid domain: ${candidate.domain}` };
+    }
+
+    // Gate 2: Scope check — does this belong to current workspace?
+    if (candidate.workspaceId !== this.currentWorkspace) {
+      return { allowed: false, reason: 'cross-workspace write rejected' };
+    }
+
+    // Gate 3: Confidence check — minimum threshold for storage
+    if (candidate.confidence < 0.3) {
+      return { allowed: false, reason: `confidence ${candidate.confidence} below threshold 0.3` };
+    }
+
+    // Gate 4: Self-reference check — no ContextDNA internals in product mode
+    if (this.productMode && this.containsSelfReference(candidate.content)) {
+      return { allowed: false, reason: 'self-referential content blocked in product mode' };
+    }
+
+    // Gate 5: Deduplication — reject near-duplicates
+    if (this.isDuplicate(candidate)) {
+      return { allowed: false, reason: 'duplicate learning rejected' };
+    }
+
+    return {
+      allowed: true,
+      gateToken: this.generateToken(candidate),
+    };
+  }
+}
+```
+
+**Python implementation**:
+```python
+# memory/write_gate.py
+class WriteGate:
+    VALID_DOMAINS = ['fix', 'pattern', 'gotcha', 'win', 'sop', 'architecture']
+
+    def validate(self, content: str, domain: str, workspace_id: str,
+                 confidence: float = 1.0) -> dict:
+        """Validate before storing a learning."""
+        if domain not in self.VALID_DOMAINS:
+            return {'allowed': False, 'reason': f'invalid domain: {domain}'}
+        if not workspace_id:
+            return {'allowed': False, 'reason': 'workspace_id required'}
+        if confidence < 0.3:
+            return {'allowed': False, 'reason': f'confidence {confidence} < 0.3'}
+        # Self-reference check in product mode
+        if self.product_mode and self._contains_internal_ref(content):
+            return {'allowed': False, 'reason': 'internal reference in product mode'}
+        return {'allowed': True, 'gate_token': self._generate_token()}
+```
+
+**Tests**:
+- Writes without gate token rejected by storage layer
+- Cross-workspace writes blocked
+- Low-confidence learnings rejected
+- Self-referential content blocked in product mode
+- Duplicate learnings deduplicated
+- Dev mode allows ContextDNA internal learnings
+
+#### Workstream 4: Engine Contract Completion (HIGH — spec alignment)
+
+**Goal**: Implement missing TypeScript interfaces and types from the GPT design spec.
+
+**Files to create/modify**:
+| File | Change |
+|------|--------|
+| `context-dna/engine/interfaces/run-store.ts` | NEW — `IRunStore` interface for agent run attribution |
+| `context-dna/engine/types/context.ts` | Add `EngineContext` type with `productMode` + `developerMode` |
+| `context-dna/engine/types/memory.ts` | Add `Domain` type, align `Scope` with spec |
+| `context-dna/engine/types/payload.ts` | Add safety block to `PayloadManifest` |
+| `context-dna/engine/builder/context-builder.ts` | Export `IContextBuilder` interface, accept `EngineContext` |
+| `context-dna/engine/mode/MigrationPipeline.ts` | Implement stage 5 event log replay (currently stubbed) |
+
+**IRunStore interface**:
+```typescript
+// engine/interfaces/run-store.ts
+export interface IRunStore {
+  /** Record a new agent run */
+  createRun(run: AgentRun): Promise<string>;
+  /** Get run by ID */
+  getRun(runId: string): Promise<AgentRun | null>;
+  /** List runs for a workspace */
+  listRuns(workspaceId: string, opts?: RunListOptions): Promise<AgentRun[]>;
+  /** Record output from a run (learning candidate) */
+  recordOutput(runId: string, output: RunOutput): Promise<void>;
+  /** Get all outputs for a run */
+  getOutputs(runId: string): Promise<RunOutput[]>;
+}
+
+interface AgentRun {
+  id: string;
+  agentId: string;
+  workspaceId: string;
+  startedAt: number;
+  completedAt?: number;
+  status: 'running' | 'completed' | 'failed' | 'aborted';
+  metadata?: Record<string, unknown>;
+}
+
+interface RunOutput {
+  type: 'learning' | 'edit' | 'diagnostic' | 'suggestion';
+  content: string;
+  confidence: number;
+  gateResult?: WriteGateResult;  // Was this validated by write gate?
+}
+```
+
+**EngineContext**:
+```typescript
+// engine/types/context.ts — addition
+export interface EngineContext {
+  productMode: boolean;      // true = suppress internals (default)
+  developerMode: boolean;    // true = show internals (requires dev pack)
+  workspaceId: string;       // current workspace identifier
+  workspaceKind: 'contextdna_dev' | 'user_project' | 'unknown';
+  engineVersion: string;     // semver of the engine
+  activeProfile?: string;    // hierarchy profile name
+}
+```
+
+**PayloadManifest safety block**:
+```typescript
+// engine/types/payload.ts — addition to PayloadManifest
+interface SafetyBlock {
+  productMode: boolean;
+  developerMode: boolean;
+  selfReferenceSuppressed: boolean;
+  writeGateActive: boolean;
+  workspaceKind: string;
+  selfReferenceTermsFiltered: number;
+}
+```
+
+**Tests**:
+- IRunStore CRUD operations
+- EngineContext created from workspace classification
+- PayloadManifest includes safety block
+- IContextBuilder interface matches implementation
+- Event log replay processes staged events
+
+#### Workstream 5: Electron Packaging Cleanup (HIGH — distribution readiness)
+
+**Goal**: Clean Electron build with no dev artifacts, parameterized endpoints, proper userData resolution.
+
+**Files to create/modify**:
+| File | Change |
+|------|--------|
+| `context-dna/clients/electron/.env` | DELETE — move secrets to OS keychain |
+| `context-dna/clients/electron/.gitignore` | Add `.env`, `*.key`, credential patterns |
+| `electron/paths.ts` | NEW — `getUserDataPath()`, `getDatabasePath()`, `getConfigPath()` |
+| `electron/main.ts` | Use `paths.ts` for all DB/config resolution |
+| `electron/config.ts` | NEW — parameterized endpoints (not hardcoded localhost) |
+| `electron-builder.json` | Verify ASAR config, strip dev files |
+| `build/entitlements.mac.plist` | NEW — macOS hardened runtime entitlements |
+
+**Endpoint configuration**:
+```typescript
+// electron/config.ts
+export interface ServiceEndpoints {
+  llm: string;        // default: 'http://127.0.0.1:5044'
+  agentService: string; // default: 'http://127.0.0.1:8080'
+  redis: string;       // default: 'redis://127.0.0.1:6379'
+  postgres: string;    // default: 'postgresql://localhost:5432/context_dna'
+  synaptic: string;    // default: 'http://127.0.0.1:8888'
+  contextdna: string;  // default: 'http://127.0.0.1:8029'
+}
+
+export function loadEndpoints(): ServiceEndpoints {
+  const configPath = path.join(app.getPath('userData'), 'config', 'endpoints.json');
+  if (fs.existsSync(configPath)) {
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  }
+  return DEFAULT_ENDPOINTS;
+}
+```
+
+**userData path resolution**:
+```typescript
+// electron/paths.ts
+import { app } from 'electron';
+import path from 'path';
+
+export function getUserDataPath(...segments: string[]): string {
+  return path.join(app.getPath('userData'), ...segments);
+}
+
+export function getDatabasePath(dbName: string): string {
+  const dbDir = getUserDataPath('databases');
+  fs.mkdirSync(dbDir, { recursive: true });
+  return path.join(dbDir, dbName);
+}
+
+export function getConfigPath(configName: string): string {
+  const configDir = getUserDataPath('config');
+  fs.mkdirSync(configDir, { recursive: true });
+  return path.join(configDir, configName);
+}
+
+export function getLogPath(logName: string): string {
+  const logDir = getUserDataPath('logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  return path.join(logDir, logName);
+}
+```
+
+**Build sanitization checklist**:
+- [ ] No `.env` files in build output
+- [ ] No API keys in any committed file
+- [ ] No hardcoded `localhost` in production code (use config)
+- [ ] ASAR enabled with native module unpacking
+- [ ] Source maps excluded from production build
+- [ ] Dev dependencies excluded from ASAR
+- [ ] macOS entitlements for hardened runtime
+- [ ] Code signing configured (Apple Developer Program)
+
+**Tests**:
+- `getUserDataPath()` resolves to `~/Library/Application Support/Context DNA/` on macOS
+- `getDatabasePath('learnings.db')` creates directory if needed
+- Endpoints load from config file when present, fall back to defaults
+- Build output contains no `.env` or credential files
+- ASAR correctly packages production code
+
+### 16.5 Dependency Graph
+
+```
+Workstream 1 (Storage)  ──┐
+                          ├──→ Workstream 3 (Write Gates)
+Workstream 2 (Self-Ref)  ──┘         │
+                                     │
+Workstream 4 (Contracts) ────────────┘
+                                     │
+Workstream 5 (Electron) ─────────────┘
+```
+
+- Workstreams 1 + 2 are fully independent — can start in parallel
+- Workstream 3 depends on Workstream 1 (`workspace_id` exists for gate validation)
+- Workstream 4 depends on Workstreams 1-3 (types reflect new storage/gate model)
+- Workstream 5 depends on Workstreams 1-2 (needs workspace isolation before packaging)
+- **Parallelizable**: 1 + 2 + 5(partial) simultaneously. Then 3. Then 4.
+
+### 16.6 Success Criteria
+
+| Criterion | Measurement |
+|-----------|-------------|
+| **Workspace isolation** | Query with `workspace_id='contextdna_dev'` returns 0 user-project learnings |
+| **Self-ref suppression** | Product-mode injection contains 0 matches for `DEEP_PATTERNS` |
+| **Write gate** | Attempted write without gate token raises `WriteGateError` |
+| **Dev mode gating** | Workspace without dev pack → `developerMode=false` |
+| **Electron clean build** | `grep -r 'sk-ant\|sk-proj\|API_KEY' dist/` returns 0 matches |
+| **No global leakage** | New install with empty learnings DB → injection contains only core pack content |
+
+### 16.7 Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Migration corrupts existing learnings | LOW | HIGH | SQLite WAL + backup before migration |
+| Self-ref filter too aggressive (strips valid content) | MEDIUM | MEDIUM | Allowlist for legitimate references, A/B testing |
+| Write gate blocks valid learnings | MEDIUM | MEDIUM | Start with logging-only mode, graduate to enforcement |
+| Performance regression from workspace scoping | LOW | LOW | Add index on `workspace_id` column |
+| Dev pack detection false positives | LOW | MEDIUM | Require ≥2 markers, not just 1 |
+
+
+essential to not lose or remove until finished work: 
+3-Surgeon Status: All 3 ALIVE
+Neurologist (Qwen3-4B): 607ms response
+Cardiologist (GPT-4.1-mini): 499ms, $0.009 daily spend
+Atlas (Claude Opus): Present
+Down: agent_service (:8080), Synaptic (:8888) — need restart but not blocking
+V12 Phase 3: YES, it got done
+Lines 55-115 of atlas-ops.sh have the pre-flight enforcement: Redis telemetry logging, registry lookup via cached JSON, deprecation warnings for unregistered combos, non-blocking passthrough. Committed as 89b58df.
+
+3-Surgeon Synthesis: Agent Findings vs TS/Electron Readiness
+Both surgeons AGREE (high convergence):
+
+TS components that are BLOCKED by Python instability:
+
+VaultEventPoller — needs stable Python eventing (currently 53 scheduler jobs, 13 monitors with circular deps)
+MCP client — needs reliable backend APIs (agent_service has FD leak, goes down)
+CapabilityBus — event-driven, needs predictable Python state
+TS components that CAN proceed independently:
+
+action-registry.ts (45 actions) — catalog/type work, no runtime Python dependency
+learning-write-gate.ts + tests — offline gate logic
+UI/panel work — no backend coupling needed
+scope-utils.ts — pure TS utility
+Python must stabilize BEFORE TS layer is reliable:
+
+God file decomposition (4647 lines → 200 line facade)
+SQLite migration (281 raw calls → db_utils)
+Mode authority adoption (3/9 → 9/9)
+Monitoring consolidation (13 → 1)
+Scheduler pruning (53 → 25)
+Port 8888 (Markdown Memory Layer): Both surgeons say it should NOT be a hard dependency for Electron. TS app needs its own memory layer or graceful degradation. The circular deps in Python make 8888 unreliable as a production dependency.
+
+Are We On Track? (Big Picture Assessment)
+Honest answer: We're building the right foundation but execution is behind the vision.
+
+Area	Status	Verdict
+3-Surgeon Protocol	23 commands, all tested LIVE	ON TRACK
+Agent research collection	7 deep audits preserved, policy set	ON TRACK
+V12 Action Registry	45 actions, Phase 3 enforcement wired	ON TRACK
+God file decomposition	Stalled at Phase 0 (5% shrink, not 60%)	BEHIND
+Scheduler pruning	Plan exists, 0% executed (still at 53 jobs)	BEHIND
+Monitoring consolidation	Plan exists, 0% executed (still 13 components)	BEHIND
+SQLite migration	Plan exists, 0% executed (still 281 raw calls)	BEHIND
+V2 Mode authority	33% adopted (3/9)	BEHIND
+TS Electron readiness	Types + registry + gates built, but blocked by Python stability	BLOCKED
+Webhook health (#1 priority)	Working but fragile (agent_service/Synaptic intermittent)	AT RISK
+The pattern: We're excellent at research and planning (7 deep audit reports, 20 vectors tracked, 3-surgeon consensus). We're behind on execution of those plans. The 12+ agent audit sessions produced incredible intelligence — but the fixes are largely still pending.
+
+Critical path: God file → Monitoring consolidation → Scheduler pruning → SQLite migration. Until these 4 stabilize, the TS Electron layer can't trust the Python backend it sits on top of.
