@@ -1475,7 +1475,7 @@ Three surgeons independently analyzed 33 accumulated findings. Atlas (Claude Opu
 
 ## INFRASTRUCTURE FINDING: Dual OpenAI API Key
 
-GPT-4.1 surgeon discovered: Shell environment has stale `OPENAI_API_KEY=sk-proj-YL-_...bE2R_CUA` that overrides the correct key in `context-dna/.env` (`sk-proj-mkhk...DcadB1EA`). Python's `load_dotenv()` defaults to NOT overriding existing env vars. Fix: use `load_dotenv(override=True)` in all scripts that call OpenAI.
+GPT-4.1 surgeon discovered: Shell environment has stale `OPENAI_API_KEY=sk-proj-REDACTED` that overrides the correct key in `context-dna/.env` (`sk-proj-REDACTED`). Python's `load_dotenv()` defaults to NOT overriding existing env vars. Fix: use `load_dotenv(override=True)` in all scripts that call OpenAI.
 
 ## SURGICAL FIXES APPLIED (Prior Sessions, Not Yet Committed)
 
