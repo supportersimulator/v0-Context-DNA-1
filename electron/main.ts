@@ -5,6 +5,7 @@ import { registerFileSystemHandlers } from './ipc/file-system';
 import { registerDockerHandlers } from './ipc/docker';
 import { registerShellHandlers } from './ipc/shell';
 import { registerSupervisorHandlers } from './ipc/supervisor';
+import { registerSurgeonHandlers } from './ipc/surgeons';
 import { loadEndpoints } from './config';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,7 @@ function registerAllHandlers(win: BrowserWindow) {
   registerDockerHandlers();
   registerShellHandlers();
   registerSupervisorHandlers();
+  registerSurgeonHandlers();
 }
 
 // ---------------------------------------------------------------------------

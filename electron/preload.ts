@@ -56,6 +56,15 @@ contextBridge.exposeInMainWorld('electron', {
     ping: () => ipcRenderer.invoke('supervisor:ping'),
   },
 
+  // 3-Surgeon protocol (cross-exam, consensus, gains-gate)
+  surgeons: {
+    probe: () => ipcRenderer.invoke('surgeons:probe'),
+    crossExam: (topic: string) => ipcRenderer.invoke('surgeons:crossExam', topic),
+    consensus: (claim: string) => ipcRenderer.invoke('surgeons:consensus', claim),
+    gainsGate: () => ipcRenderer.invoke('surgeons:gainsGate'),
+    status: () => ipcRenderer.invoke('surgeons:status'),
+  },
+
   // Shell/Terminal (for integrated terminal)
   shell: {
     create: (opts?: { cwd?: string; shell?: string }) =>

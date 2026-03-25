@@ -14,6 +14,8 @@ export interface ServiceEndpoints {
   devServer: string;
   /** Swift supervisor API */
   supervisor: string;
+  /** Agent service (uvicorn, port 8080) — surgeons, webhooks, contextdna */
+  agentService: string;
   /** Repository root path */
   repoRoot: string;
 }
@@ -28,6 +30,7 @@ export function loadEndpoints(): ServiceEndpoints {
     return {
       devServer: process.env.DEV_SERVER_URL || 'http://localhost:3000',
       supervisor: process.env.SUPERVISOR_URL || 'http://127.0.0.1:9090',
+      agentService: process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8080',
       repoRoot: process.env.REPO_ROOT || path.join(process.env.HOME || '', 'Documents/er-simulator-superrepo'),
     };
   }
@@ -37,6 +40,9 @@ export function loadEndpoints(): ServiceEndpoints {
 
   const supervisor = process.env.SUPERVISOR_URL;
   if (!supervisor) missing.push('SUPERVISOR_URL');
+
+  const agentService = process.env.AGENT_SERVICE_URL;
+  if (!agentService) missing.push('AGENT_SERVICE_URL');
 
   const repoRoot = process.env.REPO_ROOT;
   if (!repoRoot) missing.push('REPO_ROOT');
@@ -51,6 +57,7 @@ export function loadEndpoints(): ServiceEndpoints {
   return {
     devServer: '', // not used in production
     supervisor: supervisor!,
+    agentService: agentService!,
     repoRoot: repoRoot!,
   };
 }

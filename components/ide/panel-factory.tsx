@@ -63,6 +63,7 @@ import { NodeRedPanel } from '@/components/ide/panels/node-red-panel';
 import { SwarmFeedPanel } from '@/components/ide/panels/swarm-feed-panel';
 import { ToolLogPanel } from '@/components/ide/panels/tool-log-panel';
 import { PanelCatalogPanel } from '@/components/ide/panels/panel-catalog-panel';
+import { SurgeonPanel } from '@/components/ide/panels/surgeon-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -517,6 +518,14 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     minHeight: 120,
     icon: 'Puzzle',
     position: 'top',
+  },
+  surgeons: {
+    label: '3-Surgeons',
+    description: '3-Surgeon cross-exam, consensus voting, and gains gate',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 250,
+    minHeight: 150,
+    icon: 'Stethoscope',
   },
 };
 
@@ -1028,6 +1037,14 @@ function PanelCatalogPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function SurgeonPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="surgeons">
+      <SurgeonPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -1093,6 +1110,7 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'swarm-feed': SwarmFeedPanelView,
   'tool-log': ToolLogPanelView,
   'panel-catalog': PanelCatalogPanelView,
+  surgeons: SurgeonPanelView,
 };
 
 /**
