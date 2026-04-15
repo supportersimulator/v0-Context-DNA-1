@@ -52,10 +52,11 @@ export type SwarmRunStatus =
 export interface SwarmAgentResult {
   agent_id: string;
   role: string;
-  output: string;
-  tokens_used: number;
+  content: string;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
   cost_usd: number;
-  elapsed_s: number;
   error: string | null;
 }
 
@@ -74,6 +75,8 @@ export interface SwarmRun {
   cost_estimate: SwarmCostEstimate;
   created_at: number;
   completed_at: number | null;
+  roles_requested?: string[];
+  elapsed_s?: number;
   error?: string;
 }
 

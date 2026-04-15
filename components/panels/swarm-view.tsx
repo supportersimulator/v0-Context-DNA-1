@@ -216,7 +216,8 @@ function AgentCard({ agentId, result }: { agentId: string; result: SwarmAgentRes
           {AGENT_ROLES.find((r) => r.value === result.role)?.label ?? result.role}
         </span>
         <span className="text-[10px] text-[#6b6b75]">
-          {result.tokens_used > 0 && `${(result.tokens_used / 1000).toFixed(1)}k tok`}
+          {(result.input_tokens + result.output_tokens) > 0 &&
+            `${((result.input_tokens + result.output_tokens) / 1000).toFixed(1)}k tok`}
         </span>
         {hasError ? (
           <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
@@ -231,10 +232,10 @@ function AgentCard({ agentId, result }: { agentId: string; result: SwarmAgentRes
           {hasError ? (
             <pre className="text-xs text-red-400 whitespace-pre-wrap break-words">{result.error}</pre>
           ) : (
-            <pre className="text-xs text-[#a0a0ab] whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">{result.output}</pre>
+            <pre className="text-xs text-[#a0a0ab] whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">{result.content}</pre>
           )}
           <div className="mt-1 flex gap-3 text-[10px] text-[#6b6b75]">
-            <span>{result.elapsed_s.toFixed(1)}s</span>
+            <span>{(result.latency_ms / 1000).toFixed(1)}s</span>
             {result.cost_usd > 0 && <span>${result.cost_usd.toFixed(4)}</span>}
           </div>
         </div>

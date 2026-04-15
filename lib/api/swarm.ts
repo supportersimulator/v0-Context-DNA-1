@@ -1,5 +1,5 @@
 // =============================================================================
-// Swarm API Client — POST /v1/swarm/run, GET /v1/swarm/status/{id}
+// Swarm API Client — POST /v1/swarm/run, GET /v1/swarm/run/{id}
 // Backend: memory/swarm_controller.py (agent_service port 8080)
 // =============================================================================
 
@@ -25,7 +25,7 @@ export async function submitSwarmTask(req: SwarmRunRequest): Promise<SwarmRunRes
 }
 
 export async function getSwarmStatus(runId: string): Promise<SwarmRun> {
-  const res = await fetch(`${BASE}/v1/swarm/status/${runId}`, {
+  const res = await fetch(`${BASE}/v1/swarm/run/${runId}`, {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new APIError(res.status, await res.text());
@@ -33,19 +33,15 @@ export async function getSwarmStatus(runId: string): Promise<SwarmRun> {
 }
 
 export async function getSwarmHistory(limit = 10): Promise<SwarmRun[]> {
-  const res = await fetch(`${BASE}/v1/swarm/history?limit=${limit}`, {
+  const res = await fetch(`${BASE}/v1/swarm/runs?limit=${limit}`, {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new APIError(res.status, await res.text());
   const data = await res.json();
-  return data.runs ?? data.history ?? [];
+  return data.runs ?? [];
 }
 
 export async function cancelSwarmRun(runId: string): Promise<{ cancelled: boolean }> {
-  const res = await fetch(`${BASE}/v1/swarm/cancel/${runId}`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-  });
-  if (!res.ok) throw new APIError(res.status, await res.text());
-  return res.json();
+  void runId;
+  throw new Error('Swarm cancellation is not implemented by the backend yet');
 }

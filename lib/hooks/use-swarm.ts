@@ -52,7 +52,7 @@ const swarmStatusFetcher = async (url: string) => {
 
 export function useSwarmStatus(runId: string | null) {
   const { data, error, mutate } = useSWR(
-    runId ? `/v1/swarm/status/${runId}` : null,
+    runId ? `/v1/swarm/run/${runId}` : null,
     swarmStatusFetcher,
     {
       refreshInterval: runId ? 3000 : 0, // Poll every 3s while active
