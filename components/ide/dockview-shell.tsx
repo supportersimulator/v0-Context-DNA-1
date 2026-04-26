@@ -5,6 +5,8 @@ import { DockviewReact } from 'dockview-react';
 import type { DockviewReadyEvent, DockviewApi, SerializedDockview } from 'dockview';
 import { RotateCcw } from 'lucide-react';
 import { useResponsive } from '@/lib/contexts/responsive-context';
+import { useCurrentPage } from '@/lib/contexts/page-context';
+import type { ParentPage } from './panel-factory';
 import { ElectronWindowControls } from '@/components/electron/electron-window-controls';
 import { panelComponents, getAllPanelMetadata } from './panel-factory';
 import { RightHeaderActions } from './panel-header';
@@ -124,10 +126,93 @@ function debounce<T extends (...args: unknown[]) => void>(
 
 // ---------------------------------------------------------------------------
 // Default layout: DashboardShell takes full view
+//
+// On the /workspace page we surface the inner-dev-loop panels (workspace-editor
+// + terminal + build-status + log-viewer) so Aaron sees the dogfood loop on
+// first launch instead of having to discover panels via the activity bar.
+// Subsequent launches restore the user's saved layout (see loadLayout()).
 // ---------------------------------------------------------------------------
-function applyDefaultLayout(api: DockviewApi, initialTab?: string) {
+
+/**
+ * Try to add a panel; swallow errors if the component isn't registered.
+ * Returns the added panel or null. Keeps the default layout resilient if
+ * a panel registration is missing or fails.
+ */
+function tryAddPanel(
+  api: DockviewApi,
+  options: Parameters<DockviewApi['addPanel']>[0],
+) {
+  try {
+    return api.addPanel(options);
+  } catch {
+    return null;
+  }
+}
+
+function applyDefaultLayout(api: DockviewApi, initialTab?: string, page?: ParentPage) {
   api.clear();
   const allMeta = getAllPanelMetadata();
+
+  // Workspace page: lay out the inner-dev-loop panels.
+  // LEFT (60%): workspace-editor — file tree + Monaco
+  // RIGHT-TOP (terminal, active) — integrated terminal
+  // RIGHT-MIDDLE (build-status) — git + build/test/lint runner
+  // RIGHT-BOTTOM (log-viewer) — unified errors + logs
+  if (page === 'workspace') {
+    const editor = tryAddPanel(api, {
+      id: 'workspace-editor',
+      component: 'workspace-editor',
+      title: allMeta['workspace-editor']?.label ?? 'Workspace Editor',
+    });
+
+    // If the workspace editor failed to register, fall back to the shell layout
+    // so the page still renders something usable.
+    if (!editor) {
+      const shell = api.addPanel({
+        id: 'dashboard-shell',
+        component: 'dashboard-shell',
+        title: allMeta['dashboard-shell']?.label ?? 'Context DNA',
+        params: initialTab ? { initialTab } : undefined,
+      });
+      void shell;
+      return;
+    }
+
+    const terminal = tryAddPanel(api, {
+      id: 'terminal',
+      component: 'terminal',
+      title: allMeta['terminal']?.label ?? 'Terminal',
+      position: { referencePanel: editor, direction: 'right' },
+      initialWidth: 520,
+    });
+
+    const referenceForBuild = terminal ?? editor;
+    const build = tryAddPanel(api, {
+      id: 'build-status',
+      component: 'build-status',
+      title: allMeta['build-status']?.label ?? 'Build & Git',
+      position: { referencePanel: referenceForBuild, direction: 'below' },
+      initialHeight: 220,
+      inactive: true,
+    });
+
+    tryAddPanel(api, {
+      id: 'log-viewer',
+      component: 'log-viewer',
+      title: allMeta['log-viewer']?.label ?? 'Logs',
+      position: { referencePanel: build ?? referenceForBuild, direction: 'below' },
+      initialHeight: 160,
+      inactive: true,
+    });
+
+    // Make terminal the active tab on the right column
+    if (terminal) {
+      try { terminal.api.setActive(); } catch { /* ignore */ }
+    }
+    return;
+  }
+
+  // Default (dashboard / live / unknown): single shell, optional benchmark dock.
   const shell = api.addPanel({
     id: 'dashboard-shell',
     component: 'dashboard-shell',
@@ -137,7 +222,7 @@ function applyDefaultLayout(api: DockviewApi, initialTab?: string) {
 
   // Dock benchmark panel to the right of the shell on dashboard page
   if (initialTab === 'home') {
-    api.addPanel({
+    tryAddPanel(api, {
       id: 'benchmark',
       component: 'benchmark',
       title: allMeta['benchmark']?.label ?? 'Benchmark',
@@ -165,6 +250,7 @@ export function DockviewShell({ initialTab }: DockviewShellProps = {}) {
   const dockviewApiRef = useRef<{ toJSON(): unknown } | null>(null);
   const { state } = useResponsive();
   const isMobileView = state.isMobile || state.deviceMode === 'electron-mobile';
+  const currentPage = useCurrentPage();
 
   // ------- Infrastructure: keybindings, theme, layout persistence -------
   useKeybindingInit();
@@ -253,9 +339,9 @@ export function DockviewShell({ initialTab }: DockviewShellProps = {}) {
   const resetLayoutToDefault = useCallback(() => {
     clearSavedLayout();
     if (dockviewApi) {
-      applyDefaultLayout(dockviewApi);
+      applyDefaultLayout(dockviewApi, initialTab, currentPage);
     }
-  }, [dockviewApi]);
+  }, [dockviewApi, initialTab, currentPage]);
 
   // ------- Track active panels for Activity Bar -------
   useEffect(() => {
@@ -371,12 +457,12 @@ export function DockviewShell({ initialTab }: DockviewShellProps = {}) {
       try {
         event.api.fromJSON(saved);
       } catch {
-        applyDefaultLayout(event.api, initialTab);
+        applyDefaultLayout(event.api, initialTab, currentPage);
       }
     } else {
-      applyDefaultLayout(event.api, initialTab);
+      applyDefaultLayout(event.api, initialTab, currentPage);
     }
-  }, [initialTab]);
+  }, [initialTab, currentPage]);
 
   // ------- Workspace snapshot/restore -------
   const snapshotCurrentState = useCallback((): {
@@ -403,13 +489,13 @@ export function DockviewShell({ initialTab }: DockviewShellProps = {}) {
         try {
           dockviewApi.fromJSON(layout as SerializedDockview);
         } catch {
-          applyDefaultLayout(dockviewApi);
+          applyDefaultLayout(dockviewApi, initialTab, currentPage);
         }
       } else {
-        applyDefaultLayout(dockviewApi);
+        applyDefaultLayout(dockviewApi, initialTab, currentPage);
       }
     },
-    [dockviewApi],
+    [dockviewApi, initialTab, currentPage],
   );
 
   // ------- Mobile fallback -------

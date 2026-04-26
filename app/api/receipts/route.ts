@@ -14,6 +14,7 @@ import { createInterface } from 'readline';
 import path from 'path';
 
 import { append as logAppend } from '@/lib/log/buffer';
+import { resolveSafePath, superrepoRoot } from '@/lib/api/fs/safety';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,29 +111,18 @@ function renderReceipt(rec: Receipt, phaseLabel = '3-Surgeons', stepNum = 1): st
   return lines.join('\n');
 }
 
-// Default project_dir: walk up from IDE cwd until we find a .3-surgeons/
-// directory; falls back to the parent of cwd. Receipts live at the
-// superrepo root, not under admin.contextdna.io/.
-function defaultProjectDir(): string {
-  const start = process.cwd();
-  let dir = start;
-  for (let i = 0; i < 6; i++) {
-    try {
-      const probe = path.join(dir, '.3-surgeons');
-      // sync test is fine — runs once per request before any IO
-      const fsSync = require('fs') as typeof import('fs');
-      if (fsSync.existsSync(probe)) return dir;
-    } catch { /* keep walking */ }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return path.dirname(start);
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const projectDir = searchParams.get('project_dir') || defaultProjectDir();
+  const rawProjectDir = searchParams.get('project_dir');
+  const projectDir = rawProjectDir
+    ? (() => {
+        const safe = resolveSafePath(rawProjectDir);
+        return safe.ok ? safe.absolute : null;
+      })()
+    : superrepoRoot();
+  if (!projectDir) {
+    return NextResponse.json({ ok: false, error: 'project_dir escapes allowed roots' }, { status: 403 });
+  }
   const format = searchParams.get('format') === 'rendered' ? 'rendered' : 'raw';
   const limitParam = parseInt(searchParams.get('limit') || '', 10);
   const limit = Number.isFinite(limitParam) && limitParam > 0

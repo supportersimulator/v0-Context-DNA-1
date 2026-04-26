@@ -13,6 +13,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import { append as logAppend } from '@/lib/log/buffer';
+import { resolveSafePath, superrepoRoot } from '@/lib/api/fs/safety';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,24 +21,18 @@ function receiptsPath(projectDir: string): string {
   return path.join(projectDir, '.3-surgeons', 'receipts', 'cross-runs.jsonl');
 }
 
-function defaultProjectDir(): string {
-  const start = process.cwd();
-  let dir = start;
-  for (let i = 0; i < 6; i++) {
-    try {
-      const fsSync = require('fs') as typeof import('fs');
-      if (fsSync.existsSync(path.join(dir, '.3-surgeons'))) return dir;
-    } catch { /* keep walking */ }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return path.dirname(start);
-}
-
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const projectDir = searchParams.get('project_dir') || defaultProjectDir();
+  const rawProjectDir = searchParams.get('project_dir');
+  const projectDir = rawProjectDir
+    ? (() => {
+        const safe = resolveSafePath(rawProjectDir);
+        return safe.ok ? safe.absolute : null;
+      })()
+    : superrepoRoot();
+  if (!projectDir) {
+    return NextResponse.json({ ok: false, error: 'project_dir escapes allowed roots' }, { status: 403 });
+  }
   const file = receiptsPath(projectDir);
 
   let text: string;

@@ -20,6 +20,16 @@ contextBridge.exposeInMainWorld('electron', {
   fs: {
     readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', dirPath),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
+    write: (
+      filePath: string,
+      content: string,
+    ): Promise<{
+      ok: boolean;
+      path?: string;
+      bytes?: number;
+      backup?: string | null;
+      error?: string;
+    }> => ipcRenderer.invoke('fs:write', { path: filePath, content }),
     watchDir: (dirPath: string) => {
       ipcRenderer.send('fs:watchDir', dirPath);
       return {

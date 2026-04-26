@@ -87,14 +87,21 @@ export function useRealtimeBadges(): Record<string, ActivityBadge> {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     // Try WebSocket first
     connectWs();
 
-    // Also poll as fallback (will update even if WS fails)
-    pollBadges();
+    // Also poll as fallback (will update even if WS fails). Wrapped in
+    // queueMicrotask so the initial setState path doesn't fire synchronously
+    // inside the effect body (react-hooks/set-state-in-effect).
+    queueMicrotask(() => {
+      if (cancelled) return;
+      pollBadges();
+    });
     const pollTimer = setInterval(pollBadges, POLL_INTERVAL);
 
     return () => {
+      cancelled = true;
       clearInterval(pollTimer);
       clearTimeout(reconnectTimerRef.current);
       if (wsRef.current) {

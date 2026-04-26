@@ -11,6 +11,9 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 
+import { useFsWrite } from '@/lib/hooks/use-fs-write';
+import { markSelfWrite } from '@/lib/state/file-events';
+
 // Monaco needs window — skip SSR.
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -94,6 +97,11 @@ export function CodeEditor({ filePath, language, onDirtyChange, onSave }: CodeEd
   const { content, baseline, loading, loadError, status } = state;
   const [, setTick] = useState(0); // drives "Saved Ns ago" relabel
 
+  // Electron IPC fast-path with HTTP fallback. Hook is idempotent and the
+  // returned writeFile is stable across renders, so the save callback below
+  // does not re-bind on every keystroke.
+  const { writeFile } = useFsWrite();
+
   // Refs for the global keydown handler so it doesn't re-bind every keystroke.
   const contentRef = useRef(content);
   const baselineRef = useRef(baseline);
@@ -135,28 +143,36 @@ export function CodeEditor({ filePath, language, onDirtyChange, onSave }: CodeEd
     return () => { cancelled = true; };
   }, [filePath]);
 
-  // Save: POST /api/fs/write or delegate to onSave.
+  // Save: Electron IPC if available, otherwise POST /api/fs/write. Caller can
+  // override entirely via onSave (e.g. tests). Behaviour from the dirty-state
+  // machine's perspective is identical regardless of transport.
   const save = useCallback(async () => {
     const path = filePathRef.current;
     const text = contentRef.current;
     if (!path || baselineRef.current === text) return;
     dispatch({ type: 'saving' });
+    // Mark BEFORE the write fires so the chokidar echo lands inside the
+    // self-write TTL window. Otherwise the editor would prompt "file changed
+    // on disk" for its own Cmd-S — every single save.
+    markSelfWrite(path);
     try {
       if (onSave) {
         await onSave(path, text);
       } else {
-        const res = await fetch('/api/fs/write', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path, content: text }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        const result = await writeFile(path, text);
+        if (!result.ok) {
+          throw new Error(result.error || 'save failed');
+        }
       }
+      // Refresh the self-write timestamp on success — the actual on-disk
+      // mtime change happens after the write resolves, so this gives the
+      // most accurate window.
+      markSelfWrite(path);
       dispatch({ type: 'saved', text, at: Date.now() });
     } catch (err: unknown) {
       dispatch({ type: 'save_failed', error: err instanceof Error ? err.message : String(err) });
     }
-  }, [onSave]);
+  }, [onSave, writeFile]);
 
   // Cmd-S / Ctrl-S — works whether or not Monaco has focus.
   useEffect(() => {

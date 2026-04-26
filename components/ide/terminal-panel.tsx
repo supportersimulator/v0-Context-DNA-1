@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTerminal, type ChunkEvent } from '@/lib/hooks/use-terminal';
+import { subscribe as subscribeFileEvents, type FileEvent } from '@/lib/state/file-events';
 
 // xterm types — `import type` is erased at runtime so it's SSR-safe.
 import type { Terminal as XTerm } from '@xterm/xterm';
@@ -47,6 +48,12 @@ export function TerminalPanel({
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddonType | null>(null);
   const readyRef = useRef(false);
+  // Mirror cwd into a ref so the file-events listener (registered once) can
+  // read the *current* cwd without re-subscribing on every keystroke.
+  const cwdRef = useRef(initialCwd);
+  useEffect(() => {
+    cwdRef.current = cwd;
+  }, [cwd]);
 
   const onChunk = useCallback((evt: ChunkEvent) => {
     const term = termRef.current;
@@ -129,9 +136,34 @@ export function TerminalPanel({
       );
     })();
 
+    // Subscribe to global file-event store so saves elsewhere in the IDE
+    // surface as a yellow line in this terminal. Filter to events whose
+    // absolute path falls under the terminal's current cwd — otherwise the
+    // user would see noise from unrelated watchers.
+    const unsubscribeFs = subscribeFileEvents((evt: FileEvent) => {
+      const term = termRef.current;
+      if (!term) return;
+      const cwd = cwdRef.current.trim();
+      if (cwd) {
+        // Cheap, client-side cwd check. Both relative and absolute cwds work
+        // because chokidar emits absolute paths and we look for the cwd
+        // tail-segment substring. Drops events from other watchers.
+        if (!evt.path.includes(cwd)) return;
+      }
+      // Strip everything up to the cwd segment to keep the line short.
+      let rel = evt.path;
+      if (cwd) {
+        const ix = evt.path.indexOf(cwd);
+        if (ix >= 0) rel = evt.path.slice(ix);
+      }
+      // Yellow + reset. \r\n required by xterm (convertEol off for control codes).
+      term.write(`\x1b[33m[file ${evt.event}: ${rel}]\x1b[0m\r\n`);
+    });
+
     return () => {
       disposed = true;
       readyRef.current = false;
+      unsubscribeFs();
       if (resizeObserver) resizeObserver.disconnect();
       if (termRef.current) {
         try {

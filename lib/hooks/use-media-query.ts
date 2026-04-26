@@ -21,13 +21,22 @@ export function useMediaQuery(query: string): boolean {
     if (typeof window === 'undefined') return;
 
     const mql = window.matchMedia(query);
+    let cancelled = false;
 
-    // Sync immediately in case initial state was SSR-default
-    setMatches(mql.matches);
+    // Sync immediately in case initial state was SSR-default. Wrapped in
+    // queueMicrotask so we don't call setState synchronously inside the effect
+    // body (react-hooks/set-state-in-effect).
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setMatches(mql.matches);
+    });
 
     const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
     mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
+    return () => {
+      cancelled = true;
+      mql.removeEventListener('change', handler);
+    };
   }, [query]);
 
   return matches;

@@ -87,9 +87,16 @@ export function useGitStatus(cwd?: string, intervalMs = 5000): UseGitStatusResul
   }, [cwd]);
 
   useEffect(() => {
-    fetchOnce();
+    let cancelled = false;
+    // Initial fetch deferred via queueMicrotask so we don't trigger setState
+    // synchronously inside the effect body (react-hooks/set-state-in-effect).
+    queueMicrotask(() => {
+      if (cancelled) return;
+      fetchOnce();
+    });
     timerRef.current = setInterval(fetchOnce, intervalMs);
     return () => {
+      cancelled = true;
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [fetchOnce, intervalMs]);

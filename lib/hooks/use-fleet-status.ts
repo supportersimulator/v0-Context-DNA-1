@@ -74,7 +74,12 @@ export function useFleetStatus(intervalMs = 5000): UseFleetStatusResult {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void fetchOnce();
+    // Initial fetch deferred via queueMicrotask so we don't trigger setState
+    // synchronously inside the effect body (react-hooks/set-state-in-effect).
+    queueMicrotask(() => {
+      if (cancelledRef.current) return;
+      void fetchOnce();
+    });
     const id = setInterval(() => {
       void fetchOnce();
     }, intervalMs);

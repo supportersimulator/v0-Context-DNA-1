@@ -175,9 +175,18 @@ export function useReceipts(opts: UseReceiptsOptions = {}): UseReceiptsResult {
     }
   }, [refresh]);
 
-  // Initial fetch + re-fetch when query-defining options change.
+  // Initial fetch + re-fetch when query-defining options change. Wrapped in
+  // queueMicrotask so we don't trigger setState synchronously inside the
+  // effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      refresh();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [projectDir, limit, format, refresh]);
 
   // Polling (only when pollMs > 0).

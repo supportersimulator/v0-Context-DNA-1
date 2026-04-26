@@ -124,7 +124,9 @@ export async function POST(req: NextRequest) {
     body = {};
   }
 
-  const target = (body.target ?? 'build') as string;
+  // Default target is 'lint': er-sim doesn't define `build` or `test`
+  // scripts today, so lint is the only target guaranteed to succeed.
+  const target = (body.target ?? 'lint') as string;
   if (!TARGETS.includes(target as BuildTarget)) {
     return NextResponse.json(
       { ok: false, error: `target must be one of: ${TARGETS.join(', ')}` },
