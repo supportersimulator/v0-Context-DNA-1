@@ -22,8 +22,12 @@ import {
   Award,
   ShieldAlert,
   Eye,
+  Receipt as ReceiptIcon,
+  Trash2,
 } from 'lucide-react';
 import { useEvidencePipeline, useEvidenceClaims, useEvidencePromotions } from '@/lib/hooks/use-evidence';
+import { useReceipts } from '@/lib/hooks/use-receipts';
+import { ReceiptRow } from '@/components/panels/receipt-row';
 import type { EvidencePipelineStats, EvidenceClaim, EvidencePromotion } from '@/lib/api/types';
 
 // ---------------------------------------------------------------------------
@@ -283,10 +287,119 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
+// ReceiptsPanel — 3-Surgeons audit receipts tab body
+// ---------------------------------------------------------------------------
+
+function ReceiptsPanel() {
+  const { receipts, count, file, loading, error, refresh, purge } = useReceipts({
+    limit: 20,
+    format: 'rendered',
+  });
+  const [confirmingPurge, setConfirmingPurge] = useState(false);
+  const [purging, setPurging] = useState(false);
+
+  const handlePurge = useCallback(async () => {
+    setPurging(true);
+    try {
+      await purge();
+    } finally {
+      setPurging(false);
+      setConfirmingPurge(false);
+    }
+  }, [purge]);
+
+  return (
+    <div className="flex flex-col">
+      {/* Header row */}
+      <div className="px-3 py-2 border-b border-[#2a2a35] flex items-center gap-2">
+        <ReceiptIcon className="w-3.5 h-3.5 text-[#3b82f6] flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-[#e5e5e5] font-medium">{count} receipts</div>
+          {file && (
+            <div className="text-[10px] text-[#6b6b75] font-mono truncate" title={file}>
+              {file}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => refresh()}
+          disabled={loading}
+          className="text-[#6b6b75] hover:text-[#e5e5e5] transition-colors p-1 disabled:opacity-30"
+          title="Refresh receipts"
+        >
+          <RotateCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+        {confirmingPurge ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setConfirmingPurge(false)}
+              disabled={purging}
+              className="px-2 py-0.5 text-[10px] text-[#6b6b75] hover:text-[#e5e5e5] disabled:opacity-30"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handlePurge}
+              disabled={purging}
+              className="px-2 py-0.5 text-[10px] font-medium rounded bg-red-500/80 text-white hover:bg-red-500 disabled:opacity-30 flex items-center gap-1"
+            >
+              {purging ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Trash2 className="w-2.5 h-2.5" />}
+              Confirm purge
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingPurge(true)}
+            disabled={loading || count === 0}
+            className="px-2 py-0.5 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded transition-colors flex items-center gap-1 disabled:opacity-30"
+            title="Purge all receipts"
+          >
+            <Trash2 className="w-2.5 h-2.5" />
+            Purge all
+          </button>
+        )}
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="px-3 py-2 bg-red-400/10 border-b border-red-400/20 flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+          <span className="text-xs text-red-400 flex-1 break-all">{error}</span>
+        </div>
+      )}
+
+      {/* Body */}
+      {loading && receipts.length === 0 ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-4 h-4 text-[#3b82f6] animate-spin" />
+        </div>
+      ) : receipts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+          <ReceiptIcon className="w-6 h-6 text-[#6b6b75] mb-2" />
+          <p className="text-xs text-[#e5e5e5] mb-1">No receipts yet</p>
+          <p className="text-[11px] text-[#6b6b75] max-w-[260px]">
+            Run a 3-Surgeons consult to generate one.
+          </p>
+        </div>
+      ) : (
+        <div>
+          {receipts.map((r, i) => (
+            <ReceiptRow
+              key={`${r.timestamp ?? 'rcpt'}-${i}`}
+              receipt={r}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // EvidenceView — main export
 // ---------------------------------------------------------------------------
 
-type TabKey = 'claims' | 'promotions' | 'pipeline';
+type TabKey = 'claims' | 'promotions' | 'pipeline' | 'receipts';
 
 export function EvidenceView() {
   const { stats, isLoading: statsLoading, error: statsError, refresh } = useEvidencePipeline();
@@ -302,6 +415,7 @@ export function EvidenceView() {
     { key: 'claims', label: 'Claims', count: claims.length },
     { key: 'promotions', label: 'Promotions', count: promotions.length },
     { key: 'pipeline', label: 'Pipeline' },
+    { key: 'receipts', label: 'Receipts' },
   ];
 
   // Loading state
@@ -428,6 +542,10 @@ export function EvidenceView() {
 
         {activeTab === 'pipeline' && (
           <PipelineFunnel stats={stats} />
+        )}
+
+        {activeTab === 'receipts' && (
+          <ReceiptsPanel />
         )}
       </div>
     </div>

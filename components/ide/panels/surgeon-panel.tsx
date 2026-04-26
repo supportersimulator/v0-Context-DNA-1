@@ -12,7 +12,12 @@ import {
   Send,
   ShieldCheck,
   Loader2,
+  Heart,
+  Brain,
+  Sparkles,
 } from 'lucide-react';
+import { useSurgeonsConsult } from '@/lib/hooks/use-surgeons-consult';
+import { getCommandRegistry } from '@/lib/ide/command-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,8 +139,17 @@ export function SurgeonPanel() {
   const [error, setError] = useState<string | null>(null);
   const [topicInput, setTopicInput] = useState('');
   const [claimInput, setClaimInput] = useState('');
+  const [consultTopic, setConsultTopic] = useState('');
+  const [showRaw, setShowRaw] = useState(false);
   const surgeons = useRef(getElectronSurgeons());
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const consultInputRef = useRef<HTMLInputElement | null>(null);
+  const {
+    consult: runConsult,
+    loading: consultLoading,
+    lastResult: consultResult,
+    error: consultError,
+  } = useSurgeonsConsult();
 
   // Probe (health check)
   const refreshProbe = useCallback(async () => {
@@ -200,8 +214,16 @@ export function SurgeonPanel() {
     setLoading(null);
   }, []);
 
-  // Auto-refresh probe + status
+  // Consult (web/IPC fallback)
+  const submitConsult = useCallback(async () => {
+    const topic = consultTopic.trim();
+    if (topic === '') return;
+    await runConsult(topic);
+  }, [consultTopic, runConsult]);
+
+  // Auto-refresh probe + status (Electron-only)
   useEffect(() => {
+    if (!surgeons.current) return;
     refreshProbe();
     refreshStatus();
     intervalRef.current = setInterval(() => {
@@ -211,29 +233,26 @@ export function SurgeonPanel() {
     return () => clearInterval(intervalRef.current);
   }, [refreshProbe, refreshStatus]);
 
-  // No Electron
-  if (!surgeons.current) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-[#6b6b75] text-sm gap-2 p-4">
-        <Stethoscope className="w-8 h-8 opacity-50" />
-        <span>3-Surgeon panel requires Electron</span>
-        <span className="text-xs">Available in Electron desktop app</span>
-      </div>
-    );
-  }
+  // Register "Ask 3-Surgeons" command in the palette — focuses the topic input.
+  useEffect(() => {
+    const registry = getCommandRegistry();
+    const disposable = registry.register({
+      id: 'ai:ask-3-surgeons',
+      label: 'Ask 3-Surgeons (Consult)',
+      category: 'AI',
+      source: 'surgeon-panel',
+      handler: () => {
+        // Focus on next tick so the panel is mounted/visible first.
+        setTimeout(() => {
+          consultInputRef.current?.focus();
+          consultInputRef.current?.select();
+        }, 50);
+      },
+    });
+    return () => disposable.dispose();
+  }, []);
 
-  // Connection error
-  if (error && !probe) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-[#6b6b75] text-sm gap-2 p-4">
-        <AlertCircle className="w-8 h-8 text-red-400 opacity-70" />
-        <span>{error}</span>
-        <button onClick={refreshProbe} className="text-xs text-[#22c55e] hover:underline">
-          Retry
-        </button>
-      </div>
-    );
-  }
+  const electronAvailable = !!surgeons.current;
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0f]">
@@ -247,25 +266,117 @@ export function SurgeonPanel() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {/* Probe status */}
-        <Section title="Surgeon Status" defaultOpen>
-          {probe ? (
-            <div className="flex flex-wrap gap-3">
-              <SurgeonDot ok={probe.atlas?.ok ?? false} label="Atlas (Claude)" />
-              <SurgeonDot ok={probe.cardiologist?.ok ?? false} label="Cardiologist (GPT)" />
-              <SurgeonDot ok={probe.neurologist?.ok ?? false} label="Neurologist (Qwen)" />
+        {/* Probe status (Electron only — pings agent_service:8080) */}
+        {electronAvailable && (
+          <Section title="Surgeon Status" defaultOpen>
+            {probe ? (
+              <div className="flex flex-wrap gap-3">
+                <SurgeonDot ok={probe.atlas?.ok ?? false} label="Atlas (Claude)" />
+                <SurgeonDot ok={probe.cardiologist?.ok ?? false} label="Cardiologist (GPT)" />
+                <SurgeonDot ok={probe.neurologist?.ok ?? false} label="Neurologist (Qwen)" />
+              </div>
+            ) : (
+              <span className="text-[#6b6b75]">Loading...</span>
+            )}
+            {probe?._source === 'unavailable' && (
+              <div className="text-[10px] text-yellow-500 mt-1">
+                Agent service unreachable &mdash; showing cached state
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* Consult — multi-model consensus via /api/3s/consult (web + Electron) */}
+        <Section title="Consult (Cardio + Neuro + Atlas)" defaultOpen>
+          <div className="space-y-2">
+            <div className="flex gap-1">
+              <input
+                ref={consultInputRef}
+                type="text"
+                value={consultTopic}
+                onChange={(e) => setConsultTopic(e.target.value)}
+                placeholder="Ask the surgeons (e.g. 'Is SQLite the right backend for...')"
+                className="flex-1 bg-[#1a1a24] text-[#e5e5e5] text-xs px-2 py-1 rounded border border-[#2a2a35] focus:border-[#22c55e] focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !consultLoading) submitConsult();
+                }}
+              />
+              <button
+                onClick={submitConsult}
+                disabled={consultLoading || consultTopic.trim() === ''}
+                className="flex items-center gap-1 px-2 py-1 rounded bg-[#22c55e]/20 text-[#22c55e] text-[10px] hover:bg-[#22c55e]/30 disabled:opacity-40"
+              >
+                {consultLoading ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                Consult
+              </button>
             </div>
-          ) : (
-            <span className="text-[#6b6b75]">Loading...</span>
-          )}
-          {probe?._source === 'unavailable' && (
-            <div className="text-[10px] text-yellow-500 mt-1">
-              Agent service unreachable — showing cached state
-            </div>
-          )}
+            {consultLoading && (
+              <div className="text-[10px] text-yellow-500">
+                Running 3-surgeon consult (~30-60s)...
+              </div>
+            )}
+            {consultError && !consultLoading && (
+              <div className="text-[10px] text-red-400">{consultError}</div>
+            )}
+            {consultResult && consultResult.summary && (
+              <div className="text-[10px] text-[#22c55e] flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                {consultResult.summary}
+              </div>
+            )}
+            {consultResult && (consultResult.cardiologist || consultResult.neurologist) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-1">
+                <div className="border border-[#2a2a35] rounded p-2 bg-[#111118]">
+                  <div className="flex items-center gap-1 mb-1 text-[10px] uppercase tracking-wider text-[#ef4444]">
+                    <Heart className="w-3 h-3" />
+                    Cardiologist
+                  </div>
+                  <pre className="text-[11px] text-[#e5e5e5] whitespace-pre-wrap break-words max-h-[260px] overflow-y-auto">
+                    {consultResult.cardiologist || <span className="text-[#6b6b75]">(no response)</span>}
+                  </pre>
+                </div>
+                <div className="border border-[#2a2a35] rounded p-2 bg-[#111118]">
+                  <div className="flex items-center gap-1 mb-1 text-[10px] uppercase tracking-wider text-[#3b82f6]">
+                    <Brain className="w-3 h-3" />
+                    Neurologist
+                  </div>
+                  <pre className="text-[11px] text-[#e5e5e5] whitespace-pre-wrap break-words max-h-[260px] overflow-y-auto">
+                    {consultResult.neurologist || <span className="text-[#6b6b75]">(no response)</span>}
+                  </pre>
+                </div>
+              </div>
+            )}
+            {consultResult && (consultResult.raw || consultResult.stderr) && (
+              <div className="mt-1">
+                <button
+                  onClick={() => setShowRaw(!showRaw)}
+                  className="text-[10px] text-[#6b6b75] hover:text-[#e5e5e5] flex items-center gap-1"
+                >
+                  {showRaw ? (
+                    <ChevronDown className="w-3 h-3" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3" />
+                  )}
+                  Raw output (debug)
+                </button>
+                {showRaw && (
+                  <pre className="mt-1 text-[10px] text-[#a0a0ab] whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto bg-[#0a0a0f] border border-[#2a2a35] rounded p-2">
+                    {consultResult.raw}
+                    {consultResult.stderr ? `\n\n[stderr]\n${consultResult.stderr}` : ''}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
         </Section>
 
-        {/* Cross-exam */}
+        {/* Electron-only sections (require window.electron.surgeons bridge) */}
+        {electronAvailable && (
+        <>
         <Section title="Cross-Examination">
           <div className="space-y-2">
             <div className="flex gap-1">
@@ -487,6 +598,15 @@ export function SurgeonPanel() {
               </div>
             ))}
           </Section>
+        )}
+        </>
+        )}
+
+        {!electronAvailable && (
+          <div className="px-3 py-2 text-[10px] text-[#6b6b75] border-t border-[#2a2a35]/50">
+            Cross-exam, consensus vote, and gains-gate require the Electron desktop app.
+            Consult above works in the browser via /api/3s/consult.
+          </div>
         )}
       </div>
     </div>

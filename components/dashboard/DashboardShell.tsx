@@ -8,7 +8,7 @@ import { HomeView } from './views/home-view';
 import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
 import { SearchView } from './views/search-view';
-import { HealthView } from './views/health-view';
+import { HealthView } from './HealthView';
 import { ModelsView } from './views/models-view';
 import { InjectionFocusView } from './views/injection-focus-view';
 import { InstallWizardView } from './views/install-wizard-view';

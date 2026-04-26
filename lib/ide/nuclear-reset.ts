@@ -48,7 +48,7 @@ export async function executeNuclearReset(): Promise<ResetManifest> {
   // --- STEP 1: PRESERVE non-security settings ---
   const preserved: Record<string, unknown> = {};
   const allSettings = settings.export();
-  const parsed = JSON.parse(allSettings);
+  const parsed = typeof allSettings === 'string' ? JSON.parse(allSettings) : allSettings;
 
   for (const [key, value] of Object.entries(parsed)) {
     if (!key.startsWith('security.')) {

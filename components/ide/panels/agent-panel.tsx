@@ -472,13 +472,13 @@ export function AgentPanel() {
                 <span className="text-[#e5e5e5] truncate flex-1">{s.task}</span>
                 <span className="text-[9px] px-1 rounded bg-[#1a1a24] text-[#6b6b75]">{s.model}</span>
                 {s.mode === 'subscription' && (
-                  <Zap className="w-3 h-3 text-[#22c55e]" title="Subscription" />
+                  <span title="Subscription"><Zap className="w-3 h-3 text-[#22c55e]" /></span>
                 )}
                 {s.mode === 'api' && (
-                  <Key className="w-3 h-3 text-[#e5c07b]" title="API Key" />
+                  <span title="API Key"><Key className="w-3 h-3 text-[#e5c07b]" /></span>
                 )}
                 {s.injectionActive && (
-                  <Syringe className="w-3 h-3 text-[#22c55e]" title="Context DNA injected" />
+                  <span title="Context DNA injected"><Syringe className="w-3 h-3 text-[#22c55e]" /></span>
                 )}
                 {/* Cost display for API mode */}
                 {s.cost_usd != null && s.cost_usd > 0 && (

@@ -16,6 +16,8 @@ export interface ServiceEndpoints {
   supervisor: string;
   /** Agent service (uvicorn, port 8080) — surgeons, webhooks, contextdna */
   agentService: string;
+  /** Fleet daemon (Python, port 8855) — multi-machine coordination */
+  fleet: string;
   /** Repository root path */
   repoRoot: string;
 }
@@ -31,6 +33,7 @@ export function loadEndpoints(): ServiceEndpoints {
       devServer: process.env.DEV_SERVER_URL || 'http://localhost:3000',
       supervisor: process.env.SUPERVISOR_URL || 'http://127.0.0.1:9090',
       agentService: process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8080',
+      fleet: process.env.FLEET_URL || 'http://127.0.0.1:8855',
       repoRoot: process.env.REPO_ROOT || path.join(process.env.HOME || '', 'Documents/er-simulator-superrepo'),
     };
   }
@@ -47,6 +50,9 @@ export function loadEndpoints(): ServiceEndpoints {
   const repoRoot = process.env.REPO_ROOT;
   if (!repoRoot) missing.push('REPO_ROOT');
 
+  const fleet = process.env.FLEET_URL;
+  if (!fleet) missing.push('FLEET_URL');
+
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables for production: ${missing.join(', ')}. ` +
@@ -58,6 +64,7 @@ export function loadEndpoints(): ServiceEndpoints {
     devServer: '', // not used in production
     supervisor: supervisor!,
     agentService: agentService!,
+    fleet: fleet!,
     repoRoot: repoRoot!,
   };
 }

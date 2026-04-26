@@ -1,7 +1,8 @@
 "use client"
 
+import { useState } from "react"
 import { motion } from "framer-motion"
-import { Brain, Trophy, Wrench, Flame, BarChart3, Repeat, ClipboardList } from "lucide-react"
+import { Brain, Trophy, Wrench, Flame, BarChart3, Repeat, ClipboardList, HeartPulse, Loader2 } from "lucide-react"
 import { StatCard } from "@/components/dashboard/StatCard"
 
 const container = {
@@ -20,6 +21,37 @@ const item = {
 }
 
 export function HomeView() {
+    const [launchState, setLaunchState] = useState<"idle" | "launching" | "ok" | "error">("idle")
+    const [launchMessage, setLaunchMessage] = useState<string>("")
+
+    async function handleLaunchErSim() {
+        setLaunchState("launching")
+        setLaunchMessage("")
+        try {
+            const res = await fetch("/api/er-sim/launch", { method: "POST" })
+            const data = await res.json()
+            if (data.ok) {
+                setLaunchState("ok")
+                setLaunchMessage(`Launched (PID ${data.pid}) — ${data.url}`)
+                // If running inside Electron, open the URL in the user's default browser.
+                const electronShell = (typeof window !== "undefined"
+                    ? (window as unknown as { electron?: { openExternal?: (u: string) => void } }).electron
+                    : undefined)
+                if (electronShell?.openExternal && typeof data.url === "string") {
+                    electronShell.openExternal(data.url)
+                } else if (typeof window !== "undefined" && typeof data.url === "string") {
+                    window.open(data.url, "_blank", "noopener")
+                }
+            } else {
+                setLaunchState("error")
+                setLaunchMessage(data.error || "Launch failed")
+            }
+        } catch (e) {
+            setLaunchState("error")
+            setLaunchMessage(String(e))
+        }
+    }
+
     return (
         <motion.div
             variants={container}
@@ -94,6 +126,41 @@ export function HomeView() {
                     </div>
                 </motion.div>
             </div>
+
+            {/* Revenue Product Launcher */}
+            <motion.div variants={item}>
+                <div className="p-6 rounded-xl border border-red-500/20 bg-gradient-to-br from-red-500/5 to-red-500/[0.02] backdrop-blur-sm flex items-center justify-between group hover:border-red-500/40 transition-all">
+                    <div className="flex items-center gap-4">
+                        <div className="h-12 w-12 rounded-xl border border-red-500/20 bg-red-500/10 flex items-center justify-center">
+                            <HeartPulse className="h-6 w-6 text-red-400 animate-pulse" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-semibold">Launch ER Simulator</h3>
+                            <p className="text-muted-foreground text-sm">
+                                Revenue product
+                                {launchMessage ? ` — ${launchMessage}` : ""}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleLaunchErSim}
+                        disabled={launchState === "launching"}
+                        className="px-5 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 hover:border-red-500/50 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        {launchState === "launching" ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="font-medium">Launching…</span>
+                            </>
+                        ) : (
+                            <>
+                                <HeartPulse className="h-4 w-4" />
+                                <span className="font-medium">Launch</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+            </motion.div>
 
             {/* Quick Actions */}
             <motion.div variants={item} className="flex gap-4">

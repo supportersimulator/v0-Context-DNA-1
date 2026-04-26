@@ -529,7 +529,7 @@ export function SynapticChatView() {
 
     recognition.onerror = () => setVoiceState("idle");
     recognition.onend = () => {
-      if (voiceState === "listening") setVoiceState("idle");
+      if ((voiceState as VoiceState) === "listening") setVoiceState("idle");
     };
 
     browserRecognitionRef.current = recognition;

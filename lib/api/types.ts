@@ -12,6 +12,7 @@ export const API_BASE = {
   helper: process.env.NEXT_PUBLIC_HELPER_API || 'http://127.0.0.1:8080',
   llm: process.env.NEXT_PUBLIC_LOCAL_LLM_API || 'http://127.0.0.1:5044',
   supervisor: process.env.NEXT_PUBLIC_SUPERVISOR_API || 'http://127.0.0.1:9090',
+  fleet: process.env.NEXT_PUBLIC_FLEET_API || 'http://127.0.0.1:8855',
 } as const;
 
 const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';

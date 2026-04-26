@@ -37,7 +37,7 @@ export function OpenHandsPanel() {
   const [expanded, setExpanded] = useState(false);
   const [showStartHelp, setShowStartHelp] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
+  const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   const baseUrl = getServiceUrl('openhands') || 'http://127.0.0.1:3000';
 

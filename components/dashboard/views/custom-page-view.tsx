@@ -51,7 +51,7 @@ function renderPanelContent(panelId: string): React.ReactNode {
     case 'injection':
       return <InjectionFocusView onClose={() => {}} />;
     case 'learnings':
-      return <LearningPanel />;
+      return <LearningPanel currentInjection={null} />;
     case 'architecture':
       return <ArchitecturalAwarenessPanel />;
     case 'node-red':
