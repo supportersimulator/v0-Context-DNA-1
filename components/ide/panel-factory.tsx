@@ -11,7 +11,6 @@ import { SearchView } from '@/components/dashboard/views/search-view';
 import { HealthView } from '@/components/dashboard/views/health-view';
 import { ModelsView } from '@/components/dashboard/views/models-view';
 import { InstallWizardView } from '@/components/dashboard/views/install-wizard-view';
-import { SynapticChatView } from '@/components/dashboard/views/synaptic-chat-view';
 import { SynapticSplitView } from '@/components/dashboard/views/synaptic-split-view';
 import { InjectionFocusView } from '@/components/dashboard/views/injection-focus-view';
 import { LearningPanel } from '@/components/dashboard/views/learning-panel';
@@ -64,6 +63,8 @@ import { SwarmFeedPanel } from '@/components/ide/panels/swarm-feed-panel';
 import { ToolLogPanel } from '@/components/ide/panels/tool-log-panel';
 import { PanelCatalogPanel } from '@/components/ide/panels/panel-catalog-panel';
 import { SurgeonPanel } from '@/components/ide/panels/surgeon-panel';
+import { SurgeonTheaterPanel } from '@/components/ide/panels/surgeon-theater-panel';
+import { CorrigibilityGaugePanel } from '@/components/ide/panels/corrigibility-gauge-panel';
 import { FleetPanel } from '@/components/ide/panels/fleet-panel';
 import { CapabilityPanel } from '@/components/ide/panels/capability-panel';
 import { CrossProductActivityPanel } from '@/components/ide/panels/cross-product-activity-panel';
@@ -548,6 +549,22 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     minWidth: 250,
     minHeight: 150,
     icon: 'Radio',
+  },
+  'surgeon-theater': {
+    label: 'Surgeon Theater',
+    description: 'Live cross-exam + dissent feed (Atlas vs Cardiologist vs Neurologist) — disagreements as first-class data',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 280,
+    minHeight: 220,
+    icon: 'Stethoscope',
+  },
+  'corrigibility-gauge': {
+    label: 'Corrigibility',
+    description: 'Live corrigibility score, factor breakdown, and recent dissent — visualizes the highest-weight pillar',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 240,
+    minHeight: 280,
+    icon: 'Shield',
   },
   capability: {
     label: 'Capability',
@@ -1107,6 +1124,22 @@ function FleetPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function SurgeonTheaterPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="surgeon-theater">
+      <SurgeonTheaterPanel />
+    </PanelWrapper>
+  );
+}
+
+function CorrigibilityGaugePanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="corrigibility-gauge">
+      <CorrigibilityGaugePanel />
+    </PanelWrapper>
+  );
+}
+
 function CapabilityPanelView(_props: IDockviewPanelProps) {
   return (
     <PanelWrapper panelId="capability">
@@ -1213,6 +1246,8 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'tool-log': ToolLogPanelView,
   'panel-catalog': PanelCatalogPanelView,
   surgeons: SurgeonPanelView,
+  'surgeon-theater': SurgeonTheaterPanelView,
+  'corrigibility-gauge': CorrigibilityGaugePanelView,
   fleet: FleetPanelView,
   capability: CapabilityPanelView,
   'cross-product-activity': CrossProductActivityPanelView,
