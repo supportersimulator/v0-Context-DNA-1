@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { getEventBus } from './event-bus';
 import { getServiceUrl } from './service-registry';
 
@@ -672,8 +672,9 @@ export function useSetting<K extends keyof IDESettings>(
  *   const exported = settings.export();
  */
 export function useSettings(): SettingsStore {
-  const storeRef = useRef<SettingsStore>(getSettingsStore());
-  return storeRef.current;
+  // Singleton accessor; getSettingsStore() already returns a stable instance,
+  // so no ref is needed.
+  return getSettingsStore();
 }
 
 /**

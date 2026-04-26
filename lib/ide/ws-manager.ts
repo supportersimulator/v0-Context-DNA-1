@@ -726,7 +726,9 @@ export function useWSChannel<T = unknown>(
 ): { connected: boolean; latency: number } {
   // Stabilize callback reference to avoid re-subscribing on every render
   const callbackRef = useRef(onMessage);
-  callbackRef.current = onMessage;
+  useEffect(() => {
+    callbackRef.current = onMessage;
+  }, [onMessage]);
 
   const [status, setStatus] = useState<WSStatus>({
     connected: false,
@@ -807,17 +809,13 @@ export function useWSStatus(): WSStatus {
  *   send('learnings', 'query', { search: 'async' });
  */
 export function useWSSend(): (channel: string, type: string, data: unknown) => void {
-  const sendRef = useRef<(channel: string, type: string, data: unknown) => void>(
-    (channel, type, data) => {
-      // SSR guard
-      if (typeof window === 'undefined') return;
-      const manager = WSManager.getInstance();
-      manager.connect(); // Ensure connected
-      manager.send(channel, type, data);
-    },
-  );
-
-  return sendRef.current;
+  return useCallback((channel: string, type: string, data: unknown) => {
+    // SSR guard
+    if (typeof window === 'undefined') return;
+    const manager = WSManager.getInstance();
+    manager.connect(); // Ensure connected
+    manager.send(channel, type, data);
+  }, []);
 }
 
 /**
@@ -825,21 +823,17 @@ export function useWSSend(): (channel: string, type: string, data: unknown) => v
  * Prefer this in React 18+ for tearing-free reads.
  */
 export function useWSStatusSync(): WSStatus {
-  const managerRef = useRef<WSManager | null>(null);
-
-  // Lazily get manager (SSR-safe: returns default on server)
-  if (typeof window !== 'undefined' && !managerRef.current) {
-    managerRef.current = WSManager.getInstance();
-    managerRef.current.connect();
-  }
-
+  // WSManager.getInstance() is itself an idempotent singleton accessor; no ref
+  // needed. SSR-safe: subscribe/getSnapshot guard with `typeof window`.
   const subscribe = useCallback((onStoreChange: () => void) => {
-    if (!managerRef.current) return () => {};
-    return managerRef.current.onStatusChange(() => onStoreChange());
+    if (typeof window === 'undefined') return () => {};
+    const manager = WSManager.getInstance();
+    manager.connect();
+    return manager.onStatusChange(() => onStoreChange());
   }, []);
 
   const getSnapshot = useCallback(() => {
-    if (!managerRef.current) {
+    if (typeof window === 'undefined') {
       return {
         connected: false,
         reconnecting: false,
@@ -847,7 +841,7 @@ export function useWSStatusSync(): WSStatus {
         lastConnected: null,
       };
     }
-    return managerRef.current.getStatus();
+    return WSManager.getInstance().getStatus();
   }, []);
 
   const getServerSnapshot = useCallback((): WSStatus => ({

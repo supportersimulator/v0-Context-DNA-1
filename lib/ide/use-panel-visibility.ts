@@ -133,7 +133,9 @@ export function useVisibilityAwareInterval(
 ): void {
   const { isVisible } = usePanelVisibility(api);
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -178,7 +180,9 @@ export function useVisibilityAwareWebSocket(
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const configRef = useRef(config);
-  configRef.current = config;
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   useEffect(() => {
     if (!shouldRender) {

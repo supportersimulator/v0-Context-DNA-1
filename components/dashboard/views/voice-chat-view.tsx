@@ -54,6 +54,12 @@ export function VoiceChatView() {
   const isPlayingRef = useRef(false);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Forward-refs to break TDZ / self-referencing useCallback cycles. Synced
+  // via useEffect after each callback's declaration below.
+  const connectRef = useRef<() => void>(() => {});
+  const playAudioChunkRef = useRef<(audioData: ArrayBuffer) => Promise<void>>(async () => {});
+  const playNextInQueueRef = useRef<() => void>(() => {});
+
   // Connect to WebSocket
   const connect = useCallback(() => {
     setConnecting(true);
@@ -79,7 +85,7 @@ export function VoiceChatView() {
 
         // Reconnect after 3s if not a clean close
         if (event.code !== 1000) {
-          setTimeout(connect, 3000);
+          setTimeout(() => connectRef.current(), 3000);
         }
       };
 
@@ -92,7 +98,7 @@ export function VoiceChatView() {
       ws.onmessage = async (event) => {
         if (event.data instanceof ArrayBuffer) {
           // Audio data received - play it
-          await playAudioChunk(event.data);
+          await playAudioChunkRef.current(event.data);
         } else {
           // JSON message
           try {
@@ -149,7 +155,7 @@ export function VoiceChatView() {
 
       // Start playing if not already
       if (!isPlayingRef.current) {
-        playNextInQueue();
+        playNextInQueueRef.current();
       }
     } catch (err) {
       console.error("Error decoding audio:", err);
@@ -176,11 +182,18 @@ export function VoiceChatView() {
     source.connect(audioContext.destination);
 
     source.onended = () => {
-      playNextInQueue();
+      playNextInQueueRef.current();
     };
 
     source.start();
   }, [getAudioContext, voiceState]);
+
+  // Keep forward-refs pointing at latest closures
+  useEffect(() => {
+    connectRef.current = connect;
+    playAudioChunkRef.current = playAudioChunk;
+    playNextInQueueRef.current = playNextInQueue;
+  }, [connect, playAudioChunk, playNextInQueue]);
 
   // Request microphone permission
   const requestMicPermission = useCallback(async () => {

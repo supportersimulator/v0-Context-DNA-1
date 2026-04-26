@@ -141,7 +141,9 @@ export function SurgeonPanel() {
   const [claimInput, setClaimInput] = useState('');
   const [consultTopic, setConsultTopic] = useState('');
   const [showRaw, setShowRaw] = useState(false);
-  const surgeons = useRef(getElectronSurgeons());
+  // Lazy-init Electron surgeons bridge once (stable across renders, readable
+  // during render). useState's lazy initializer runs only on mount.
+  const [surgeons] = useState(() => getElectronSurgeons());
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const consultInputRef = useRef<HTMLInputElement | null>(null);
   const {
@@ -153,9 +155,9 @@ export function SurgeonPanel() {
 
   // Probe (health check)
   const refreshProbe = useCallback(async () => {
-    if (!surgeons.current) return;
+    if (!surgeons) return;
     try {
-      const result = await surgeons.current.probe();
+      const result = await surgeons.probe();
       setProbe(result);
       setError(null);
     } catch {
@@ -165,20 +167,20 @@ export function SurgeonPanel() {
 
   // Status (recent exams)
   const refreshStatus = useCallback(async () => {
-    if (!surgeons.current) return;
+    if (!surgeons) return;
     try {
-      const result = await surgeons.current.status();
+      const result = await surgeons.status();
       setStatus(result);
     } catch { /* ignore */ }
   }, []);
 
   // Cross-exam
   const runCrossExam = useCallback(async () => {
-    if (!surgeons.current || !topicInput.trim()) return;
+    if (!surgeons || !topicInput.trim()) return;
     setLoading('cross-exam');
     setCrossExam(null);
     try {
-      const result = await surgeons.current.crossExam(topicInput.trim());
+      const result = await surgeons.crossExam(topicInput.trim());
       setCrossExam(result);
     } catch (err: any) {
       setCrossExam({ ok: false, error: err.message });
@@ -188,11 +190,11 @@ export function SurgeonPanel() {
 
   // Consensus
   const runConsensus = useCallback(async () => {
-    if (!surgeons.current || !claimInput.trim()) return;
+    if (!surgeons || !claimInput.trim()) return;
     setLoading('consensus');
     setConsensus(null);
     try {
-      const result = await surgeons.current.consensus(claimInput.trim());
+      const result = await surgeons.consensus(claimInput.trim());
       setConsensus(result);
     } catch (err: any) {
       setConsensus({ ok: false, error: err.message });
@@ -202,11 +204,11 @@ export function SurgeonPanel() {
 
   // Gains gate
   const runGainsGate = useCallback(async () => {
-    if (!surgeons.current) return;
+    if (!surgeons) return;
     setLoading('gains-gate');
     setGainsGate(null);
     try {
-      const result = await surgeons.current.gainsGate();
+      const result = await surgeons.gainsGate();
       setGainsGate(result);
     } catch (err: any) {
       setGainsGate({ ok: false, error: err.message });
@@ -223,7 +225,7 @@ export function SurgeonPanel() {
 
   // Auto-refresh probe + status (Electron-only)
   useEffect(() => {
-    if (!surgeons.current) return;
+    if (!surgeons) return;
     refreshProbe();
     refreshStatus();
     intervalRef.current = setInterval(() => {
@@ -252,7 +254,7 @@ export function SurgeonPanel() {
     return () => disposable.dispose();
   }, []);
 
-  const electronAvailable = !!surgeons.current;
+  const electronAvailable = !!surgeons;
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0f]">

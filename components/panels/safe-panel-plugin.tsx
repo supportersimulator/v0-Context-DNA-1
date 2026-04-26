@@ -66,6 +66,10 @@ export function SafePanelPlugin({
   const timeoutRef = useRef<NodeJS.Timeout>(undefined);
   const retryCountRef = useRef(0);
 
+  // Forward-ref so the mount useEffect can reference loadPanel without the
+  // React-Compiler "before declared" warning. Synced via effect below.
+  const loadPanelRef = useRef<() => Promise<void>>(async () => {});
+
   useEffect(() => {
     // For internal panels, skip loading
     if (config.source === 'internal') {
@@ -75,7 +79,7 @@ export function SafePanelPlugin({
 
     // For iframe-based loading
     if (config.sandboxed && config.url) {
-      loadPanel();
+      loadPanelRef.current();
     }
 
     return () => {
@@ -126,6 +130,11 @@ export function SafePanelPlugin({
       onError?.(errorMsg);
     }
   };
+
+  // Keep loadPanelRef pointing at the latest closure
+  useEffect(() => {
+    loadPanelRef.current = loadPanel;
+  });
 
   // Render based on status
   if (state.status === 'loading') {

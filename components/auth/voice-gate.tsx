@@ -248,6 +248,13 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
 
+  // Forward-refs to break temporal-dead-zone cycles where async helper
+  // functions (declared lower in this component) are referenced from earlier
+  // useEffect/useCallback bodies. Each ref is updated below the helper's
+  // declaration via useEffect.
+  const checkEnrollmentStatusRef = useRef<() => void>(() => {})
+  const submitEnrollmentRef = useRef<(samples: Blob[]) => Promise<void>>(async () => {})
+
   // Get user info - ensure we use a valid email address
   const rawUsername = userEmail || getStoredUsername() || 'user@contextdna.io'
   // Check if rawUsername looks like a UUID (Supabase user ID)
@@ -315,7 +322,7 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
     }
 
     // Remote access: Check enrollment status and require voice auth
-    checkEnrollmentStatus()
+    checkEnrollmentStatusRef.current()
   }, [resolvedEmail, isUUID])
 
   // ==========================================================================
@@ -381,6 +388,11 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
       setState('error')
     }
   }
+
+  // Keep the forward-ref pointing at the latest closure of checkEnrollmentStatus
+  useEffect(() => {
+    checkEnrollmentStatusRef.current = checkEnrollmentStatus
+  })
 
   // ==========================================================================
   // Audio Recording
@@ -471,7 +483,7 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
     }
 
     // Submit enrollment
-    await submitEnrollment(samples)
+    await submitEnrollmentRef.current(samples)
   }, [startRecording])
 
   const submitEnrollment = async (samples: Blob[]) => {
@@ -528,6 +540,11 @@ export function VoiceGate({ onVerified, userEmail }: VoiceGateProps) {
       setCurrentSample(0)
     }
   }
+
+  // Keep the forward-ref pointing at the latest closure of submitEnrollment
+  useEffect(() => {
+    submitEnrollmentRef.current = submitEnrollment
+  })
 
   // ==========================================================================
   // Verification Flow

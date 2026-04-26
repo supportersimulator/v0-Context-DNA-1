@@ -88,6 +88,11 @@ export function useRealtimePanels() {
     }
   }, []);
 
+  // Forward-ref to break the self-reference cycle in `connect` (used inside
+  // setTimeout for reconnect). The ref is kept in sync with the latest
+  // `connect` via an effect below.
+  const connectRef = useRef<() => void>(() => {});
+
   // WebSocket connection management
   const connect = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -124,7 +129,7 @@ export function useRealtimePanels() {
         wsRef.current = null;
         setState((prev) => ({ ...prev, connected: false }));
         reconnectCountRef.current++;
-        reconnectTimerRef.current = setTimeout(connect, WS_RECONNECT_DELAY);
+        reconnectTimerRef.current = setTimeout(() => connectRef.current(), WS_RECONNECT_DELAY);
       };
 
       ws.onerror = () => {
@@ -135,6 +140,11 @@ export function useRealtimePanels() {
       setState((prev) => ({ ...prev, connected: false, reconnecting: false }));
     }
   }, [dispatch]);
+
+  // Keep the forward-ref pointing at the latest `connect`.
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // Initialize connection
   useEffect(() => {

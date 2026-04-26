@@ -70,45 +70,47 @@ export function DockerPanel() {
   const [stats, setStats] = useState<Record<string, ContainerStats>>({});
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const docker = useRef(getElectronDocker());
+  // Lazy-init Electron docker bridge once (stable across renders, readable
+  // during render). useState's lazy initializer runs only on mount.
+  const [docker] = useState(() => getElectronDocker());
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   // Fetch containers
   const refresh = useCallback(async () => {
-    if (!docker.current) return;
+    if (!docker) return;
     try {
-      const result = await docker.current.listContainers();
+      const result = await docker.listContainers();
       setContainers(result.containers || []);
       setError(null);
     } catch {
       setError('Failed to connect to Docker');
     }
-  }, []);
+  }, [docker]);
 
   // Fetch stats for running containers
   const refreshStats = useCallback(async () => {
-    if (!docker.current) return;
+    if (!docker) return;
     const running = containers.filter((c) => c.state === 'running');
     const results: Record<string, ContainerStats> = {};
     await Promise.allSettled(
       running.map(async (c) => {
         try {
-          const s = await docker.current!.containerStats(c.id);
+          const s = await docker.containerStats(c.id);
           results[c.id] = s;
         } catch { /* ignore individual failures */ }
       })
     );
     setStats((prev) => ({ ...prev, ...results }));
-  }, [containers]);
+  }, [containers, docker]);
 
   // Container action
   const handleAction = useCallback(async (id: string, action: 'start' | 'stop' | 'restart') => {
-    if (!docker.current) return;
+    if (!docker) return;
     try {
-      await docker.current.containerAction(id, action);
+      await docker.containerAction(id, action);
       await refresh();
     } catch { /* toast error in future */ }
-  }, [refresh]);
+  }, [refresh, docker]);
 
   // Auto-refresh
   useEffect(() => {
@@ -121,7 +123,7 @@ export function DockerPanel() {
     if (containers.length > 0) refreshStats();
   }, [containers, refreshStats]);
 
-  if (!docker.current) {
+  if (!docker) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-[#6b6b75] text-sm gap-2 p-4">
         <Container className="w-8 h-8 opacity-50" />

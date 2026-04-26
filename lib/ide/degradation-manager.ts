@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   getServiceRegistry,
   type ServiceStatus,
@@ -393,6 +393,6 @@ export function useDownServices() {
 // ---------------------------------------------------------------------------
 
 function useDegradationManagerInstance(): DegradationManager {
-  const managerRef = useRef<DegradationManager>(getDegradationManager());
-  return managerRef.current;
+  // Singleton accessor; getDegradationManager() returns a stable instance.
+  return getDegradationManager();
 }

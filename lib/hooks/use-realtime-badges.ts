@@ -37,6 +37,9 @@ export function useRealtimeBadges(): Record<string, ActivityBadge> {
   const [data, setData] = useState<BadgeData>({});
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Forward-ref to break the self-reference cycle in `connectWs` (used inside
+  // setTimeout for reconnect). Synced with the latest `connectWs` below.
+  const connectWsRef = useRef<() => void>(() => {});
 
   // WebSocket connection
   const connectWs = useCallback(() => {
@@ -60,7 +63,7 @@ export function useRealtimeBadges(): Record<string, ActivityBadge> {
       ws.onclose = () => {
         wsRef.current = null;
         // Reconnect after delay
-        reconnectTimerRef.current = setTimeout(connectWs, WS_RECONNECT_DELAY);
+        reconnectTimerRef.current = setTimeout(() => connectWsRef.current(), WS_RECONNECT_DELAY);
       };
 
       ws.onerror = () => {
@@ -70,6 +73,11 @@ export function useRealtimeBadges(): Record<string, ActivityBadge> {
       // WebSocket not available — will fall back to polling
     }
   }, []);
+
+  // Keep the forward-ref pointing at the latest `connectWs`.
+  useEffect(() => {
+    connectWsRef.current = connectWs;
+  }, [connectWs]);
 
   // HTTP polling fallback
   const pollBadges = useCallback(async () => {

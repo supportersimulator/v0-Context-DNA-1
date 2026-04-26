@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -224,17 +224,15 @@ export function getNotificationStore(): NotificationStore {
 // ---------------------------------------------------------------------------
 
 export function useNotifications() {
-  const storeRef = useRef<NotificationStore>(getNotificationStore());
+  // getNotificationStore() is itself a stable singleton accessor; no ref needed.
+  const store = getNotificationStore();
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    const store = storeRef.current;
     const listener = () => setTick((t) => t + 1);
     store.subscribe(listener);
     return () => store.unsubscribe(listener);
-  }, []);
-
-  const store = storeRef.current;
+  }, [store]);
 
   const add = useCallback(
     (

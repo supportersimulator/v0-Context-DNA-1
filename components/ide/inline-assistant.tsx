@@ -224,6 +224,17 @@ export function InlineAssistant({
   const panelRef = useRef<HTMLDivElement>(null);
 
   // ---------------------------------------------------------------------------
+  // LLM streaming — cancel helper. Hoisted so useEffects above can reference
+  // it without the React-Compiler "before declared" warning.
+  // ---------------------------------------------------------------------------
+
+  const cancelGeneration = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsGenerating(false);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Focus + reset on open
   // ---------------------------------------------------------------------------
 
@@ -289,12 +300,6 @@ export function InlineAssistant({
   // ---------------------------------------------------------------------------
   // LLM streaming
   // ---------------------------------------------------------------------------
-
-  const cancelGeneration = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setIsGenerating(false);
-  }, []);
 
   const submitQuery = useCallback(
     async (prompt: string) => {

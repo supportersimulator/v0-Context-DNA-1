@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
 // =============================================================================
 // SERVICE URL RESOLUTION — Single Source of Truth (TypeScript)
@@ -634,16 +634,16 @@ export function _resetServiceRegistry(): void {
  * Starts monitoring on mount, does NOT stop on unmount (singleton lifecycle).
  */
 export function useServiceRegistry(): ServiceRegistry {
-  const registryRef = useRef<ServiceRegistry>(getServiceRegistry());
+  // Singleton accessor; getServiceRegistry() already returns a stable instance.
+  const registry = getServiceRegistry();
 
   useEffect(() => {
-    const registry = registryRef.current;
     registry.startMonitoring();
     // Singleton — don't stop monitoring on unmount.
     // Other components may still depend on it.
-  }, []);
+  }, [registry]);
 
-  return registryRef.current;
+  return registry;
 }
 
 /**

@@ -48,9 +48,14 @@ export function VoiceWakeOverlay({ onWake, userEmail }: VoiceWakeOverlayProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Forward-refs to break TDZ cycles where helpers declared lower are called
+  // from earlier useEffect/useCallback bodies. Synced via effects below.
+  const checkEnrollmentStatusRef = useRef<() => void>(() => {});
+  const processEnrollmentRef = useRef<(samples: Blob[]) => Promise<void>>(async () => {});
+
   // Check enrollment status on mount
   useEffect(() => {
-    checkEnrollmentStatus();
+    checkEnrollmentStatusRef.current();
   }, [userEmail]);
 
   const checkEnrollmentStatus = async () => {
@@ -82,6 +87,11 @@ export function VoiceWakeOverlay({ onWake, userEmail }: VoiceWakeOverlayProps) {
       setState("loading");
     }
   };
+
+  // Keep checkEnrollmentStatusRef pointing at latest closure
+  useEffect(() => {
+    checkEnrollmentStatusRef.current = checkEnrollmentStatus;
+  });
 
   // Record audio for specified duration
   const recordAudio = useCallback(async (durationMs: number): Promise<Blob | null> => {
@@ -211,7 +221,7 @@ export function VoiceWakeOverlay({ onWake, userEmail }: VoiceWakeOverlayProps) {
     }
 
     // All samples collected, process enrollment
-    await processEnrollment(samples);
+    await processEnrollmentRef.current(samples);
   }, [recordAudio]);
 
   // Process enrollment with 3 samples
@@ -255,6 +265,11 @@ export function VoiceWakeOverlay({ onWake, userEmail }: VoiceWakeOverlayProps) {
       setEnrollmentSamples([]);
     }
   };
+
+  // Keep processEnrollmentRef pointing at latest closure
+  useEffect(() => {
+    processEnrollmentRef.current = processEnrollment;
+  });
 
   // Don't render if already awake
   if (state === "awake") {

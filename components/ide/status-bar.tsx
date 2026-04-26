@@ -11,10 +11,12 @@ import {
   WifiOff,
   AlertTriangle,
   XCircle,
+  HeartPulse,
 } from 'lucide-react';
 import { useMode } from '@/lib/hooks/use-mode';
 import { useDiagnostics } from '@/lib/hooks/use-diagnostics';
 import { useSwarmStatus } from '@/lib/hooks/use-swarm';
+import { useErSimStatus } from '@/lib/hooks/use-er-sim-status';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -165,6 +167,8 @@ export function StatusBar() {
   const { mode, isHeavy, services } = useMode();
   const diagnostics = useDiagnostics();
   const { run: swarmRun, status: swarmStatus } = useSwarmStatus(null);
+  // Cross-product: ER Simulator health probe (Expo dev server on 8081)
+  const { data: erSim, loading: erSimLoading } = useErSimStatus(5000);
 
   // Lightweight polling for learning count + model name
   const { learningCount, modelName } = useStatusBarPolling();
@@ -190,6 +194,18 @@ export function StatusBar() {
   const swarmLabel = swarmActive
     ? `Running (${swarmAgentCount} agent${swarmAgentCount !== 1 ? 's' : ''})`
     : 'Idle';
+
+  // ER Sim label/variant — drives the cross-product status pill.
+  // Three states: loading (initial), running (reachable), stopped (no probe response).
+  const erSimReachable = !!erSim?.reachable;
+  const erSimLabel = erSimLoading && !erSim
+    ? 'ER Sim ...'
+    : erSimReachable
+      ? `ER Sim ${typeof erSim?.latency_ms === 'number' ? `${erSim.latency_ms}ms` : 'up'}`
+      : 'ER Sim stopped';
+  const erSimTooltip = erSimReachable
+    ? `ER Simulator running at ${erSim?.url ?? 'localhost:8081'}`
+    : 'ER Simulator not reachable — launch from Home view';
 
   return (
     <div className="ide-status-bar hidden sm:flex items-center justify-between w-full h-[22px] bg-[#0a0a0f] border-t border-[#2a2a35] flex-shrink-0 select-none z-50">
@@ -283,6 +299,16 @@ export function StatusBar() {
               : 'Agent swarm idle'
           }
           variant={swarmActive ? 'success' : 'default'}
+        />
+
+        <Separator />
+
+        {/* ER Simulator cross-product health pill */}
+        <StatusBarItem
+          icon={<HeartPulse className="w-3 h-3" />}
+          label={erSimLabel}
+          tooltip={erSimTooltip}
+          variant={erSimReachable ? 'success' : 'default'}
         />
 
         <Separator />

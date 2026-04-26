@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { Brain, Trophy, Wrench, Flame, BarChart3, Repeat, ClipboardList, HeartPulse, Loader2 } from "lucide-react"
+import { Brain, Trophy, Wrench, Flame, BarChart3, Repeat, ClipboardList, HeartPulse, Loader2, ExternalLink } from "lucide-react"
 import { StatCard } from "@/components/dashboard/StatCard"
+import { useErSimStatus } from "@/lib/hooks/use-er-sim-status"
 
 const container = {
     hidden: { opacity: 0 },
@@ -23,6 +24,10 @@ const item = {
 export function HomeView() {
     const [launchState, setLaunchState] = useState<"idle" | "launching" | "ok" | "error">("idle")
     const [launchMessage, setLaunchMessage] = useState<string>("")
+    // Live cross-product status — replaces the stale "Launched (PID …)" message
+    // once the dev server actually responds on localhost:8081.
+    const { data: erSimStatus, refresh: refreshErSimStatus } = useErSimStatus(5000)
+    const erSimRunning = !!erSimStatus?.reachable
 
     async function handleLaunchErSim() {
         setLaunchState("launching")
@@ -33,6 +38,8 @@ export function HomeView() {
             if (data.ok) {
                 setLaunchState("ok")
                 setLaunchMessage(`Launched (PID ${data.pid}) — ${data.url}`)
+                // Kick the status hook so the pill updates as soon as Expo binds.
+                refreshErSimStatus()
                 // If running inside Electron, open the URL in the user's default browser.
                 const electronShell = (typeof window !== "undefined"
                     ? (window as unknown as { electron?: { openExternal?: (u: string) => void } }).electron
@@ -127,38 +134,61 @@ export function HomeView() {
                 </motion.div>
             </div>
 
-            {/* Revenue Product Launcher */}
+            {/* Revenue Product Launcher — live cross-product status */}
             <motion.div variants={item}>
                 <div className="p-6 rounded-xl border border-red-500/20 bg-gradient-to-br from-red-500/5 to-red-500/[0.02] backdrop-blur-sm flex items-center justify-between group hover:border-red-500/40 transition-all">
                     <div className="flex items-center gap-4">
-                        <div className="h-12 w-12 rounded-xl border border-red-500/20 bg-red-500/10 flex items-center justify-center">
-                            <HeartPulse className="h-6 w-6 text-red-400 animate-pulse" />
+                        <div className="h-12 w-12 rounded-xl border border-red-500/20 bg-red-500/10 flex items-center justify-center relative">
+                            <HeartPulse className={erSimRunning ? "h-6 w-6 text-red-400 animate-pulse" : "h-6 w-6 text-red-400/60"} />
+                            {/* Live status dot in the top-right of the icon */}
+                            <span
+                                className={
+                                    "absolute -top-1 -right-1 h-3 w-3 rounded-full border-2 border-[#0a0a0f] " +
+                                    (erSimRunning ? "bg-emerald-500" : "bg-zinc-600")
+                                }
+                                aria-hidden
+                            />
                         </div>
                         <div>
-                            <h3 className="text-lg font-semibold">Launch ER Simulator</h3>
+                            <h3 className="text-lg font-semibold">
+                                {erSimRunning ? "ER Simulator running" : "Launch ER Simulator"}
+                            </h3>
                             <p className="text-muted-foreground text-sm">
-                                Revenue product
-                                {launchMessage ? ` — ${launchMessage}` : ""}
+                                {erSimRunning
+                                    ? `${erSimStatus?.url ?? "http://localhost:8081"} · ${typeof erSimStatus?.latency_ms === "number" ? `${erSimStatus.latency_ms}ms` : "live"}`
+                                    : `Revenue product${launchMessage ? ` — ${launchMessage}` : ""}`}
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={handleLaunchErSim}
-                        disabled={launchState === "launching"}
-                        className="px-5 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 hover:border-red-500/50 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                        {launchState === "launching" ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span className="font-medium">Launching…</span>
-                            </>
-                        ) : (
-                            <>
-                                <HeartPulse className="h-4 w-4" />
-                                <span className="font-medium">Launch</span>
-                            </>
-                        )}
-                    </button>
+                    {erSimRunning ? (
+                        <a
+                            href={erSimStatus?.url ?? "http://localhost:8081"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-5 py-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all flex items-center gap-2"
+                        >
+                            <ExternalLink className="h-4 w-4" />
+                            <span className="font-medium">Open</span>
+                        </a>
+                    ) : (
+                        <button
+                            onClick={handleLaunchErSim}
+                            disabled={launchState === "launching"}
+                            className="px-5 py-2.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 hover:border-red-500/50 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            {launchState === "launching" ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span className="font-medium">Launching…</span>
+                                </>
+                            ) : (
+                                <>
+                                    <HeartPulse className="h-4 w-4" />
+                                    <span className="font-medium">Launch</span>
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </motion.div>
 

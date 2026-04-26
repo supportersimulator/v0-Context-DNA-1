@@ -115,7 +115,9 @@ export function useReceipts(opts: UseReceiptsOptions = {}): UseReceiptsResult {
 
   // Stable ref for current opts so refresh() doesn't get new identity on every render.
   const optsRef = useRef<UseReceiptsOptions>(opts);
-  optsRef.current = opts;
+  useEffect(() => {
+    optsRef.current = opts;
+  }, [opts]);
 
   // Track unmount so we don't setState after teardown.
   const aliveRef = useRef(true);

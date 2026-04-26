@@ -511,9 +511,8 @@ export function _resetEventBus(): void {
  *   bus.emit('panel:opened', { panelId: 'terminal', title: 'Terminal' });
  */
 export function useEventBus(): TypedEventBus<IDEEvents> {
-  // Stable reference — singleton never changes during app lifetime
-  const busRef = useRef<TypedEventBus<IDEEvents>>(getEventBus());
-  return busRef.current;
+  // Singleton accessor; getEventBus() already returns a stable instance.
+  return getEventBus();
 }
 
 /**
@@ -534,7 +533,9 @@ export function useIDEEvent<K extends keyof IDEEvents>(
   const bus = useEventBus();
   // Store latest handler in a ref to avoid re-subscribing on every render
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  useEffect(() => {
+    handlerRef.current = handler;
+  }, [handler]);
 
   useEffect(() => {
     const disposable = bus.on(event, ((data: IDEEvents[K]) => {
@@ -583,7 +584,9 @@ export function useIDEEventOnce<K extends keyof IDEEvents>(
 ): void {
   const bus = useEventBus();
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  useEffect(() => {
+    handlerRef.current = handler;
+  }, [handler]);
 
   useEffect(() => {
     const disposable = bus.once(event, ((data: IDEEvents[K]) => {
@@ -610,7 +613,9 @@ export function useIDEEventPrefix(
 ): void {
   const bus = useEventBus();
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  useEffect(() => {
+    handlerRef.current = handler;
+  }, [handler]);
 
   useEffect(() => {
     const disposable = bus.onPrefix(prefix, (event, data) => {

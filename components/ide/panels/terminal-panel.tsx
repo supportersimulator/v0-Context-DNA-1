@@ -266,7 +266,9 @@ function WebTerminalFallback() {
 export function TerminalPanel() {
   const [sessions, setSessions] = useState<TermSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const shellRef = useRef(getElectronShell());
+  // Lazy-init Electron shell bridge once (stable across renders, readable
+  // during render). useState's lazy initializer runs only on mount.
+  const [shell] = useState(() => getElectronShell());
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermHandlesRef = useRef<Map<string, XTermSessionHandle>>(new Map());
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -276,7 +278,6 @@ export function TerminalPanel() {
   // Create a new terminal session
   // -------------------------------------------------------------------------
   const createSession = useCallback(async () => {
-    const shell = shellRef.current;
     if (!shell) return;
 
     try {
@@ -292,13 +293,12 @@ export function TerminalPanel() {
     } catch {
       // Ignore create failures
     }
-  }, []);
+  }, [shell]);
 
   // -------------------------------------------------------------------------
   // Kill a session
   // -------------------------------------------------------------------------
   const killSession = useCallback(async (id: string) => {
-    const shell = shellRef.current;
     if (!shell) return;
 
     // Dispose xterm handle
@@ -322,13 +322,12 @@ export function TerminalPanel() {
       const remaining = sessions.filter((s) => s.id !== id);
       return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
     });
-  }, [sessions]);
+  }, [sessions, shell]);
 
   // -------------------------------------------------------------------------
   // Attach xterm to the active session
   // -------------------------------------------------------------------------
   useEffect(() => {
-    const shell = shellRef.current;
     const container = containerRef.current;
     if (!shell || !container || !activeId) return;
 
@@ -417,7 +416,7 @@ export function TerminalPanel() {
   // Create initial session on mount (Electron only)
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (shellRef.current && sessions.length === 0) {
+    if (shell && sessions.length === 0) {
       createSession();
     }
   }, [createSession, sessions.length]);
@@ -436,7 +435,7 @@ export function TerminalPanel() {
   // -------------------------------------------------------------------------
   // Web fallback — no Electron shell available
   // -------------------------------------------------------------------------
-  if (!shellRef.current) {
+  if (!shell) {
     return <WebTerminalFallback />;
   }
 

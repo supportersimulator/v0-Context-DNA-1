@@ -65,6 +65,8 @@ import { ToolLogPanel } from '@/components/ide/panels/tool-log-panel';
 import { PanelCatalogPanel } from '@/components/ide/panels/panel-catalog-panel';
 import { SurgeonPanel } from '@/components/ide/panels/surgeon-panel';
 import { FleetPanel } from '@/components/ide/panels/fleet-panel';
+import { CapabilityPanel } from '@/components/ide/panels/capability-panel';
+import { CrossProductActivityPanel } from '@/components/ide/panels/cross-product-activity-panel';
 import { WorkspaceEditorShell } from '@/components/ide/workspace-editor-shell';
 import { LogViewerPanel } from '@/components/ide/log-viewer';
 import { BuildStatusPanel } from '@/components/ide/build-status-panel';
@@ -281,6 +283,14 @@ export const PANEL_METADATA: Record<string, PanelMeta> = {
     minWidth: 280,
     minHeight: 200,
     icon: 'Gauge',
+  },
+  'cross-product-activity': {
+    label: 'Cross-Product Activity',
+    description: 'Unified activity stream across Multi-Fleet, 3-Surgeons, and ER Simulator',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 280,
+    minHeight: 200,
+    icon: 'Activity',
   },
 };
 
@@ -538,6 +548,14 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     minWidth: 250,
     minHeight: 150,
     icon: 'Radio',
+  },
+  capability: {
+    label: 'Capability',
+    description: 'Per-capability L1/L2/L3 posture (evidence store, LLM, fleet, etc.)',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 260,
+    minHeight: 200,
+    icon: 'Shield',
   },
   'workspace-editor': {
     label: 'Workspace Editor',
@@ -1089,6 +1107,22 @@ function FleetPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function CapabilityPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="capability">
+      <CapabilityPanel />
+    </PanelWrapper>
+  );
+}
+
+function CrossProductActivityPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="cross-product-activity">
+      <CrossProductActivityPanel />
+    </PanelWrapper>
+  );
+}
+
 function WorkspaceEditorPanelView(_props: IDockviewPanelProps) {
   return (
     <PanelWrapper panelId="workspace-editor">
@@ -1180,6 +1214,8 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'panel-catalog': PanelCatalogPanelView,
   surgeons: SurgeonPanelView,
   fleet: FleetPanelView,
+  capability: CapabilityPanelView,
+  'cross-product-activity': CrossProductActivityPanelView,
   'workspace-editor': WorkspaceEditorPanelView,
   'log-viewer': LogViewerPanelView,
   'build-status': BuildStatusPanelView,

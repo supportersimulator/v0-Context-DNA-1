@@ -1288,7 +1288,9 @@ export function useKeybindingInit(): void {
  */
 export function useKeybinding(id: string, handler: () => void): void {
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  useEffect(() => {
+    handlerRef.current = handler;
+  }, [handler]);
 
   useEffect(() => {
     const registry = getKeybindingRegistry();
@@ -1312,7 +1314,9 @@ export function useKeybinding(id: string, handler: () => void): void {
  */
 export function useKeybindings(bindings: Record<string, () => void>): void {
   const bindingsRef = useRef(bindings);
-  bindingsRef.current = bindings;
+  useEffect(() => {
+    bindingsRef.current = bindings;
+  }, [bindings]);
 
   // Stable key list for dependency tracking
   const keys = Object.keys(bindings).sort().join(',');
