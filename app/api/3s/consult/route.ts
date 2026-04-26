@@ -15,6 +15,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 
+import { append as logAppend } from '@/lib/log/buffer';
+
 const execFileP = promisify(execFile);
 
 const SURGEONS_DIR =
@@ -81,7 +83,8 @@ export async function POST(request: NextRequest) {
       stderr: stderr || undefined,
     });
   } catch (e) {
-    const err = e as { stdout?: string; stderr?: string; code?: number; message?: string };
+    const err = e as { stdout?: string; stderr?: string; code?: number; message?: string; stack?: string };
+    try { logAppend({ ts: Date.now(), level: 'error', source: '3s/consult', msg: err?.message || String(e), detail: (err?.stack || err?.stderr || '').slice(0, 500) }); } catch { /* noop */ }
     return NextResponse.json(
       {
         ok: false,

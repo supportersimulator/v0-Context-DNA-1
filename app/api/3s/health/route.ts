@@ -13,6 +13,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 
+import { append as logAppend } from '@/lib/log/buffer';
+
 const execFileP = promisify(execFile);
 
 const SURGEONS_DIR =
@@ -51,7 +53,8 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, version, detail });
   } catch (e) {
-    const err = e as { message?: string; stderr?: string; code?: number };
+    const err = e as { message?: string; stderr?: string; code?: number; stack?: string };
+    try { logAppend({ ts: Date.now(), level: 'error', source: '3s/health', msg: err?.message || String(e), detail: (err?.stack || err?.stderr || '').slice(0, 500) }); } catch { /* noop */ }
     return NextResponse.json(
       {
         ok: false,

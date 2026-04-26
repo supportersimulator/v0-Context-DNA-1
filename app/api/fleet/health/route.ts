@@ -10,6 +10,8 @@
 
 import { NextResponse } from 'next/server';
 
+import { append as logAppend } from '@/lib/log/buffer';
+
 const FLEET_DAEMON_URL = 'http://127.0.0.1:8855/health';
 const TIMEOUT_MS = 3000;
 
@@ -38,6 +40,7 @@ export async function GET() {
     return NextResponse.json(data);
   } catch (error) {
     clearTimeout(timer);
+    try { logAppend({ ts: Date.now(), level: 'error', source: 'fleet/health', msg: 'fleet daemon unreachable', detail: ((error as Error)?.stack || String(error)).slice(0, 500) }); } catch { /* noop */ }
     return NextResponse.json({
       ok: false,
       error: 'fleet daemon unreachable',

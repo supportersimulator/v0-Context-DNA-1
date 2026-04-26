@@ -65,6 +65,9 @@ import { ToolLogPanel } from '@/components/ide/panels/tool-log-panel';
 import { PanelCatalogPanel } from '@/components/ide/panels/panel-catalog-panel';
 import { SurgeonPanel } from '@/components/ide/panels/surgeon-panel';
 import { FleetPanel } from '@/components/ide/panels/fleet-panel';
+import { WorkspaceEditorShell } from '@/components/ide/workspace-editor-shell';
+import { LogViewerPanel } from '@/components/ide/log-viewer';
+import { BuildStatusPanel } from '@/components/ide/build-status-panel';
 
 // ---------------------------------------------------------------------------
 // Panel metadata: labels, descriptions, page availability, responsive config
@@ -535,6 +538,30 @@ export const IDE_PANEL_METADATA: Record<string, PanelMeta> = {
     minWidth: 250,
     minHeight: 150,
     icon: 'Radio',
+  },
+  'workspace-editor': {
+    label: 'Workspace Editor',
+    description: 'File tree + Monaco editor wired to /api/fs/{read,write}',
+    pages: ['workspace'],
+    minWidth: 400,
+    minHeight: 250,
+    icon: 'FileEdit',
+  },
+  'build-status': {
+    label: 'Build & Git',
+    description: 'ER Sim git status + build/test/lint runner with live output',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 260,
+    minHeight: 180,
+    icon: 'Hammer',
+  },
+  'log-viewer': {
+    label: 'Logs',
+    description: 'Unified errors and logs from API routes, fleet daemon, 3-Surgeons CLI, ER Sim',
+    pages: ['dashboard', 'workspace', 'live'],
+    minWidth: 280,
+    minHeight: 150,
+    icon: 'Bug',
   },
 };
 
@@ -1062,6 +1089,30 @@ function FleetPanelView(_props: IDockviewPanelProps) {
   );
 }
 
+function WorkspaceEditorPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="workspace-editor">
+      <WorkspaceEditorShell />
+    </PanelWrapper>
+  );
+}
+
+function BuildStatusPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="build-status">
+      <BuildStatusPanel />
+    </PanelWrapper>
+  );
+}
+
+function LogViewerPanelView(_props: IDockviewPanelProps) {
+  return (
+    <PanelWrapper panelId="log-viewer">
+      <LogViewerPanel />
+    </PanelWrapper>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel component registry
 // Maps panel IDs to their React components for DockviewReact `components` prop
@@ -1129,6 +1180,9 @@ export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   'panel-catalog': PanelCatalogPanelView,
   surgeons: SurgeonPanelView,
   fleet: FleetPanelView,
+  'workspace-editor': WorkspaceEditorPanelView,
+  'log-viewer': LogViewerPanelView,
+  'build-status': BuildStatusPanelView,
 };
 
 /**

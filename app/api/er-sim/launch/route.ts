@@ -17,6 +17,8 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { append as logAppend } from '@/lib/log/buffer';
+
 // Default location of the ER Simulator (er-sim-monitor) inside the superrepo.
 // Resolved relative to the IDE's package.json (admin.contextdna.io).
 const DEFAULT_ER_SIM_PATH = path.resolve(
@@ -79,6 +81,7 @@ export async function POST() {
       cwd: erSimPath,
     });
   } catch (e) {
+    try { logAppend({ ts: Date.now(), level: 'error', source: 'er-sim/launch', msg: `Failed to spawn ER Simulator: ${String(e)}`, detail: ((e as Error)?.stack || String(e)).slice(0, 500) }); } catch { /* noop */ }
     return NextResponse.json(
       {
         ok: false,

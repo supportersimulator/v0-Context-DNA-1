@@ -11,7 +11,13 @@ import { PageProvider } from "@/lib/contexts/page-context"
  * /workspace route — DockView IDE (Explorer, Editor, Terminal, Diff).
  *
  * PageProvider declares this as 'workspace' so IDE-specific panels
- * (terminal, git, docker, code editor) appear in the activity bar.
+ * (terminal, git, docker, code editor, workspace-editor) appear in the
+ * activity bar.
+ *
+ * Panels are registered via panel-factory.tsx — adding metadata and a
+ * component there makes them available without touching this page. The
+ * `workspace-editor` panel (file tree + Monaco wired to /api/fs/{read,write})
+ * is registered there alongside the existing IDE panels.
  */
 export default function WorkspacePage() {
   return (

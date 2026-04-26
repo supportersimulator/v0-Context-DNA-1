@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 
+import { append as logAppend } from '@/lib/log/buffer';
+
 export const dynamic = 'force-dynamic';
 
 function receiptsPath(projectDir: string): string {
@@ -57,6 +59,7 @@ export async function POST(req: NextRequest) {
   try {
     await fs.writeFile(file, '', 'utf-8');
   } catch (err) {
+    try { logAppend({ ts: Date.now(), level: 'error', source: 'receipts/purge', msg: `truncate failed: ${(err as Error).message}`, detail: ((err as Error).stack || '').slice(0, 500) }); } catch { /* noop */ }
     return NextResponse.json(
       { ok: false, error: `truncate failed: ${(err as Error).message}`, file },
       { status: 500 },

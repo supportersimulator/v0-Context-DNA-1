@@ -13,6 +13,8 @@ import { promises as fs, createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import path from 'path';
 
+import { append as logAppend } from '@/lib/log/buffer';
+
 export const dynamic = 'force-dynamic';
 
 const STREAM_THRESHOLD_BYTES = 1_000_000;
@@ -153,6 +155,7 @@ export async function GET(req: NextRequest) {
   try {
     all = stat.size > STREAM_THRESHOLD_BYTES ? await readStreaming(file) : await readBuffered(file);
   } catch (err) {
+    try { logAppend({ ts: Date.now(), level: 'error', source: 'receipts', msg: `read failed: ${(err as Error).message}`, detail: ((err as Error).stack || '').slice(0, 500) }); } catch { /* noop */ }
     return NextResponse.json(
       { ok: false, error: `read failed: ${(err as Error).message}`, file }, { status: 500 });
   }
