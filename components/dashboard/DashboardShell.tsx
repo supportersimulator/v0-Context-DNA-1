@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { Syringe, Brain, LayoutDashboard, Plus, X, Layers } from 'lucide-react';
 import { getWorkspaceManager, useWorkspaceSlot } from '@/lib/ide/workspace';
 import { getEventBus } from '@/lib/ide/event-bus';
+import { startEventBridge } from '@/lib/ide/event-bridge';
 import { getStoredUsername } from '@/lib/auth/session';
 import type { CustomPage, PanelWire } from '@/lib/custom-pages';
 import {
@@ -66,6 +67,18 @@ export default function DashboardShell() {
   useEffect(() => {
     setCustomPages(loadCustomPages());
     setPanelWires(loadPanelWires());
+  }, []);
+
+  // Wire the EventBridge: opens an EventSource on /api/fleet/events and
+  // dispatches Python EventBus envelopes into the typed IDE bus. Idempotent
+  // — safe across HMR and remount.
+  useEffect(() => {
+    const bridge = startEventBridge();
+    return () => {
+      // Keep the bridge alive across navigation; only stop on full teardown.
+      // (React StrictMode double-mounts in dev — the singleton handles it.)
+      void bridge;
+    };
   }, []);
 
   // Wire workspace auto-save to editor events

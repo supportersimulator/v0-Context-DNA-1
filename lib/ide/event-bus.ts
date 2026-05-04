@@ -118,6 +118,37 @@ export interface IDEEvents {
 
   // -- Settings -------------------------------------------------------------
   'settings:changed': { key: string; value: unknown; previous: unknown };
+
+  // -- Fleet (bridged from Python EventBus via /api/fleet/events SSE) -------
+  // These mirror ContextDNA Event v1 types from the multi-fleet daemon.
+  // Generic envelope so panels can do useIDEEventPrefix('fleet:*', …).
+  'fleet:event': {
+    /** Original Python event type, e.g. "fleet.peer.online" */
+    type: string;
+    payload: Record<string, unknown>;
+    source?: string;
+    timestamp?: string | number;
+    correlation_id?: string;
+    session_id?: string;
+  };
+  'fleet:peer-online': { node_id: string; ip?: string; [k: string]: unknown };
+  'fleet:peer-offline': { node_id: string; reason?: string; [k: string]: unknown };
+  'fleet:bridge-connected': { endpoint: string };
+  'fleet:bridge-disconnected': { endpoint: string; retryDelayMs: number };
+
+  // -- Surgeon / 3-surgeons (bridged) ---------------------------------------
+  'surgeon:event': {
+    type: string;
+    payload: Record<string, unknown>;
+    [k: string]: unknown;
+  };
+  'surgeon:dissent': { case_id?: string; surgeon?: string; [k: string]: unknown };
+
+  // -- Probe / Evidence / Quorum (bridged) ----------------------------------
+  'probe:event': { type: string; payload: Record<string, unknown> };
+  'evidence:event': { type: string; payload: Record<string, unknown> };
+  'quorum:event': { type: string; payload: Record<string, unknown> };
+  'gold:event': { type: string; payload: Record<string, unknown> };
 }
 
 // ---------------------------------------------------------------------------
