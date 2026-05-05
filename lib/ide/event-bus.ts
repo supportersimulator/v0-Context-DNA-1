@@ -143,6 +143,33 @@ export interface IDEEvents {
     [k: string]: unknown;
   };
   'surgeon:dissent': { case_id?: string; surgeon?: string; [k: string]: unknown };
+  // Phased timeline events emitted by 3-surgeon orchestration so the
+  // SurgeonTheater can render: probe → cardio → neuro → consensus → verdict.
+  'surgeon:phase': {
+    case_id?: string;
+    phase: 'probe' | 'cardio' | 'neuro' | 'consensus' | 'verdict';
+    status: 'idle' | 'active' | 'done' | 'error';
+    surgeon?: string;
+    model?: string;
+    latency_ms?: number;
+    preview?: string;
+    [k: string]: unknown;
+  };
+  'surgeon:verdict': {
+    case_id?: string;
+    surgeon: string;
+    verdict: string;
+    confidence?: number;
+    [k: string]: unknown;
+  };
+  'surgeon:disagreement': {
+    case_id?: string;
+    topic?: string;
+    cardio?: string;
+    neuro?: string;
+    severity?: 'low' | 'medium' | 'high';
+    [k: string]: unknown;
+  };
 
   // -- Probe / Evidence / Quorum (bridged) ----------------------------------
   'probe:event': { type: string; payload: Record<string, unknown> };

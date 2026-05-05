@@ -5,6 +5,7 @@ import type { TabId, Tab } from '@/lib/types';
 import { DEFAULT_TABS } from '@/lib/types';
 import { TabList } from './TabList';
 import { VitalSignsBar } from './VitalSignsBar';
+import { SurgeonTheater } from './SurgeonTheater';
 import { HomeView } from './views/home-view';
 import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
@@ -669,6 +670,14 @@ export default function DashboardShell() {
               ? "h-full"
               : "max-w-[1400px] mx-auto p-6"
           )}>
+            {/* Surgeon Theater — phased timeline (Round-5 E2). Hidden on
+                Synaptic/Injection where the dockview owns layout; shown on
+                Dashboard/Home and other standard views below VitalSignsBar. */}
+            {activeTab !== 'synaptic' && activeTab !== 'injection' && (
+              <div className="mb-4">
+                <SurgeonTheater />
+              </div>
+            )}
             {renderView()}
           </div>
         )}
