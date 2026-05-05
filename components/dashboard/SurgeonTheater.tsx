@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useIDEEvent } from '@/lib/ide/event-bus';
 import { cn } from '@/lib/utils';
+import { SurgeonPhaseDetail, type PhaseDetailData } from './SurgeonPhaseDetail';
 
 type PhaseId = 'probe' | 'cardio' | 'neuro' | 'consensus' | 'verdict';
 type PhaseStatus = 'idle' | 'active' | 'done' | 'error';
@@ -26,6 +27,13 @@ interface PhaseState {
   model?: string;
   latencyMs?: number;
   preview?: string;
+  systemPrompt?: string;
+  userPrompt?: string;
+  response?: string;
+  costUsd?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  timestamp?: string;
 }
 
 const PHASES: PhaseId[] = ['probe', 'cardio', 'neuro', 'consensus', 'verdict'];
@@ -43,14 +51,18 @@ const ACCENT: Record<PhaseId, string> = {
 const initial = (): Record<PhaseId, PhaseState> =>
   PHASES.reduce((a, id) => { a[id] = { id, status: 'idle' }; return a; }, {} as Record<PhaseId, PhaseState>);
 
-function PhasePill({ p, dim }: { p: PhaseState; dim: boolean }) {
+function PhasePill({ p, dim, onClick }: { p: PhaseState; dim: boolean; onClick: () => void }) {
   const Icon = ICON[p.id];
   const { status } = p;
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Open ${LABEL[p.id]} phase detail`}
       className={cn(
-        'flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 min-w-[124px]',
+        'flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 min-w-[124px] text-left',
         'transition-colors duration-300 font-mono',
+        'hover:ring-1 hover:ring-amber-400/60 hover:bg-amber-400/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/80 cursor-pointer',
         dim && 'opacity-50',
         status === 'error' ? 'border-rose-500/60 bg-rose-500/10'
           : status === 'done' ? 'border-emerald-500/40 bg-emerald-500/5'
@@ -74,7 +86,7 @@ function PhasePill({ p, dim }: { p: PhaseState; dim: boolean }) {
         {p.latencyMs != null && <span className="ml-1 tabular-nums">{p.latencyMs}ms</span>}
       </div>
       {p.preview && <div className="text-[10px] text-foreground/80 truncate">{p.preview}</div>}
-    </div>
+    </button>
   );
 }
 
@@ -83,13 +95,32 @@ export function SurgeonTheater({ className }: { className?: string }) {
   const [verdicts, setVerdicts] = useState<Record<string, string>>({});
   const [dis, setDis] = useState<{ topic?: string; cardio?: string; neuro?: string; severity?: string } | null>(null);
   const [count, setCount] = useState(0);
+  const [selected, setSelected] = useState<PhaseId | null>(null);
 
   useIDEEvent('surgeon:phase', (d) => {
     setCount((n) => n + 1);
     if (!d?.phase) return;
+    const extra = d as Record<string, unknown>;
+    const num = (k: string): number | undefined => (typeof extra[k] === 'number' ? (extra[k] as number) : undefined);
+    const str = (k: string): string | undefined => (typeof extra[k] === 'string' ? (extra[k] as string) : undefined);
     setPhases((prev) => ({
       ...prev,
-      [d.phase]: { id: d.phase, status: d.status ?? 'active', surgeon: d.surgeon, model: d.model, latencyMs: d.latency_ms, preview: d.preview },
+      [d.phase]: {
+        ...prev[d.phase],
+        id: d.phase,
+        status: d.status ?? 'active',
+        surgeon: d.surgeon ?? prev[d.phase]?.surgeon,
+        model: d.model ?? prev[d.phase]?.model,
+        latencyMs: d.latency_ms ?? prev[d.phase]?.latencyMs,
+        preview: d.preview ?? prev[d.phase]?.preview,
+        systemPrompt: str('system_prompt') ?? prev[d.phase]?.systemPrompt,
+        userPrompt: str('user_prompt') ?? prev[d.phase]?.userPrompt,
+        response: str('response') ?? prev[d.phase]?.response,
+        costUsd: num('cost_usd') ?? prev[d.phase]?.costUsd,
+        tokensIn: num('tokens_in') ?? prev[d.phase]?.tokensIn,
+        tokensOut: num('tokens_out') ?? prev[d.phase]?.tokensOut,
+        timestamp: str('timestamp') ?? prev[d.phase]?.timestamp ?? new Date().toISOString(),
+      },
     }));
   });
 
@@ -147,7 +178,7 @@ export function SurgeonTheater({ className }: { className?: string }) {
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         {PHASES.map((id, i) => (
           <div key={id} className="flex items-center gap-1.5 shrink-0">
-            <PhasePill p={phases[id]} dim={allIdle} />
+            <PhasePill p={phases[id]} dim={allIdle} onClick={() => setSelected(id)} />
             {i < PHASES.length - 1 && <span className="text-muted-foreground/60 text-xs">→</span>}
           </div>
         ))}
@@ -176,8 +207,37 @@ export function SurgeonTheater({ className }: { className?: string }) {
           Awaiting first cross-examination event.
         </div>
       )}
+
+      <SurgeonPhaseDetail
+        data={selected ? buildDetail(phases[selected], verdicts) : null}
+        onClose={() => setSelected(null)}
+      />
     </div>
   );
+}
+
+function buildDetail(p: PhaseState, verdicts: Record<string, string>): PhaseDetailData {
+  const cardio = verdicts.cardiologist ?? verdicts.cardio;
+  const neuro = verdicts.neurologist ?? verdicts.neuro;
+  const agreement = cardio && neuro ? (cardio === neuro ? 1 : 0) : undefined;
+  return {
+    phase: LABEL[p.id],
+    status: p.status,
+    surgeon: p.surgeon,
+    model: p.model,
+    latencyMs: p.latencyMs,
+    preview: p.preview,
+    systemPrompt: p.systemPrompt,
+    userPrompt: p.userPrompt,
+    response: p.response,
+    cardioVerdict: cardio,
+    neuroVerdict: neuro,
+    agreementScore: agreement,
+    costUsd: p.costUsd,
+    tokensIn: p.tokensIn,
+    tokensOut: p.tokensOut,
+    timestamp: p.timestamp,
+  };
 }
 
 export default SurgeonTheater;
