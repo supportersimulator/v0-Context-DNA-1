@@ -16,6 +16,7 @@ import {
 import { useIDEEvent } from '@/lib/ide/event-bus';
 import { cn } from '@/lib/utils';
 import { SurgeonPhaseDetail, type PhaseDetailData } from './SurgeonPhaseDetail';
+import { SurgeonMetricsRibbon } from './SurgeonMetricsRibbon';
 
 type PhaseId = 'probe' | 'cardio' | 'neuro' | 'consensus' | 'verdict';
 type PhaseStatus = 'idle' | 'active' | 'done' | 'error';
@@ -207,6 +208,8 @@ export function SurgeonTheater({ className }: { className?: string }) {
           Awaiting first cross-examination event.
         </div>
       )}
+
+      <SurgeonMetricsRibbon className="mt-2 -mx-3 -mb-3 rounded-b-lg" />
 
       <SurgeonPhaseDetail
         data={selected ? buildDetail(phases[selected], verdicts) : null}
