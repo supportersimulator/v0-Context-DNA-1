@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TabId, Tab } from '@/lib/types';
 import { DEFAULT_TABS } from '@/lib/types';
 import { TabList } from './TabList';
+import { VitalSignsBar } from './VitalSignsBar';
 import { HomeView } from './views/home-view';
 import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
@@ -621,7 +622,12 @@ export default function DashboardShell() {
           />
         </div>
 
-        {/* 4. Workspace Indicator (Far Right — title bar level) */}
+        {/* 4. VitalSignsBar — LIVE fleet vitals strip */}
+        <div className="flex items-center mr-2 flex-shrink-0">
+          <VitalSignsBar />
+        </div>
+
+        {/* 5. Workspace Indicator (Far Right — title bar level) */}
         <div className="flex items-center gap-1 ml-2 flex-shrink-0">
           {[1, 2, 3].map((slot) => (
             <button
