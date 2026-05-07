@@ -8,6 +8,8 @@ import { VitalSignsBar } from './VitalSignsBar';
 import { SurgeonTheater } from './SurgeonTheater';
 import { CampaignTheater } from './CampaignTheater';
 import { RaceTheater } from './RaceTheater';
+import { TruthLadder } from './TruthLadder';
+import { HumanArbiter } from './HumanArbiter';
 import { HomeView } from './views/home-view';
 import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
@@ -684,11 +686,26 @@ export default function DashboardShell() {
                 fleet data via the same EventBridge SSE consumer. The panels
                 still collapse to a single column below xl. */}
             {activeTab !== 'synaptic' && activeTab !== 'injection' && (
-              <div className="mb-4 grid grid-cols-1 xl:grid-cols-3 gap-3">
-                <SurgeonTheater />
-                <CampaignTheater />
-                <RaceTheater />
-              </div>
+              <>
+                <div className="mb-4 grid grid-cols-1 xl:grid-cols-3 gap-3">
+                  <SurgeonTheater />
+                  <CampaignTheater />
+                  <RaceTheater />
+                </div>
+                {/* AA3 (2026-05-07): Truth Ladder + Human Arbiter scaffold.
+                    Stacked as a NEW second row beneath the 3-panel theater
+                    grid so the existing xl:grid-cols-3 layout is untouched
+                    and the ladder/arbiter share the full 1440px+ width as
+                    a 2-column grid. Layout choice documented in the audit
+                    doc `.fleet/audits/2026-05-07-AA3-truth-ladder-human-
+                    arbiter-scaffold.md`. Both panels are SCAFFOLD only —
+                    write-side wiring (Truth Ladder data sourcing, Arbiter
+                    verdict → EvidenceLedger) lands next slot. */}
+                <div className="mb-4 grid grid-cols-1 xl:grid-cols-2 gap-3">
+                  <TruthLadder />
+                  <HumanArbiter />
+                </div>
+              </>
             )}
             {renderView()}
           </div>
