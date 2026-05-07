@@ -37,9 +37,28 @@ export type RaceParticipant = {
   preview?: string;
   /** ISO-8601 timestamp of the last status update from this racer. */
   updated_at?: string;
+  /**
+   * Logical role within the race protocol. Y2 frontend renders a fixed
+   * 3-card layout when participants carry roles {cardio, neuro, judge};
+   * legacy node-only races render in the previous wrap layout.
+   */
+  role?: RaceParticipantRole;
+  /**
+   * Full propose/rebut/converge text from the racer. Shown on hover via the
+   * tooltip; `preview` is the one-liner equivalent. Producer-supplied — the
+   * panel never invents this field.
+   */
+  last_proposal?: string;
   /** Open keys for forward-compat — Y-batch adds richer fields. */
   [k: string]: unknown;
 };
+
+/**
+ * Role within the 3-surgeon race protocol. `cardio` and `neuro` are the
+ * adversarial racers; `judge` synthesises and produces the verdict. Optional
+ * — backwards-compatible with X5 races that only set `node_id`.
+ */
+export type RaceParticipantRole = 'cardio' | 'neuro' | 'judge';
 
 /**
  * Per-racer phase. Mirrors the `propose → rebut → converge` protocol from
@@ -104,7 +123,29 @@ export type RaceEntry = {
    * the wording (e.g. "mac2 won — diff merged, evidence chain intact").
    */
   outcome_summary?: string;
+  /** Current rebuttal round (1-indexed). Producer-supplied. */
+  current_round?: number;
+  /** Maximum rebuttal rounds before the judge is forced to call it. */
+  max_rounds?: number;
+  /**
+   * Verdict from the judge once status === 'complete'. The five values mirror
+   * the protocol from `project_competitive_branch_racing.md`:
+   *   - PROCEED    : winning candidate accepted, merge greenlit
+   *   - SPLIT      : tie / both candidates have merit, judge defers split
+   *   - DEFER      : judge needs more rounds (race re-queued)
+   *   - DROP       : both candidates rejected, no merge
+   *   - UNRESOLVED : terminal failure, judge could not synthesise
+   */
+  verdict?: RaceVerdict;
 };
+
+/** Judge verdict — see `RaceEntry.verdict`. */
+export type RaceVerdict =
+  | 'PROCEED'
+  | 'SPLIT'
+  | 'DEFER'
+  | 'DROP'
+  | 'UNRESOLVED';
 
 /** Wire shape returned by `GET /api/race/status`. */
 export type RaceStatusResponse = {
@@ -194,3 +235,30 @@ export interface RaceEvent {
   'race:rebuttal': RaceRebuttalEvent;
   'race:winner': RaceWinnerEvent;
 }
+
+/**
+ * Generic envelope for any `race.*` event coming off the fleet bridge. Y2
+ * subscribes to this shape and dispatches by the inner `type` discriminator.
+ * Mirrors the `fleet:event` / `surgeon:event` pattern so the bridge needs no
+ * special-case for the new namespace.
+ */
+export type RaceGenericEvent = {
+  /** Original Python event type, e.g. "race.participant" / "race.snapshot". */
+  type: string;
+  payload: Record<string, unknown>;
+  source?: string;
+  timestamp?: string | number;
+  correlation_id?: string;
+  session_id?: string;
+};
+
+/**
+ * Snapshot payload — the fleet bridge MAY emit a `race.snapshot` envelope so
+ * late-joining IDE clients reconstruct full state without a separate fetch.
+ * The X5 status route + Y1 stream both use this shape.
+ */
+export type RaceSnapshotEvent = {
+  races: RaceEntry[];
+  active_count?: number;
+  timestamp?: string;
+};

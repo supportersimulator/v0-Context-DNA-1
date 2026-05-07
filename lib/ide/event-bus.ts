@@ -176,6 +176,21 @@ export interface IDEEvents {
   'evidence:event': { type: string; payload: Record<string, unknown> };
   'quorum:event': { type: string; payload: Record<string, unknown> };
   'gold:event': { type: string; payload: Record<string, unknown> };
+
+  // -- Race (Competitive Branch Racing — Y2 frontend, 2026-05-07) -----------
+  // Generic envelope: bridge emits this for every `race.*` Python event.
+  // RaceTheater consumes via useIDEEvent('race:event', …) and discriminates
+  // by the inner `type` (race.snapshot, race.participant, race.status, …).
+  // Disjoint from surgeon:* / evidence:* / fleet:* namespaces — see
+  // `lib/ide/race-types.ts` for the full payload contract.
+  'race:event': {
+    type: string;
+    payload: Record<string, unknown>;
+    source?: string;
+    timestamp?: string | number;
+    correlation_id?: string;
+    session_id?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------

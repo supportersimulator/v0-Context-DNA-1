@@ -69,6 +69,9 @@ const FLEET_NAMESPACES = [
   'sse',
   'injection',
   'health',
+  // Y2 (2026-05-07) — Competitive Branch Racing. Disjoint from surgeon:* /
+  // evidence:* / fleet:*; RaceTheater subscribes via `race:event`.
+  'race',
 ] as const;
 
 // High-frequency concrete event types we want to ensure are subscribed to
@@ -131,6 +134,10 @@ function namespaceToGeneric(eventType: string): keyof IDEEvents {
       return 'quorum:event';
     case 'gold':
       return 'gold:event';
+    case 'race':
+      // Y2 — RaceTheater consumer. Generic envelope only; the panel
+      // discriminates by inner `type` (race.snapshot / race.participant / …).
+      return 'race:event';
     default:
       return 'fleet:event';
   }
