@@ -66,13 +66,6 @@ import {
   type PermissionMap,
   type PermissionStatus,
 } from '@/lib/ide/permission-types';
-import {
-  EMPTY_TRIBUNAL_RESPONSE,
-  TRIBUNAL_VERDICT_COLOR,
-  type TribunalCasesResponse,
-  type TribunalEntry,
-  type TribunalVerdictKind,
-} from '@/lib/ide/tribunal-types';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
