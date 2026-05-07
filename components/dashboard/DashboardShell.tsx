@@ -10,6 +10,7 @@ import { CampaignTheater } from './CampaignTheater';
 import { RaceTheater } from './RaceTheater';
 import { TruthLadder } from './TruthLadder';
 import { HumanArbiter } from './HumanArbiter';
+import { StatusOverview } from './StatusOverview';
 import { HomeView } from './views/home-view';
 import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
@@ -687,6 +688,19 @@ export default function DashboardShell() {
                 still collapse to a single column below xl. */}
             {activeTab !== 'synaptic' && activeTab !== 'injection' && (
               <>
+                {/* CC4 (2026-05-07): Status Overview pill bar — six glanceable
+                    pills (phase / health / push-freeze / commits-ahead /
+                    invariants / panels-live) sitting at the TOP of the
+                    dashboard, above the existing 3-panel theater grid. Read-
+                    only consumer of /api/cluster/status (snapshot bridge to
+                    `dashboard_exports/cluster_status_snapshot.json` produced
+                    by `scripts/dump-cluster-status-snapshot.py`). Polls every
+                    30s. ZSF: bumps `_status_overview_fetch_errors` on every
+                    fetch failure. Reversibility: pure presentational, one
+                    `git revert` removes it cleanly. */}
+                <div className="mb-4 -mx-6 -mt-6">
+                  <StatusOverview />
+                </div>
                 <div className="mb-4 grid grid-cols-1 xl:grid-cols-3 gap-3">
                   <SurgeonTheater />
                   <CampaignTheater />
