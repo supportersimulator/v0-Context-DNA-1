@@ -6,6 +6,7 @@ import { DEFAULT_TABS } from '@/lib/types';
 import { TabList } from './TabList';
 import { VitalSignsBar } from './VitalSignsBar';
 import { SurgeonTheater } from './SurgeonTheater';
+import { CampaignTheater } from './CampaignTheater';
 import { HomeView } from './views/home-view';
 import { ActivityView } from './views/activity-view';
 import { ProfessorView } from './views/professor-view';
@@ -670,12 +671,17 @@ export default function DashboardShell() {
               ? "h-full"
               : "max-w-[1400px] mx-auto p-6"
           )}>
-            {/* Surgeon Theater — phased timeline (Round-5 E2). Hidden on
-                Synaptic/Injection where the dockview owns layout; shown on
-                Dashboard/Home and other standard views below VitalSignsBar. */}
+            {/* Surgeon Theater + Campaign Theater — phased timeline +
+                competition campaign panel. Hidden on Synaptic/Injection
+                where the dockview owns layout; shown on Dashboard/Home and
+                other standard views below VitalSignsBar.
+                CampaignTheater (Phase-1, S3) lives BESIDE SurgeonTheater
+                (amplification, not replacement) — both fed by the same
+                EventBridge SSE consumer. */}
             {activeTab !== 'synaptic' && activeTab !== 'injection' && (
-              <div className="mb-4">
+              <div className="mb-4 grid grid-cols-1 xl:grid-cols-2 gap-3">
                 <SurgeonTheater />
+                <CampaignTheater />
               </div>
             )}
             {renderView()}
