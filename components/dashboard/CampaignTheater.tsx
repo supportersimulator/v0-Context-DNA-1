@@ -62,7 +62,9 @@ import {
 } from '@/lib/ide/campaign-types';
 import {
   EMPTY_PERMISSION_MAP,
+  extractRecentPermissionDenials,
   topDeniedCapabilities,
+  type PermissionDenialEntry,
   type PermissionMap,
   type PermissionStatus,
 } from '@/lib/ide/permission-types';
@@ -93,6 +95,11 @@ const PERMISSION_ENDPOINT = '/api/permissions/current';
 const PERMISSION_REFRESH_MS = 15000; // permissions move slowly; polling fast wastes cycles
 const PERMISSION_INDICATOR_ERROR_COUNTER_KEY = '_permission_indicator_errors';
 const PERMISSION_INDICATOR_TOP_N = 3;
+// Z3 — render-error counter for the recent-denials tail. Failures here
+// MUST stay observable (ZSF) without breaking the rest of CampaignTheater.
+const PERMISSION_DENIAL_RENDER_ERROR_COUNTER_KEY =
+  '_permission_denial_render_errors';
+const PERMISSION_DENIAL_TAIL_LIMIT = 5;
 
 // W1.b — restricted vocabulary mirrors V1's `EVENT_TYPE_TO_KIND` map in
 // `scripts/append-evidence-ledger.py`. Expanding this list is a coordinated
@@ -200,6 +207,22 @@ function getPermissionIndicatorErrorCount(): number {
   if (typeof window === 'undefined') return 0;
   const w = window as unknown as Record<string, number>;
   return w[PERMISSION_INDICATOR_ERROR_COUNTER_KEY] ?? 0;
+}
+
+// Z3 — denial-tail render-error counter. Bumps when extracting recent
+// denials raises (e.g. malformed summary string). Failure is fail-soft:
+// the pill row keeps rendering the granted/degraded/denied indicators.
+function bumpPermissionDenialRenderError(): void {
+  if (typeof window === 'undefined') return;
+  const w = window as unknown as Record<string, number>;
+  w[PERMISSION_DENIAL_RENDER_ERROR_COUNTER_KEY] =
+    (w[PERMISSION_DENIAL_RENDER_ERROR_COUNTER_KEY] ?? 0) + 1;
+}
+
+function getPermissionDenialRenderErrorCount(): number {
+  if (typeof window === 'undefined') return 0;
+  const w = window as unknown as Record<string, number>;
+  return w[PERMISSION_DENIAL_RENDER_ERROR_COUNTER_KEY] ?? 0;
 }
 
 // Best-effort POST into the IDE log buffer. Server-side ring buffer lives
@@ -650,7 +673,23 @@ function permissionStatusClass(status: PermissionStatus): string {
   }
 }
 
-function PermissionsPillRow() {
+type PermissionsPillRowProps = {
+  /**
+   * Recent EvidenceLedger records — surfaced from the parent's
+   * `status.ledger_summary.records`. Z3 filters these for
+   * `event_type='permission_denial_recorded'` to render the recent denials
+   * tail. When omitted, only the granted/degraded/denied indicators render
+   * (Z2 behaviour).
+   */
+  ledgerRecords?: ReadonlyArray<{
+    record_id: string;
+    kind: string;
+    created_at: string;
+    summary?: string;
+  }>;
+};
+
+function PermissionsPillRow({ ledgerRecords }: PermissionsPillRowProps = {}) {
   const [pmap, setPmap] = useState<PermissionMap>(EMPTY_PERMISSION_MAP);
   const cancelledRef = useRef(false);
 
@@ -695,36 +734,93 @@ function PermissionsPillRow() {
     [pmap],
   );
 
-  if (top.length === 0) return null;
+  // Z3 — derive the recent-denials tail from the ledger records prop.
+  // Wrapped in a try/catch + ZSF counter so a malformed summary string
+  // can never crash the panel.
+  const denials = useMemo<PermissionDenialEntry[]>(() => {
+    if (!ledgerRecords || ledgerRecords.length === 0) return [];
+    try {
+      return extractRecentPermissionDenials(
+        ledgerRecords,
+        PERMISSION_DENIAL_TAIL_LIMIT,
+      );
+    } catch (err) {
+      bumpPermissionDenialRenderError();
+      console.warn(
+        '[CampaignTheater] permission denial extraction failed (errors=%d): %s',
+        getPermissionDenialRenderErrorCount(),
+        err instanceof Error ? err.message : String(err),
+      );
+      return [];
+    }
+  }, [ledgerRecords]);
+
+  // Render nothing only when both halves are empty — otherwise show whichever
+  // side has signal so operators can see denials even when no policy snapshot
+  // has been written yet.
+  if (top.length === 0 && denials.length === 0) return null;
 
   return (
     <div
       data-testid="permissions-pill-row"
-      className="flex items-center gap-1.5 mb-2 px-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+      className="flex flex-col gap-1 mb-2 px-1 text-[10px] uppercase tracking-wide text-muted-foreground"
     >
-      <span className="shrink-0 flex items-center gap-1">
-        <ShieldAlert className="w-3 h-3 text-fuchsia-400" />
-        Permissions
-      </span>
-      <div className="flex flex-wrap gap-1">
-        {top.map((row) => (
-          <span
-            key={`${row.capability}:${row.status}`}
-            title={
-              row.deny_count > 0
-                ? `${row.capability}: ${row.status} (${row.deny_count} deny)`
-                : `${row.capability}: ${row.status}`
-            }
-            className={cn(
-              'inline-flex items-center rounded px-1.5 py-0.5 border tabular-nums font-mono text-[10px]',
-              permissionStatusClass(row.status),
-            )}
-          >
-            <span className="truncate max-w-[140px]">{row.capability}</span>
-            <span className="opacity-60 ml-1">{row.status}</span>
+      {top.length > 0 && (
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0 flex items-center gap-1">
+            <ShieldAlert className="w-3 h-3 text-fuchsia-400" />
+            Permissions
           </span>
-        ))}
-      </div>
+          <div className="flex flex-wrap gap-1">
+            {top.map((row) => (
+              <span
+                key={`${row.capability}:${row.status}`}
+                title={
+                  row.deny_count > 0
+                    ? `${row.capability}: ${row.status} (${row.deny_count} deny)`
+                    : `${row.capability}: ${row.status}`
+                }
+                className={cn(
+                  'inline-flex items-center rounded px-1.5 py-0.5 border tabular-nums font-mono text-[10px]',
+                  permissionStatusClass(row.status),
+                )}
+              >
+                <span className="truncate max-w-[140px]">{row.capability}</span>
+                <span className="opacity-60 ml-1">{row.status}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {denials.length > 0 && (
+        <div
+          data-testid="permissions-denial-tail"
+          className="flex items-center gap-1.5"
+        >
+          <span className="shrink-0 flex items-center gap-1 text-rose-300">
+            <ShieldAlert className="w-3 h-3" />
+            Recent denials
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {denials.map((d) => (
+              <span
+                key={d.record_id}
+                title={
+                  d.summary ??
+                  `${d.actor}/${d.capability}` +
+                    (d.blocked_decision ? ` blocked=${d.blocked_decision}` : '')
+                }
+                className="inline-flex items-center rounded px-1.5 py-0.5 border tabular-nums font-mono text-[10px] text-rose-300 bg-rose-500/10 border-rose-500/30"
+              >
+                <span className="truncate max-w-[180px]">
+                  {d.actor}/{d.capability}
+                  {d.blocked_decision ? `:${d.blocked_decision}` : ''}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -965,8 +1061,10 @@ export function CampaignTheater({
         className,
       )}
     >
-      {/* Z2 — Permissions pill row (read-only indicator from PermissionGovernor) */}
-      <PermissionsPillRow />
+      {/* Z2 — Permissions pill row (read-only indicator from PermissionGovernor)
+          Z3 — also surfaces last 5 `permission_denial_recorded` events from
+          the EvidenceLedger via the existing T1 ledger summary bridge. */}
+      <PermissionsPillRow ledgerRecords={ledgerEntries} />
 
       {/* Header */}
       <div className="flex items-center justify-between mb-2 gap-2">

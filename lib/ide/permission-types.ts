@@ -153,8 +153,104 @@ export type PermissionGenericEvent = {
 };
 
 // ---------------------------------------------------------------------------
+// PermissionDenialEntry (Z3 — write-side gating)
+// ---------------------------------------------------------------------------
+//
+// One row in the "recent denials" tail surfaced by `PermissionsPillRow` when
+// the EvidenceLedger has at least one record whose content carries
+// `event_type: 'permission_denial_recorded'`. The shape mirrors the Python
+// content-dict written by `multifleet.chief_audit._record_permission_denial`.
+//
+// The IDE consumes this via the existing T1 ledger snapshot bridge
+// (`scripts/dump-evidence-ledger-summary.py` -> `LedgerSummary.records`),
+// filtering by `event_type` on the parsed `summary` field. Z4+ may add a
+// dedicated `event_type` column to `LedgerSummaryEntry` so the IDE doesn't
+// need to parse the summary string — kept minimal here for blast-radius.
+// ---------------------------------------------------------------------------
+
+export type PermissionDenialEntry = {
+  /** Content-addressed record_id of the denial entry in the EvidenceLedger. */
+  record_id: string;
+  /** ISO-8601 UTC timestamp the denial was recorded. */
+  created_at: string;
+  /** The capability that was denied (e.g. `auto_audit_chief_decision`). */
+  capability: string;
+  /** The actor whose emission was blocked (e.g. `cardio`). */
+  actor: string;
+  /** Cluster / subject id the denied packet was bound to. */
+  cluster_id?: string;
+  /** The decision label that would have been emitted if not denied. */
+  blocked_decision?: string;
+  /** Human-readable reason from `PermissionEntry.reason`. */
+  permission_reason?: string;
+  /** One-line summary suitable for narrow pill display. */
+  summary?: string;
+};
+
+// ---------------------------------------------------------------------------
 // Convenience helpers (pure — safe to import in tests + components)
 // ---------------------------------------------------------------------------
+
+/**
+ * Extract recent permission denials from a `LedgerSummary`-shaped record list.
+ *
+ * Filters records whose `summary` string starts with the
+ * `permission_denial_recorded:` discriminator (the Python writer in
+ * `multifleet.chief_audit._record_permission_denial` always writes a
+ * `summary` field with that prefix). Falls back gracefully when the
+ * ledger summary is missing — returns an empty list rather than throwing.
+ *
+ * @param records `LedgerSummary.records` — see `lib/ide/campaign-types.ts`.
+ * @param limit   Cap the returned tail (default 5 — matches the pill row UI).
+ *
+ * Implementation note: the summary string is the only stable signal in the
+ * existing T1 bridge. Z4+ adds a typed `event_type` field to
+ * `LedgerSummaryEntry`; this helper will be updated to prefer that field
+ * when present.
+ */
+export function extractRecentPermissionDenials(
+  records: ReadonlyArray<{
+    record_id: string;
+    kind: string;
+    created_at: string;
+    summary?: string;
+  }>,
+  limit: number = 5,
+): PermissionDenialEntry[] {
+  const out: PermissionDenialEntry[] = [];
+  if (!records || records.length === 0) return out;
+  const PREFIX = 'permission_denial_recorded';
+  for (const r of records) {
+    const sum = (r.summary ?? '').trim();
+    if (!sum.startsWith(PREFIX)) continue;
+    // Best-effort parse: "permission_denial_recorded: <actor>/<capability>
+    //                    blocked decision=<X> cluster=<Y>"
+    let actor = 'unknown';
+    let capability = 'unknown';
+    let blocked = '';
+    let cluster = '';
+    const m = sum.match(
+      /^permission_denial_recorded:\s+([^/]+)\/(\S+)(?:\s+blocked\s+decision=(\S+))?(?:\s+cluster=(\S+))?/,
+    );
+    if (m) {
+      actor = m[1] ?? actor;
+      capability = m[2] ?? capability;
+      blocked = m[3] ?? '';
+      cluster = m[4] ?? '';
+    }
+    out.push({
+      record_id: r.record_id,
+      created_at: r.created_at,
+      capability,
+      actor,
+      cluster_id: cluster || undefined,
+      blocked_decision: blocked || undefined,
+      summary: sum,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
 
 /** Sum entries by status. Useful for dashboards / counters. */
 export function statusCounts(
