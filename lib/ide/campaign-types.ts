@@ -74,6 +74,35 @@ export type ChiefDecision = {
 };
 
 // ---------------------------------------------------------------------------
+// LedgerSummary — projection of `memory/evidence_ledger.db` for the IDE.
+//
+// Produced by `scripts/dump-evidence-ledger-summary.py` and read by the
+// `/api/competition/status` route. Kept intentionally narrow — the full
+// EvidenceLedger record content can be heavy; the panel only needs a glance.
+// ---------------------------------------------------------------------------
+export type LedgerSummaryEntry = {
+  record_id: string;
+  kind: string;
+  created_at: string;
+  schema_version?: string;
+  git_rev?: string | null;
+  summary?: string;
+  parent_count?: number;
+};
+
+export type LedgerSummary = {
+  schema_version: string;
+  generated_at?: string;
+  db_path?: string;
+  ok: boolean;
+  reason?: string;
+  error?: string;
+  total_records: number;
+  by_kind: Record<string, number>;
+  records: LedgerSummaryEntry[];
+};
+
+// ---------------------------------------------------------------------------
 // CompetitionStatus — wire shape returned by GET /api/competition/status.
 //
 // Superset of `CompetitionDashboardState` so we can graceful-fallback when the
@@ -85,6 +114,7 @@ export type CompetitionStatus = CompetitionDashboardState & {
   source: 'dashboard-export' | 'audit-only' | 'empty' | 'error';
   error?: string;
   ledger_available?: boolean;
+  ledger_summary?: LedgerSummary | null;
 };
 
 export const EMPTY_STATUS: CompetitionStatus = {

@@ -37,6 +37,7 @@ import {
   Activity,
   AlertTriangle,
   Award,
+  BookOpen,
   Cpu,
   FileCheck,
   Flag,
@@ -50,6 +51,7 @@ import { useIDEEvent } from '@/lib/ide/event-bus';
 import {
   EMPTY_STATUS,
   type CompetitionStatus,
+  type LedgerSummaryEntry,
   type SubmissionCandidate,
 } from '@/lib/ide/campaign-types';
 import { cn } from '@/lib/utils';
@@ -264,6 +266,12 @@ export function CampaignTheater({
     () => status?.submission_candidates?.slice(0, 8) ?? [],
     [status],
   );
+  const ledgerSummary = status?.ledger_summary ?? null;
+  const ledgerEntries = useMemo<LedgerSummaryEntry[]>(
+    () => ledgerSummary?.records?.slice(0, 6) ?? [],
+    [ledgerSummary],
+  );
+  const ledgerAvailable = status?.ledger_available === true;
   const nextActions = status?.next_best_actions ?? [];
   const competitionName =
     (typeof status?.competition?.name === 'string'
@@ -515,6 +523,70 @@ export function CampaignTheater({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Evidence Ledger panel — additive amplification of S2's
+          memory/evidence_ledger.db. Only renders when the dump-helper has
+          produced a snapshot; otherwise the existing recent_evidence row
+          above is the source of truth. */}
+      {status && (
+        <div
+          data-testid="campaign-theater-ledger"
+          className="mt-2 rounded border border-border/60 bg-background/30 p-2"
+        >
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <BookOpen className="w-3 h-3 text-violet-400" />
+              <span>Evidence ledger</span>
+            </div>
+            <span
+              className={cn(
+                'inline-flex items-center rounded px-1.5 py-0.5 text-[9px] border uppercase tracking-wide font-mono tabular-nums',
+                ledgerAvailable
+                  ? 'text-violet-200 bg-violet-500/10 border-violet-500/30'
+                  : 'text-muted-foreground bg-background/40 border-border/60',
+              )}
+            >
+              {ledgerAvailable
+                ? `${ledgerSummary?.total_records ?? ledgerEntries.length} records`
+                : ledgerSummary?.reason ?? 'no snapshot'}
+            </span>
+          </div>
+          {ledgerAvailable ? (
+            ledgerEntries.length === 0 ? (
+              <div className="text-[11px] text-muted-foreground italic">
+                Ledger empty — no records yet.
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {ledgerEntries.map((entry) => (
+                  <li
+                    key={entry.record_id}
+                    className="flex items-baseline gap-2 text-[11px] leading-snug"
+                  >
+                    <span className="inline-flex shrink-0 rounded px-1 py-0.5 text-[9px] border border-violet-500/30 bg-violet-500/10 text-violet-200 uppercase tracking-wide">
+                      {entry.kind}
+                    </span>
+                    <span
+                      className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0"
+                      title={entry.record_id}
+                    >
+                      {entry.record_id.slice(0, 8)}
+                    </span>
+                    <span className="text-foreground/80 truncate" title={entry.summary}>
+                      {entry.summary || '—'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (
+            <div className="text-[11px] text-muted-foreground italic">
+              Ledger snapshot unavailable — falling back to audit pipeline.
+              Run <code className="font-mono">python3 scripts/dump-evidence-ledger-summary.py</code> to populate.
+            </div>
+          )}
         </div>
       )}
     </div>

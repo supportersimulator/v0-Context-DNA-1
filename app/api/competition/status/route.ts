@@ -32,6 +32,7 @@ import {
   EMPTY_STATUS,
   type ChiefDecision,
   type CompetitionStatus,
+  type LedgerSummary,
 } from '@/lib/ide/campaign-types';
 
 // ---------------------------------------------------------------------------
@@ -50,12 +51,33 @@ const DEFAULT_DASHBOARD_EXPORT = path.join(
 
 const FLEET_AUDITS_DIR = path.join(REPO_ROOT, '.fleet', 'audits');
 
+const DEFAULT_LEDGER_SUMMARY_JSON = path.join(
+  REPO_ROOT,
+  'dashboard_exports',
+  'evidence_ledger_summary.json',
+);
+
 function dashboardExportPath(): string {
   if (process.env.COMPETITION_STATUS_JSON) {
     return path.resolve(process.env.COMPETITION_STATUS_JSON);
   }
   return DEFAULT_DASHBOARD_EXPORT;
 }
+
+function ledgerSummaryPath(): string {
+  if (process.env.EVIDENCE_LEDGER_SUMMARY_JSON) {
+    return path.resolve(process.env.EVIDENCE_LEDGER_SUMMARY_JSON);
+  }
+  return DEFAULT_LEDGER_SUMMARY_JSON;
+}
+
+// ZSF: monotonic process-local counter so QA / cardio sentinels can see
+// "is the ledger snapshot quietly broken?" without diff-ing logs.
+const LEDGER_FETCH_COUNTERS: { ok: number; missing: number; error: number } = {
+  ok: 0,
+  missing: 0,
+  error: 0,
+};
 
 function todayDecisionsPath(): string {
   const d = new Date();
@@ -182,15 +204,108 @@ async function loadLatestChiefDecision(): Promise<ChiefDecision | null> {
 }
 
 // ---------------------------------------------------------------------------
-// (S2 hook) — Evidence ledger summary (forward-compat stub).
-// When S2's EvidenceLedger module lands at e.g. `lib/ledger/index.ts`, this
-// stub is replaced with a real call. Until then it returns null and the
-// panel renders the existing recent_evidence array.
+// (3) Evidence ledger summary — reads the JSON snapshot produced by
+// `scripts/dump-evidence-ledger-summary.py`. The snapshot is the bridge
+// between S2's Python EvidenceLedger (memory/evidence_ledger.db) and S3's
+// CampaignTheater IDE panel. We never reach into SQLite directly from the
+// Next.js process — keeps the route stdlib-only on both sides and avoids
+// pulling in `better-sqlite3` (no new pnpm deps; Phase-2 3s gate).
+//
+// Amplification, not replacement: the panel KEEPS its existing audit-only
+// path. Ledger data is folded in additively under `ledger_summary`. When
+// the snapshot is missing or stale, callers see `ledger_available: false`
+// and the existing UI keeps rendering as before.
+//
+// ZSF: every failure path bumps a counter AND logs to the IDE log buffer.
+// No bare `except: pass` equivalents.
 // ---------------------------------------------------------------------------
 
-async function loadLedgerSummary(): Promise<unknown[] | null> {
-  // Reserved for S2 wiring — return null today so we degrade gracefully.
-  return null;
+async function loadLedgerSummary(): Promise<LedgerSummary | null> {
+  const p = ledgerSummaryPath();
+  let raw: string;
+  try {
+    raw = await readFile(p, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') {
+      LEDGER_FETCH_COUNTERS.missing += 1;
+      return null;
+    }
+    LEDGER_FETCH_COUNTERS.error += 1;
+    try {
+      logAppend({
+        ts: Date.now(),
+        level: 'warn',
+        source: 'competition/status',
+        msg: 'evidence_ledger_summary read failed',
+        detail: `path=${p} code=${code ?? String(err)}`,
+      });
+    } catch {
+      /* logAppend itself failing must not crash the route */
+    }
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<LedgerSummary>;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof parsed.schema_version !== 'string'
+    ) {
+      LEDGER_FETCH_COUNTERS.error += 1;
+      try {
+        logAppend({
+          ts: Date.now(),
+          level: 'warn',
+          source: 'competition/status',
+          msg: 'evidence_ledger_summary malformed',
+          detail: `path=${p}`,
+        });
+      } catch {
+        /* logAppend itself failing must not crash the route */
+      }
+      return null;
+    }
+    LEDGER_FETCH_COUNTERS.ok += 1;
+    // Normalise so downstream code can treat the fields as required.
+    return {
+      schema_version: parsed.schema_version,
+      generated_at: parsed.generated_at,
+      db_path: parsed.db_path,
+      ok: parsed.ok === true,
+      reason: parsed.reason,
+      error: parsed.error,
+      total_records:
+        typeof parsed.total_records === 'number' ? parsed.total_records : 0,
+      by_kind:
+        parsed.by_kind && typeof parsed.by_kind === 'object'
+          ? (parsed.by_kind as Record<string, number>)
+          : {},
+      records: Array.isArray(parsed.records) ? parsed.records : [],
+    };
+  } catch (err) {
+    LEDGER_FETCH_COUNTERS.error += 1;
+    try {
+      logAppend({
+        ts: Date.now(),
+        level: 'warn',
+        source: 'competition/status',
+        msg: 'evidence_ledger_summary parse failed',
+        detail: ((err as Error)?.message ?? String(err)).slice(0, 200),
+      });
+    } catch {
+      /* logAppend itself failing must not crash the route */
+    }
+    return null;
+  }
+}
+
+/** Test-only accessor — exported so unit/integration tests can assert
+ * that the ZSF counters move on the missing/error paths without poking
+ * module internals. Not part of the public route contract. */
+export function __ledgerFetchCountersForTests(): typeof LEDGER_FETCH_COUNTERS {
+  return { ...LEDGER_FETCH_COUNTERS };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,13 +318,21 @@ export async function GET() {
     const chiefFromAudit = await loadLatestChiefDecision();
     const ledger = await loadLedgerSummary();
 
+    // Treat the snapshot as "available" only when it loaded AND its own
+    // ok flag is true. A `db_missing` / `sqlite_error` snapshot still
+    // parses, but we degrade to the audit-only UI.
+    const ledgerAvailable = ledger !== null && ledger.ok === true;
+
     if (exportResult.ok) {
       // Use v6 export verbatim; fold in audit-derived chief decision only if
-      // the export lacks one.
+      // the export lacks one. Ledger summary is ADDED (amplification, not
+      // replacement) — recent_evidence and the rest of the v6 export are
+      // untouched.
       const merged: CompetitionStatus = {
         ...exportResult.data,
         chief_decision: exportResult.data.chief_decision ?? chiefFromAudit ?? null,
-        ledger_available: ledger !== null,
+        ledger_available: ledgerAvailable,
+        ledger_summary: ledger,
       };
       return NextResponse.json(merged);
     }
@@ -217,10 +340,11 @@ export async function GET() {
     // No dashboard export — construct an audit-only or empty response.
     const fallback: CompetitionStatus = {
       ...EMPTY_STATUS,
-      ok: chiefFromAudit !== null,
+      ok: chiefFromAudit !== null || ledgerAvailable,
       source: chiefFromAudit ? 'audit-only' : 'empty',
       chief_decision: chiefFromAudit,
-      ledger_available: ledger !== null,
+      ledger_available: ledgerAvailable,
+      ledger_summary: ledger,
     };
     if (chiefFromAudit) {
       fallback.next_best_actions = [
