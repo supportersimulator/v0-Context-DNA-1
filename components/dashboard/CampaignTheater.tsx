@@ -66,6 +66,7 @@ import {
   type PermissionMap,
   type PermissionStatus,
 } from '@/lib/ide/permission-types';
+import { TribunalStrip } from '@/components/dashboard/TribunalStrip';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -1297,6 +1298,12 @@ export function CampaignTheater({
           )}
         </div>
       )}
+
+      {/* Z3 — Validation Tribunal strip (read-only, scaffold-only).
+          Placed BELOW the ledger summary, ABOVE the append form. Surfaces
+          tribunal cases for disputed Race/Evidence outcomes; the open-case
+          form lands in the next wave. */}
+      <TribunalStrip />
 
       {/* W1.b — Append-Evidence admin WRITE surface.
           Placed UNDER the read-only ledger summary; never replaces it.
