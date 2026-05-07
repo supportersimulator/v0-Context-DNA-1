@@ -177,6 +177,50 @@ export type AppendErrorBody = Extract<
   { ok: false }
 >;
 
+// ---------------------------------------------------------------------------
+// EvidenceLedger admin REDACT API (W1.b — post-hoc tombstone)
+//
+// POST /api/evidence-ledger/redact → spawns
+// `scripts/redact-evidence-ledger.py` and returns the tombstone's
+// content-addressed id.
+//
+// Contract is mirrored verbatim in
+//   `scripts/redact-evidence-ledger.py`
+// — change one, change both. Phase-5 W1.b.
+//
+// Reversibility (Constitutional Physics #5): the tombstone is permanent BUT
+// the target's record_id (= sha256 of original canonical payload) is never
+// mutated. If Aaron retains the original payload offline, the redact is
+// reversible by re-recording the original content (same record_id) and
+// clearing redacted_by_record_id / redacted_at on the target row.
+// ---------------------------------------------------------------------------
+export type EvidenceLedgerRedactRequest = {
+  record_id: string;
+  reason: string;
+  actor: string;
+  /** Override the default `[REDACTED]` marker. Optional. */
+  marker?: string;
+};
+
+export type EvidenceLedgerRedactErrorKind =
+  | 'validation_error'
+  | 'target_not_found'
+  | 'exec_error';
+
+export type EvidenceLedgerRedactResponse =
+  | {
+      ok: true;
+      tombstone_record_id: string;
+      redacted_target: string;
+      redacted_at: string;
+      already_redacted: boolean;
+    }
+  | {
+      ok: false;
+      error_kind: EvidenceLedgerRedactErrorKind;
+      message: string;
+    };
+
 export const EMPTY_STATUS: CompetitionStatus = {
   ok: false,
   source: 'empty',
