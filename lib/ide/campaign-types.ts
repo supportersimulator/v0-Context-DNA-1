@@ -117,6 +117,66 @@ export type CompetitionStatus = CompetitionDashboardState & {
   ledger_summary?: LedgerSummary | null;
 };
 
+// ---------------------------------------------------------------------------
+// EvidenceLedger admin WRITE API (W1.a)
+//
+// POST /api/evidence-ledger/append → spawns
+// `scripts/append-evidence-ledger.py` and returns the new record's
+// content-addressed id + redaction count.
+//
+// Contract is mirrored verbatim in
+//   `scripts/append-evidence-ledger.py`
+// — change one, change both. Phase-3 plan U4 / W1.
+// ---------------------------------------------------------------------------
+export type EvidenceLedgerEventType =
+  | 'experiment'
+  | 'competition'
+  | 'trial'
+  | 'decision'
+  | 'audit'
+  | 'outcome';
+
+export type EvidenceLedgerAppendRequest = {
+  event_type: EvidenceLedgerEventType | string;
+  subject: string;
+  actor: string;
+  payload?: Record<string, unknown>;
+  /** Optional sha256(s) of parent records. Each MUST already exist. */
+  parent_record_id?: string | string[];
+};
+
+export type EvidenceLedgerAppendErrorKind =
+  | 'validation_error'
+  | 'parent_not_found'
+  | 'exec_error';
+
+export type EvidenceLedgerAppendResponse =
+  | {
+      ok: true;
+      record_id: string;
+      sha256: string;
+      kind: string;
+      redacted_count: number;
+      parent_count: number;
+      audit_line: string;
+      created_at: string;
+    }
+  | {
+      ok: false;
+      error_kind: EvidenceLedgerAppendErrorKind;
+      message: string;
+    };
+
+// Backward-compat aliases for in-flight UI work (W1.b). The form was
+// authored against earlier shorthand names; we keep these as type
+// aliases so renaming the canonical types in one place doesn't ripple.
+export type AppendEventType = EvidenceLedgerEventType;
+export type AppendOk = Extract<EvidenceLedgerAppendResponse, { ok: true }>;
+export type AppendErrorBody = Extract<
+  EvidenceLedgerAppendResponse,
+  { ok: false }
+>;
+
 export const EMPTY_STATUS: CompetitionStatus = {
   ok: false,
   source: 'empty',
