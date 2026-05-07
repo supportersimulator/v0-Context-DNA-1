@@ -60,6 +60,19 @@ import {
   type LedgerSummaryEntry,
   type SubmissionCandidate,
 } from '@/lib/ide/campaign-types';
+import {
+  EMPTY_PERMISSION_MAP,
+  topDeniedCapabilities,
+  type PermissionMap,
+  type PermissionStatus,
+} from '@/lib/ide/permission-types';
+import {
+  EMPTY_TRIBUNAL_RESPONSE,
+  TRIBUNAL_VERDICT_COLOR,
+  type TribunalCasesResponse,
+  type TribunalEntry,
+  type TribunalVerdictKind,
+} from '@/lib/ide/tribunal-types';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -76,6 +89,16 @@ const APPEND_HISTORY_LIMIT = 5;
 // W1.b — post-hoc redact endpoint (Phase-5).
 const REDACT_ENDPOINT = '/api/evidence-ledger/redact';
 const REDACT_ERROR_COUNTER_KEY = '_evidence_redact_errors';
+
+// Z2 — permission map indicator (read-only pill row).
+// SCAFFOLD: shows the top 3 capabilities by deny-count from the latest
+// PermissionGovernor snapshot. Z3+ will add a write/grant UI; here we render
+// nothing more than a read-only signal so operators can see "is the governor
+// gating anything?" at a glance.
+const PERMISSION_ENDPOINT = '/api/permissions/current';
+const PERMISSION_REFRESH_MS = 15000; // permissions move slowly; polling fast wastes cycles
+const PERMISSION_INDICATOR_ERROR_COUNTER_KEY = '_permission_indicator_errors';
+const PERMISSION_INDICATOR_TOP_N = 3;
 
 // W1.b — restricted vocabulary mirrors V1's `EVENT_TYPE_TO_KIND` map in
 // `scripts/append-evidence-ledger.py`. Expanding this list is a coordinated
@@ -167,6 +190,22 @@ function getRedactErrorCounter(): number {
   if (typeof window === 'undefined') return 0;
   const w = window as unknown as Record<string, number>;
   return w[REDACT_ERROR_COUNTER_KEY] ?? 0;
+}
+
+// Z2 — ZSF: every permission fetch failure increments a window-scoped counter
+// so cardio sentinels can see "is the indicator quietly broken?" without
+// reading network logs.
+function bumpPermissionIndicatorError(): void {
+  if (typeof window === 'undefined') return;
+  const w = window as unknown as Record<string, number>;
+  w[PERMISSION_INDICATOR_ERROR_COUNTER_KEY] =
+    (w[PERMISSION_INDICATOR_ERROR_COUNTER_KEY] ?? 0) + 1;
+}
+
+function getPermissionIndicatorErrorCount(): number {
+  if (typeof window === 'undefined') return 0;
+  const w = window as unknown as Record<string, number>;
+  return w[PERMISSION_INDICATOR_ERROR_COUNTER_KEY] ?? 0;
 }
 
 // Best-effort POST into the IDE log buffer. Server-side ring buffer lives
@@ -597,6 +636,106 @@ function AppendEvidenceForm({ onAppended }: AppendEvidenceFormProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Z2 SCAFFOLD — Permissions pill row
+// ---------------------------------------------------------------------------
+//
+// Read-only indicator showing the top 3 capabilities by deny-count from the
+// latest PermissionGovernor snapshot. Renders nothing when there are no
+// capabilities to surface (no-snapshot, empty entries) — silent on idle so
+// it doesn't fight for header real estate. Fetches every PERMISSION_REFRESH_MS
+// independently of the campaign poll loop; ZSF counter on every failure path.
+
+function permissionStatusClass(status: PermissionStatus): string {
+  switch (status) {
+    case 'denied':
+      return 'text-rose-300 bg-rose-500/10 border-rose-500/30';
+    case 'degraded':
+      return 'text-amber-300 bg-amber-500/10 border-amber-500/30';
+    case 'granted':
+      return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30';
+  }
+}
+
+function PermissionsPillRow() {
+  const [pmap, setPmap] = useState<PermissionMap>(EMPTY_PERMISSION_MAP);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    cancelledRef.current = false;
+    let timer: number | null = null;
+
+    const load = async () => {
+      try {
+        const response = await fetch(PERMISSION_ENDPOINT, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const body = (await response.json()) as PermissionMap;
+        if (cancelledRef.current) return;
+        setPmap(body);
+      } catch (err) {
+        if (cancelledRef.current) return;
+        bumpPermissionIndicatorError();
+        // ZSF: surface in console for sentinels without re-reading server logs.
+        console.warn(
+          '[CampaignTheater] permission indicator fetch failed (errors=%d): %s',
+          getPermissionIndicatorErrorCount(),
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+
+    const initial = window.setTimeout(load, 0);
+    if (PERMISSION_REFRESH_MS > 0) {
+      timer = window.setInterval(load, PERMISSION_REFRESH_MS);
+    }
+    return () => {
+      cancelledRef.current = true;
+      window.clearTimeout(initial);
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, []);
+
+  const top = useMemo(
+    () => topDeniedCapabilities(pmap, PERMISSION_INDICATOR_TOP_N),
+    [pmap],
+  );
+
+  if (top.length === 0) return null;
+
+  return (
+    <div
+      data-testid="permissions-pill-row"
+      className="flex items-center gap-1.5 mb-2 px-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+    >
+      <span className="shrink-0 flex items-center gap-1">
+        <ShieldAlert className="w-3 h-3 text-fuchsia-400" />
+        Permissions
+      </span>
+      <div className="flex flex-wrap gap-1">
+        {top.map((row) => (
+          <span
+            key={`${row.capability}:${row.status}`}
+            title={
+              row.deny_count > 0
+                ? `${row.capability}: ${row.status} (${row.deny_count} deny)`
+                : `${row.capability}: ${row.status}`
+            }
+            className={cn(
+              'inline-flex items-center rounded px-1.5 py-0.5 border tabular-nums font-mono text-[10px]',
+              permissionStatusClass(row.status),
+            )}
+          >
+            <span className="truncate max-w-[140px]">{row.capability}</span>
+            <span className="opacity-60 ml-1">{row.status}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -832,6 +971,9 @@ export function CampaignTheater({
         className,
       )}
     >
+      {/* Z2 — Permissions pill row (read-only indicator from PermissionGovernor) */}
+      <PermissionsPillRow />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-2 gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -1228,5 +1370,6 @@ export function CampaignTheater({
     </div>
   );
 }
+
 
 export default CampaignTheater;
