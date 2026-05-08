@@ -29,17 +29,50 @@
 // beyond the window error counter; one `git revert` removes it cleanly.
 // =============================================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   EMPTY_HIRE_RESPONSE,
+  HIRE_CONTACT_LIMITS,
   HIRE_STATUS_COLOR,
   HIRE_STATUS_LABEL,
+  type HireContactResponse,
   type HireEngagementResponse,
   type HireStatus,
 } from '@/lib/ide/hire-panel-types';
 
 const POLL_INTERVAL_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// Monetization feature flag (KK3, 2026-05-08)
+//
+// `NEXT_PUBLIC_HIRE_MONETIZATION` is read at build time by Next.js and
+// inlined into the client bundle. When unset / '0' / 'false' the panel
+// renders byte-for-byte identical to the EE1 scaffold (no contact form,
+// no Stripe button, no extra DOM nodes).
+//
+// `NEXT_PUBLIC_STRIPE_HIRE_PAYMENT_LINK` is the Stripe Payment Link URL.
+// When absent the "Engage" button renders disabled with "Coming soon"
+// — never produces a broken redirect.
+// ---------------------------------------------------------------------------
+
+function isMonetizationEnabled(): boolean {
+  const raw = process.env.NEXT_PUBLIC_HIRE_MONETIZATION;
+  if (typeof raw !== 'string') return false;
+  const v = raw.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+function stripePaymentLink(): string | null {
+  const raw = process.env.NEXT_PUBLIC_STRIPE_HIRE_PAYMENT_LINK;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  // Accept only https links — refuse to render a button that points
+  // anywhere else, even if env-var was misconfigured.
+  if (!trimmed.startsWith('https://')) return null;
+  return trimmed;
+}
 
 declare global {
   interface Window {
@@ -84,6 +117,186 @@ function formatRelativeTime(iso: string | null | undefined): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+// ---------------------------------------------------------------------------
+// Contact form — feature-flag-gated. Renders nothing when the flag is off.
+//
+// On submit it POSTs to `/api/hire/contact`. Validation errors come back as
+// per-field strings; success replaces the form with a thank-you state.
+// ---------------------------------------------------------------------------
+
+type ContactFieldErrors = Partial<
+  Record<'name' | 'email' | 'scope_or_budget', string>
+>;
+
+type ContactFormProps = {
+  engagementId: string;
+};
+
+function HireContactForm({ engagementId }: ContactFormProps) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [scope, setScope] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [errors, setErrors] = useState<ContactFieldErrors>({});
+  const [globalError, setGlobalError] = useState<string | null>(null);
+
+  const onSubmit = useCallback(
+    async (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      if (submitting) return;
+      setSubmitting(true);
+      setErrors({});
+      setGlobalError(null);
+      try {
+        const res = await fetch('/api/hire/contact', {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            email,
+            scope_or_budget: scope,
+            engagement_id: engagementId,
+          }),
+        });
+        const json = (await res.json().catch(() => null)) as
+          | HireContactResponse
+          | null;
+        if (res.ok && json?.recorded) {
+          setSubmitted(true);
+          return;
+        }
+        if (json?.validation) setErrors(json.validation);
+        setGlobalError(json?.error ?? `request failed (${res.status})`);
+      } catch (err) {
+        setGlobalError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [name, email, scope, submitting, engagementId],
+  );
+
+  if (submitted) {
+    return (
+      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-emerald-200">
+        Thanks — your message is queued. Aaron will reply directly.
+      </div>
+    );
+  }
+
+  return (
+    <form className="space-y-3" onSubmit={onSubmit} noValidate>
+      <div>
+        <label
+          htmlFor="hire-contact-name"
+          className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400"
+        >
+          Name
+        </label>
+        <input
+          id="hire-contact-name"
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          maxLength={HIRE_CONTACT_LIMITS.NAME_MAX}
+          className="w-full rounded-md border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400/60"
+          autoComplete="name"
+        />
+        {errors.name ? (
+          <p className="mt-1 text-xs text-rose-300">{errors.name}</p>
+        ) : null}
+      </div>
+
+      <div>
+        <label
+          htmlFor="hire-contact-email"
+          className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400"
+        >
+          Email
+        </label>
+        <input
+          id="hire-contact-email"
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          maxLength={HIRE_CONTACT_LIMITS.EMAIL_MAX}
+          className="w-full rounded-md border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400/60"
+          autoComplete="email"
+        />
+        {errors.email ? (
+          <p className="mt-1 text-xs text-rose-300">{errors.email}</p>
+        ) : null}
+      </div>
+
+      <div>
+        <label
+          htmlFor="hire-contact-scope"
+          className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400"
+        >
+          Scope / budget
+        </label>
+        <textarea
+          id="hire-contact-scope"
+          value={scope}
+          onChange={e => setScope(e.target.value)}
+          maxLength={HIRE_CONTACT_LIMITS.SCOPE_OR_BUDGET_MAX}
+          rows={5}
+          className="w-full rounded-md border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400/60"
+          placeholder="What you'd like Atlas to build, and a rough budget."
+        />
+        {errors.scope_or_budget ? (
+          <p className="mt-1 text-xs text-rose-300">{errors.scope_or_budget}</p>
+        ) : null}
+      </div>
+
+      {globalError ? (
+        <p className="text-xs text-rose-300">{globalError}</p>
+      ) : null}
+
+      <button
+        type="submit"
+        disabled={submitting}
+        className="rounded-md bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-200 ring-1 ring-emerald-400/40 transition hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {submitting ? 'Sending…' : 'Send'}
+      </button>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stripe stub — disabled "Coming soon" when the env var is unset.
+// ---------------------------------------------------------------------------
+
+function HireStripeStub() {
+  const link = stripePaymentLink();
+  if (!link) {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        title="Payment link not yet configured"
+        className="inline-flex cursor-not-allowed items-center rounded-md bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-400 ring-1 ring-slate-600/40"
+      >
+        Engage — coming soon
+      </button>
+    );
+  }
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center rounded-md bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-200 ring-1 ring-emerald-400/40 transition hover:bg-emerald-500/30"
+    >
+      Engage via Stripe
+    </a>
+  );
+}
+
 type HirePanelProps = {
   engagementId: string;
 };
@@ -92,6 +305,8 @@ export function HirePanel({ engagementId }: HirePanelProps) {
   const [data, setData] = useState<HireEngagementResponse>(EMPTY_HIRE_RESPONSE);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+  // Memoised so the flag is read once per render, not per JSX branch.
+  const monetizationEnabled = useMemo(() => isMonetizationEnabled(), []);
 
   const load = useCallback(async () => {
     try {
@@ -224,6 +439,26 @@ export function HirePanel({ engagementId }: HirePanelProps) {
           </ul>
         )}
       </section>
+
+      {monetizationEnabled ? (
+        <section className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-6">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Engage Atlas
+          </h2>
+          <p className="mb-4 text-sm text-slate-300">
+            Need a similar engagement? Send a brief or grab time directly.
+          </p>
+          <div className="mb-4">
+            <HireStripeStub />
+          </div>
+          <div className="border-t border-slate-700/40 pt-4">
+            <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">
+              Or send a brief
+            </h3>
+            <HireContactForm engagementId={engagementId} />
+          </div>
+        </section>
+      ) : null}
 
       <footer className="text-xs text-slate-500">
         This is a read-only view. Internal tooling, model details, and

@@ -156,3 +156,59 @@ export interface HireEvent {
   'hire:milestone-recorded': HireMilestoneRecordedEvent;
   'hire:status-transitioned': HireStatusTransitionedEvent;
 }
+
+// ---------------------------------------------------------------------------
+// Monetization stub (KK3, 2026-05-08)
+//
+// Feature-flag-gated. The panel renders these surfaces ONLY when the env var
+// `NEXT_PUBLIC_HIRE_MONETIZATION` is truthy ('1' / 'true'). When the flag is
+// off the panel is byte-for-byte identical to the EE1 scaffold above.
+//
+// Two surfaces:
+//   1. Contact form  — name + email + scope/budget. POSTs to
+//      `/api/hire/contact`. The route validates the shape and appends a JSON
+//      line to `.fleet-hire-contacts.jsonl` at the admin app root (gitignored).
+//   2. Stripe stub   — "Engage" button that opens `STRIPE_HIRE_PAYMENT_LINK`.
+//      When the env var is absent the button is rendered in a disabled
+//      "Coming Soon" state — no broken redirect, no console error.
+//
+// Both surfaces are additive. They never mutate the existing engagement
+// projection and never call into the redactor / snapshot path.
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire shape for `POST /api/hire/contact`. All three string fields are
+ * required; `engagement_id` is optional context for the operator (so a
+ * client landing on `/hire/<id>` and submitting the form can be paired
+ * with the engagement they were viewing).
+ */
+export type HireContactRequest = {
+  name: string;
+  email: string;
+  scope_or_budget: string;
+  engagement_id?: string;
+};
+
+/**
+ * Wire shape returned by `POST /api/hire/contact`.
+ *
+ *   - `recorded` is `true` only when the JSONL append succeeded.
+ *   - `error` is human-readable; safe to display to the client.
+ *   - `validation` enumerates per-field issues for inline UX hints.
+ */
+export type HireContactResponse = {
+  recorded: boolean;
+  error?: string;
+  validation?: Partial<Record<'name' | 'email' | 'scope_or_budget', string>>;
+};
+
+/**
+ * Maximum sizes — enforced server-side (and mirrored client-side for UX).
+ * Generous enough that no real lead is rejected, tight enough that a
+ * hostile actor cannot fill the JSONL with megabytes of payload.
+ */
+export const HIRE_CONTACT_LIMITS = {
+  NAME_MAX: 200,
+  EMAIL_MAX: 320, // RFC 5321 maximum
+  SCOPE_OR_BUDGET_MAX: 4000,
+} as const;
