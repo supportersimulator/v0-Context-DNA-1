@@ -12,12 +12,27 @@
 // Vision: docs/vision-alignment-2026-04-26.md §I1 ("Single-shot consult
 // contradicts P1 + P4. The IDE doesn't render any of [the dissent]."). This
 // panel is the direct fix for the #1 inversion called out in the audit.
+//
+// DDD5 (2026-05-12): applies three Superset-inspired UX patterns as the
+// IDE reference panel (BBB5 audit move #2):
+//   1. Tab rail (Superset nav)  — Live | Decisions | Surgeons
+//   2. Metric chips (Superset slice-header chips) — consensus / dissent / cost
+//   3. Slice cards (Superset chart-card chrome) — DisagreementCard adopts the
+//      slice header / body / footer split.
+// Tokens live in `lib/ide/superset-tokens.ts`. Behavior unchanged.
 // =============================================================================
 
-import { useMemo } from 'react';
-import { Brain, Heart, Sparkles, AlertTriangle, Radio, RotateCw, Activity } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Brain, Heart, Sparkles, AlertTriangle, Radio, RotateCw, Activity, MessageSquare, Gavel } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import {
+  CHIP_BASE,
+  CHIP_INTENT,
+  RAIL,
+  SLICE,
+  type ChipIntent,
+} from '@/lib/ide/superset-tokens';
 import {
   useTheatricalData,
   type SurgeonDecisionPoint,
@@ -49,9 +64,46 @@ const SURGEON_BG = {
 type SurgeonName = keyof typeof SURGEON_ICON;
 const SURGEON_ORDER: SurgeonName[] = ['atlas', 'cardiologist', 'neurologist'];
 
+// ─── Superset-style tab rail ────────────────────────────────────────────────
+// Translates Superset's left-rail (Datasets/Charts/Dashboards) into the
+// SurgeonTheater context: Live (dissent feed) | Decisions | Surgeons.
+type TabKey = 'live' | 'decisions' | 'surgeons';
+const TABS: ReadonlyArray<{ key: TabKey; label: string; Icon: typeof Activity }> = [
+  { key: 'live', label: 'Live', Icon: Radio },
+  { key: 'decisions', label: 'Decisions', Icon: Gavel },
+  { key: 'surgeons', label: 'Surgeons', Icon: MessageSquare },
+];
+
 function isLive(status: string | undefined): boolean {
   if (!status) return false;
   return ['ok', 'online', 'active', 'configured'].includes(status);
+}
+
+// ─── Superset slice-style metric chip ───────────────────────────────────────
+function MetricChip({
+  intent,
+  value,
+  label,
+  pulse = false,
+  title,
+}: {
+  intent: ChipIntent;
+  value: number | string;
+  label: string;
+  pulse?: boolean;
+  title?: string;
+}) {
+  const palette = CHIP_INTENT[intent];
+  return (
+    <span
+      className={cn(CHIP_BASE, palette.wrap, pulse && 'animate-pulse')}
+      title={title}
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full', palette.dot)} />
+      <span className="font-semibold">{value}</span>
+      <span className="opacity-70 uppercase tracking-wider">{label}</span>
+    </span>
+  );
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
@@ -99,61 +151,60 @@ function formatRelativeTime(ts: number | undefined): string {
   return `${Math.floor(diffS / 86_400)}d ago`;
 }
 
-function resolutionPalette(resolution: string | undefined): string {
+function resolutionIntent(resolution: string | undefined): ChipIntent {
   switch (resolution) {
     case 'blocked':
-      return 'border-rose-500/60 bg-rose-500/10 text-rose-200';
+      return 'dissent';
     case 'changed':
     case 'altered':
-      return 'border-amber-500/60 bg-amber-500/10 text-amber-200';
+      return 'warn';
     case 'proceeded':
     case 'approved':
-      return 'border-emerald-500/60 bg-emerald-500/10 text-emerald-200';
+      return 'agree';
     default:
-      return 'border-zinc-500/40 bg-zinc-500/10 text-zinc-200';
+      return 'neutral';
   }
 }
 
+// ─── DisagreementCard — Superset slice-card chrome (header / body / footer) ─
 function DisagreementCard({ d }: { d: SurgeonDisagreement }) {
-  const palette = resolutionPalette(d.resolution);
+  const intent = resolutionIntent(d.resolution);
+  const palette = CHIP_INTENT[intent];
   return (
-    <div
-      className={cn(
-        'rounded border p-2 text-[11px] space-y-1.5',
-        'transition-colors duration-300',
-        palette,
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1 font-medium uppercase tracking-wide">
+    <div className={cn(SLICE.container, 'border-l-2', palette.wrap.split(' ').find((c) => c.startsWith('border-')))}>
+      <div className={SLICE.header}>
+        <span className={SLICE.title}>
           <AlertTriangle className="h-3 w-3" />
           {d.topic ?? 'untitled'}
         </span>
-        <span className="text-[10px] opacity-80">{formatRelativeTime(d.ts)}</span>
+        <MetricChip
+          intent={intent}
+          value={d.resolution ?? 'pending'}
+          label="state"
+          title={`Resolution: ${d.resolution ?? 'pending'}`}
+        />
       </div>
 
-      <div className="grid grid-cols-2 gap-1.5">
-        <div className="rounded bg-black/30 px-1.5 py-1 border border-white/5">
-          <div className="text-[9px] uppercase tracking-wider opacity-60 mb-0.5">A</div>
-          <div className="text-[11px] leading-snug font-mono break-words">
-            {d.surgeon_a_position ?? '—'}
+      <div className={SLICE.body}>
+        <div className="grid grid-cols-2 gap-1.5">
+          <div className="rounded bg-black/30 px-1.5 py-1 border border-white/5">
+            <div className="text-[9px] uppercase tracking-wider opacity-60 mb-0.5">A</div>
+            <div className="text-[11px] leading-snug font-mono break-words text-zinc-200">
+              {d.surgeon_a_position ?? '—'}
+            </div>
           </div>
-        </div>
-        <div className="rounded bg-black/30 px-1.5 py-1 border border-white/5">
-          <div className="text-[9px] uppercase tracking-wider opacity-60 mb-0.5">B</div>
-          <div className="text-[11px] leading-snug font-mono break-words">
-            {d.surgeon_b_position ?? '—'}
+          <div className="rounded bg-black/30 px-1.5 py-1 border border-white/5">
+            <div className="text-[9px] uppercase tracking-wider opacity-60 mb-0.5">B</div>
+            <div className="text-[11px] leading-snug font-mono break-words text-zinc-200">
+              {d.surgeon_b_position ?? '—'}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-[10px]">
-        <span className="opacity-70">
-          {d.id != null ? `#${d.id}` : '#—'}
-        </span>
-        <span className="font-semibold uppercase tracking-wide">
-          {d.resolution ?? 'pending'}
-        </span>
+      <div className={SLICE.footer}>
+        <span>{d.id != null ? `#${d.id}` : '#—'}</span>
+        <span>{formatRelativeTime(d.ts)}</span>
       </div>
     </div>
   );
@@ -191,6 +242,7 @@ function DecisionRow({ dp }: { dp: SurgeonDecisionPoint }) {
 
 export function SurgeonTheaterPanel() {
   const { data, transport, tick, ageMs, error, isLoading } = useTheatricalData();
+  const [activeTab, setActiveTab] = useState<TabKey>('live');
 
   const surgeonFeed: SurgeonFeedSnapshot | undefined = data?.components?.surgeon_feed;
   const surgeons = surgeonFeed?.surgeons;
@@ -206,6 +258,10 @@ export function SurgeonTheaterPanel() {
     () => disagreements.filter((d) => d.resolution === 'blocked').length,
     [disagreements],
   );
+  const agreeCount = useMemo(
+    () => disagreements.filter((d) => d.resolution === 'approved' || d.resolution === 'proceeded').length,
+    [disagreements],
+  );
 
   const headerPulse = tick > 0;
   const transportLabel =
@@ -213,8 +269,9 @@ export function SurgeonTheaterPanel() {
 
   return (
     <div className="h-full overflow-auto bg-zinc-950/40 text-zinc-100">
-      <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-2 space-y-2">
-        <div className="flex items-center justify-between gap-2">
+      {/* Header — title + transport + tick */}
+      <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center gap-2">
             <Radio
               className={cn(
@@ -241,32 +298,74 @@ export function SurgeonTheaterPanel() {
           </div>
         </div>
 
-        <StatusRow surgeons={surgeons} />
-
-        <div className="flex flex-wrap gap-2 text-[10px]">
-          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-            <Activity className="inline h-3 w-3 mr-1" />
-            {crossExamCount} cross-exams
-          </span>
-          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-            {rebuttalCount} rebuttals
-          </span>
-          <span
-            className={cn(
-              'px-1.5 py-0.5 rounded font-semibold transition-colors',
-              dissentCount > 0
-                ? 'bg-rose-500/20 text-rose-200 border border-rose-500/40 animate-pulse'
-                : 'bg-zinc-800 text-zinc-400',
-            )}
+        {/* Superset-style metric chip ribbon */}
+        <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+          <MetricChip
+            intent="neutral"
+            value={crossExamCount}
+            label="cross-exams"
+            title="Total cross-examinations this session"
+          />
+          <MetricChip
+            intent="neutral"
+            value={rebuttalCount}
+            label="rebuttals"
+            title="Total rebuttals exchanged"
+          />
+          <MetricChip
+            intent={dissentCount > 0 ? 'dissent' : 'neutral'}
+            value={dissentCount}
+            label={blockedCount > 0 ? `dissent · ${blockedCount} blk` : 'dissent'}
+            pulse={dissentCount > 0}
             title="Disagreements ARE the feature"
-          >
-            {dissentCount} dissent {blockedCount > 0 && `· ${blockedCount} blocked`}
-          </span>
+          />
+          {agreeCount > 0 && (
+            <MetricChip
+              intent="agree"
+              value={agreeCount}
+              label="approved"
+              title="Resolved by approval / proceed"
+            />
+          )}
+        </div>
+
+        {/* Superset-style tab rail */}
+        <div className={RAIL.bar}>
+          {TABS.map(({ key, label, Icon }) => {
+            const active = activeTab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={cn(RAIL.tabBase, active ? RAIL.tabActive : RAIL.tabIdle)}
+                aria-pressed={active}
+              >
+                <Icon className="h-3 w-3" />
+                <span>{label}</span>
+                {key === 'live' && dissentCount > 0 && (
+                  <span
+                    className={cn(
+                      'ml-1 px-1 rounded-sm text-[9px] tabular-nums',
+                      'bg-rose-500/20 text-rose-200 border border-rose-500/40',
+                    )}
+                  >
+                    {dissentCount}
+                  </span>
+                )}
+                {key === 'decisions' && decisionPoints.length > 0 && (
+                  <span className="ml-1 px-1 rounded-sm text-[9px] tabular-nums bg-zinc-700/60 text-zinc-200">
+                    {decisionPoints.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Body */}
-      <div className="p-3 space-y-4">
+      <div className="p-3 space-y-3">
         {error && (
           <div className="rounded border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200">
             Daemon: {error}
@@ -277,38 +376,55 @@ export function SurgeonTheaterPanel() {
           <div className="text-[11px] text-zinc-500">Awaiting first frame…</div>
         )}
 
-        <section>
-          <div className="text-[11px] uppercase tracking-wider text-zinc-400 mb-1.5">
-            Live Disagreements
-          </div>
-          {disagreements.length === 0 ? (
-            <div className="rounded border border-dashed border-zinc-800 px-3 py-4 text-center text-[11px] text-zinc-500">
-              No active dissent. (Disagreements ARE the feature — surfacing nothing
-              to disagree about means the system is genuinely aligned right now.)
+        {activeTab === 'live' && (
+          <section>
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400 mb-1.5">
+              Live Disagreements
             </div>
-          ) : (
-            <div className="space-y-1.5">
-              {disagreements.slice(0, 8).map((d, i) => (
-                <DisagreementCard key={d.id ?? `${d.ts}-${i}`} d={d} />
-              ))}
-            </div>
-          )}
-        </section>
+            {disagreements.length === 0 ? (
+              <div className="rounded border border-dashed border-zinc-800 px-3 py-4 text-center text-[11px] text-zinc-500">
+                No active dissent. (Disagreements ARE the feature — surfacing nothing
+                to disagree about means the system is genuinely aligned right now.)
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {disagreements.slice(0, 8).map((d, i) => (
+                  <DisagreementCard key={d.id ?? `${d.ts}-${i}`} d={d} />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
-        <section>
-          <div className="text-[11px] uppercase tracking-wider text-zinc-400 mb-1.5">
-            Recent Decision Points
-          </div>
-          {decisionPoints.length === 0 ? (
-            <div className="text-[11px] text-zinc-500">No decisions yet this session.</div>
-          ) : (
-            <div className="space-y-1">
-              {decisionPoints.slice(0, 12).map((dp, i) => (
-                <DecisionRow key={`${dp.ts}-${i}`} dp={dp} />
-              ))}
+        {activeTab === 'decisions' && (
+          <section>
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400 mb-1.5">
+              Recent Decision Points
             </div>
-          )}
-        </section>
+            {decisionPoints.length === 0 ? (
+              <div className="text-[11px] text-zinc-500">No decisions yet this session.</div>
+            ) : (
+              <div className="space-y-1">
+                {decisionPoints.slice(0, 12).map((dp, i) => (
+                  <DecisionRow key={`${dp.ts}-${i}`} dp={dp} />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === 'surgeons' && (
+          <section>
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400 mb-1.5">
+              Surgeon Status
+            </div>
+            <StatusRow surgeons={surgeons} />
+            <div className="mt-2 flex items-center gap-1.5 text-[10px] text-zinc-500">
+              <Activity className="h-3 w-3" />
+              Live indicator: ok / online / active / configured
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
